@@ -6,7 +6,7 @@ import threading
 import time
 
 
-def exchange():
+def exchange(abrupt=False):
     events = queue.Queue()
     processes = {}
 
@@ -34,17 +34,28 @@ def exchange():
             processes[user] = process
             threading.Thread(target=collect, args=(user, process.stdout), daemon=True).start()
             wait_for(user, '[engineering]')
-        processes['alice'].stdin.write('EPOCHGRID_CLI_SECRET_91F3\n')
+        marker = f'EPOCHGRID_CLI_SECRET_91F3_{time.monotonic_ns()}'
+        processes['alice'].stdin.write(marker + '\n')
         processes['alice'].stdin.flush()
-        wait_for('bob', 'alice/laptop> EPOCHGRID_CLI_SECRET_91F3')
+        wait_for('bob', 'alice/laptop> ' + marker)
         processes['bob'].stdin.write('confirmed by Bob\n')
         processes['bob'].stdin.flush()
         wait_for('alice', 'bob/laptop> confirmed by Bob')
+        for user in processes:
+            locked = subprocess.run(
+                ['./target/debug/epochgrid', '--home', f'.dev/{user}', 'channel', 'list'],
+                capture_output=True, text=True, timeout=5,
+            )
+            assert locked.returncode != 0 and 'already in use' in locked.stderr
         for process in processes.values():
-            process.stdin.write('/quit\n')
-            process.stdin.flush()
+            if abrupt:
+                process.kill()  # SIGKILL on Unix: no graceful shutdown or destructors.
+            else:
+                process.stdin.write('/quit\n')
+                process.stdin.flush()
         for process in processes.values():
-            assert process.wait(timeout=5) == 0
+            result = process.wait(timeout=5)
+            assert (result != 0) if abrupt else (result == 0)
     finally:
         for process in processes.values():
             if process.poll() is None:
@@ -52,9 +63,9 @@ def exchange():
             process.wait()
 
 
-exchange()
+exchange(abrupt=True)
 exchange()  # New CLI processes load the existing group and advanced ratchets.
-print('EpochGrid two-client interactive chat and restart passed')
+print('EpochGrid two-client interactive chat, forced termination, lock release and restart passed')
 
 
 def cli(user, *args, data=None, check=True):

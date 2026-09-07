@@ -66,7 +66,7 @@ enum Channel {
         name: String,
     },
     List,
-    /// Fetch and decrypt the current durable backlog.
+    /// Retry queued ciphertext, then fetch and decrypt the current durable backlog.
     Sync {
         name: String,
     },
@@ -174,7 +174,7 @@ async fn main() -> Result<()> {
                 }
                 Channel::Sync { name } => {
                     let client = transport::connect(&args.server, &store).await?;
-                    let report = epochgrid_core::history::catch_up(&store, &client, &name).await?;
+                    let report = epochgrid_core::history::resume(&store, &client, &name).await?;
                     println!(
                         "EpochGrid caught up: {} decrypted, {} rejected, {} unavailable",
                         report.decrypted, report.rejected, report.unavailable

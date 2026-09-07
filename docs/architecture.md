@@ -1,4 +1,4 @@
-# EpochGrid architecture — through Milestone 8
+# EpochGrid architecture — through Milestone 9
 
 EpochGrid (https://epochgrid.org; secondary https://epochgrid.net) uses NATS for
 transport, authentication, authorization, request/reply and persistence. OpenMLS
@@ -112,3 +112,17 @@ messages displayed; receive/chat do so after printing. There is no transaction
 with a terminal: a crash can repeat output, while the transcript remains readable.
 Old Milestone 7 plaintext was not retained and is represented by unavailable rows.
 No new wire format, HTTP endpoint or cryptographic primitive was introduced.
+
+## Restart and resume
+
+Milestone 9 makes online sync/history share chat's startup recovery: flush the
+device outbox in order, then fetch and process the current backlog. No keys, group
+IDs or epochs are regenerated on reopening. A retry after the JetStream dedup
+window may store the same ciphertext again; local transcript deduplication keeps
+one entry at the earliest observed stream sequence. Welcome acknowledgments now
+wait for server confirmation after the local join transaction commits.
+
+Process tests force termination while stores remain open, including inside an
+uncommitted receive transaction. Live NATS tests cover ambiguous publishes and
+Welcome acknowledgment loss. See [recovery boundaries](recovery.md). This validates
+process-crash recovery on the tested filesystem, not hardware power-loss tolerance.

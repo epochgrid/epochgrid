@@ -72,7 +72,7 @@ versioned and typed by MLS, without a redundant EpochGrid wrapper.
 Each enrolled device has a service-provisioned durable pull consumer on MAILBOX,
 `device_<NKey>`, filtered to exactly its inbox. Devices may inspect/pull/ack only
 their own consumer; they cannot create arbitrary consumers. Welcome acknowledgments
-follow the atomic SQLite join and duplicate marker. Failed validation rolls back
+follow the atomic SQLite join and duplicate marker, and wait for server confirmation. Failed validation rolls back
 OpenMLS changes and does not acknowledge the mailbox message. A bad or unexpected
 invitation can block the mailbox; administrative cleanup is currently required.
 
@@ -103,7 +103,7 @@ Each delivery is staged in SQLite with its CHAT stream sequence before a confirm
 ACK. Same-sequence/same-bytes redelivery is idempotent; conflicting sequence reuse
 fails. Per-group processing validates the subject's group against authenticated
 MLS framing and advances ratchets in stream order. Exact ciphertext copies at
-new stream sequences keep one transcript entry at its original sequence. Invalid
+new stream sequences keep one transcript entry at the earliest observed sequence. Invalid
 or undecryptable messages are quarantined without advancing the ratchet; storage
 errors leave work pending. Unknown/other group ciphertext stays staged.
 
@@ -114,3 +114,10 @@ after confirmed messages. Plaintext processed before Milestone 8 is unavailable;
 no cryptographic recovery is attempted. Acknowledgment means durable local staging,
 not user display. Group handshakes after initial two-member creation remain outside
 this milestone.
+
+Milestone 9 changes no wire discriminants. Resuming online sync/history flushes the
+persisted outbox before catch-up. Publish retries keep their original bytes and
+Nats-Msg-Id even after a process exit. JetStream deduplication is time-bounded;
+an overdue retry can produce a second stored copy. Local ciphertext deduplication
+still prevents a second decryption/transcript entry. The transcript keeps the
+minimum observed sequence, including when an ambiguous outgoing publish is retried.

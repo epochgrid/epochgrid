@@ -61,7 +61,7 @@ pub async fn history(
         report(&store.process_history(name)?);
     } else {
         let client = transport::connect(server, &store).await?;
-        report(&history::catch_up(&store, &client, name).await?);
+        report(&history::resume(&store, &client, name).await?);
     }
     for entry in store.history(name, limit, before)? {
         display(&entry, true);
@@ -85,6 +85,7 @@ pub async fn receive(home: &Path, server: &str, name: &str, timeout: u64) -> Res
         return Ok(());
     }
     let client = transport::connect(server, &store).await?;
+    epochgrid_core::delivery::flush_outbox(&store, &client).await?;
     eprintln!("EpochGrid listening: {name}");
     tokio::time::timeout(Duration::from_secs(timeout), async {
         loop {
@@ -103,8 +104,7 @@ pub async fn receive(home: &Path, server: &str, name: &str, timeout: u64) -> Res
 pub async fn interactive(home: &Path, server: &str, name: &str) -> Result<()> {
     let store = IdentityStore::open(home)?;
     let client = transport::connect(server, &store).await?;
-    epochgrid_core::delivery::flush_outbox(&store, &client).await?;
-    report(&history::catch_up(&store, &client, name).await?);
+    report(&history::resume(&store, &client, name).await?);
     // Drain every undisplayed incoming message; history pagination is independent.
     while let Some(message) = store.unread(name)? {
         display(&message, false);

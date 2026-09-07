@@ -5,3 +5,6 @@ pub mod identity;
 pub mod messaging;
 pub mod transport;
 pub mod wire;
+
+#[cfg(test)]
+mod recovery_tests;

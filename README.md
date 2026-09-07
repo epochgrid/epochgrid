@@ -4,9 +4,10 @@ EpochGrid combines NATS infrastructure with MLS end-to-end group encryption.
 Project: https://epochgrid.org (secondary https://epochgrid.net).
 Organization: https://github.com/epochgrid.
 
-**Milestones 0–8 work:** independent NATS/MLS device identities, verified discovery,
+**Milestones 0–9 work:** independent NATS/MLS device identities, verified discovery,
 persistent groups, durable invitations, authenticated Welcome joining and live
-encrypted Alice/Bob chat with durable history and offline catch-up. JetStream
+encrypted Alice/Bob chat with durable history, offline catch-up and tested
+process-crash recovery. JetStream
 stores MLS protocol bytes; readable transcripts stay on each device. This is an unaudited development prototype.
 
 NATS supplies transport, authentication, authorization and persistence. OpenMLS
@@ -125,15 +126,17 @@ Stop infrastructure with `docker compose down`; local keys and server data remai
 
 ## History and offline catch-up
 
-Fetch the current backlog and persist its authenticated plaintext locally:
+Retry queued ciphertext, fetch the current backlog and persist its authenticated
+plaintext locally:
 
 ```bash
 ./target/debug/epochgrid --home .dev/bob channel sync engineering
 ./target/debug/epochgrid --home .dev/bob message history engineering --limit 50
 ```
 
-`chat` catches up automatically on startup and polls the same durable path for
-new messages. `message receive` returns one undisplayed incoming message per call;
+`chat`, `channel sync`, and online `message history` flush the device-wide outbox
+before catching up. This retries pending invitations and sends using their original
+ciphertext. `chat` then polls the same durable path for new messages. `message receive` returns one undisplayed incoming message per call;
 remaining messages stay queued locally. Browsing history does not consume that
 queue. A network error can exit the client; reopen it to resume.
 
@@ -160,6 +163,27 @@ state. Retaining plaintext means endpoint compromise can expose historical conte
 even after MLS ratchet keys have been erased. NATS still receives no application
 plaintext. Deleting server or local data independently is not a recovery method.
 
+## Resume after an exit or failure
+
+Keep the same device directory and NATS data volume. Start infrastructure/service
+as above if they are stopped, then reopen `chat engineering` for either device.
+Do not reinitialize identities, create another group or reinvite an existing member.
+For a noninteractive recovery pass:
+
+```bash
+./target/debug/epochgrid --home .dev/alice channel sync engineering
+./target/debug/epochgrid --home .dev/bob channel sync engineering
+```
+
+Use `channel flush` to retry only the outbox. A send failure can occur after NATS
+has stored the message: retry the outbox before submitting that text again.
+If joining was interrupted, repeat `channel join --from alice` to acknowledge a
+redelivered Welcome; `channel list` shows whether the local join already committed.
+If no invitation is available and the group exists, continue with sync/chat.
+`message history --offline` never connects or publishes pending messages.
+
+See [restart and recovery](docs/recovery.md) for tested failure boundaries and limits.
+
 ## Verify
 
 ```bash
@@ -177,8 +201,11 @@ acknowledgment recovery and NATS/client state reload. It checks that
 `EPOCHGRID_TEST_SECRET_91F3` never appears in stored CHAT payloads. Unit tests cover
 wrong inviters, tampering, wrong groups, replay and persistence. The Compose smoke
 test launches two independent interactive clients, exchanges messages both ways,
-then repeats after restarting both processes. It also verifies offline history,
-pagination, repeated receives and automatic catch-up. CI runs all of these.
+kills both clients without graceful shutdown, then repeats with fresh processes.
+It also verifies device locking, offline history,
+pagination, repeated receives and automatic catch-up. Process tests also kill
+workers with uncommitted SQLite writes; NATS tests cover a lost Welcome ACK and
+a publish retry beyond the server deduplication window. CI runs all of these.
 
 The smoke test uses the development identities and stops the Compose stack it
 starts; run it while your interactive clients/service are stopped.
@@ -190,7 +217,8 @@ starts; run it while your interactive clients/service are stopped.
   currently also limits signing-key lookup; long-lived identity lifecycle is pending.
 - History currently covers application messages in the existing two-device epoch.
   Later membership changes and multi-epoch handshake catch-up are not implemented.
-  Retention quotas/cleanup and complete crash/power-loss testing remain pending.
+  Retention quotas/cleanup and hardware power-loss testing remain pending.
+  Process termination and interrupted SQLite transaction recovery are tested.
   A crash around terminal output can repeat display; history remains available.
 - Static development group permissions span the Alice/Bob lab namespace. Exact
   per-group NATS authorization is pending; inbox reads remain device-specific.

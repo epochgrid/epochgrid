@@ -54,7 +54,7 @@ impl IdentityStore {
                 let decrypted = self.decrypt_inner(name, &payload)?.is_some();
                 // Older clients erased plaintext after processing. Keep an explicit gap.
                 let inserted = self.connection.execute("INSERT OR IGNORE INTO transcript(gid,payload,outgoing) VALUES(?1,?2,EXISTS(SELECT 1 FROM outbox WHERE payload=?2))", params![group.gid, payload])?;
-                self.connection.execute("UPDATE transcript SET stream_sequence=COALESCE(stream_sequence,?1) WHERE gid=?2 AND payload=?3", params![sequence, group.gid, payload])?;
+                self.connection.execute("UPDATE transcript SET stream_sequence=CASE WHEN stream_sequence IS NULL OR stream_sequence>?1 THEN ?1 ELSE stream_sequence END WHERE gid=?2 AND payload=?3", params![sequence, group.gid, payload])?;
                 self.connection.execute("UPDATE chat_deliveries SET state='processed' WHERE sequence=?1", [sequence])?;
                 Ok((decrypted, inserted > 0))
             });
@@ -178,6 +178,18 @@ pub async fn catch_up(
     let mut report = store.process_history(name)?;
     report.staged = count;
     Ok(report)
+}
+
+/// Resume committed outgoing work before fetching incoming history. Retrying uses
+/// the original ciphertext, never advances a sending ratchet a second time.
+pub async fn resume(
+    store: &IdentityStore,
+    client: &async_nats::Client,
+    name: &str,
+) -> Result<SyncReport> {
+    store.group(name)?;
+    crate::delivery::flush_outbox(store, client).await?;
+    catch_up(store, client, name).await
 }
 
 #[cfg(test)]

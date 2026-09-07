@@ -9,6 +9,7 @@ use futures_util::StreamExt;
 use openmls::prelude::tls_codec::Deserialize as _;
 use openmls::prelude::*;
 use openmls_traits::OpenMlsProvider;
+use rusqlite::OptionalExtension;
 
 impl IdentityStore {
     pub(crate) fn queue(&self, subject: &str, payload: &[u8]) -> Result<()> {
@@ -69,12 +70,15 @@ impl IdentityStore {
             .map_err(|e| anyhow!("invalid inviter: {e:?}"))?;
         self.transaction(|| {
             // Byte-identical redelivery must not consume the private KeyPackage twice.
-            let previous = self.connection.query_row(
-                "SELECT name FROM welcomes WHERE payload=?1",
-                [bytes],
-                |row| row.get::<_, String>(0),
-            );
-            if let Ok(name) = previous {
+            let previous = self
+                .connection
+                .query_row(
+                    "SELECT name FROM welcomes WHERE payload=?1",
+                    [bytes],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            if let Some(name) = previous {
                 return self.group(&name);
             }
             let MlsMessageBodyIn::Welcome(welcome) =
@@ -144,7 +148,7 @@ pub async fn flush_outbox(store: &IdentityStore, client: &async_nats::Client) ->
         store.transaction(|| {
             store.connection.execute("UPDATE outbox SET sent=1 WHERE id=?1", [id])?;
             if ack.stream == "CHAT" {
-                store.connection.execute("UPDATE transcript SET stream_sequence=COALESCE(stream_sequence,?1) WHERE payload=?2", rusqlite::params![ack.sequence, payload])?;
+                store.connection.execute("UPDATE transcript SET stream_sequence=CASE WHEN stream_sequence IS NULL OR stream_sequence>?1 THEN ?1 ELSE stream_sequence END WHERE payload=?2", rusqlite::params![ack.sequence, payload])?;
             }
             Ok(())
         })?;
@@ -197,10 +201,9 @@ pub async fn join_next(
         .map_err(|e| anyhow!("mailbox delivery: {e}"))?;
     let descriptor = store.accept_welcome(&message.payload, &inviter)?;
     message
-        .ack()
+        .double_ack()
         .await
         .map_err(|e| anyhow!("acknowledge Welcome: {e}"))?;
-    client.flush().await?;
     Ok(descriptor)
 }
 

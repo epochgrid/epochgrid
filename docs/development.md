@@ -64,6 +64,16 @@ restore deleted server messages, reset devices or discarded MLS state. Keep serv
 and device state together. Plaintext already displayed by old Milestone 7 clients
 cannot be reconstructed. Do not delete deduplication records to force decryption.
 
-Next is Milestone 9: broader client restart/resume and failure-recovery validation,
-followed by the final MVP integration/security assertions in Milestone 10. The
-Milestone 8 tests cover several of these cases but do not claim exhaustive recovery.
+Milestone 9 adds process-kill and interrupted-transaction recovery tests to ordinary
+`cargo test --workspace`. The NATS suite additionally tests a lost Welcome ACK and
+an ambiguous publish retried after a shortened test-only deduplication window.
+The Compose smoke test kills both chat clients, verifies their device locks are
+released, and exchanges messages through fresh processes using the existing groups.
+
+Online `channel sync` and `message history` now flush pending device-wide ciphertext
+before catch-up, as chat startup does. Offline history remains local only. No schema,
+wire, consumer or dependency migration is needed for Milestone 9. See
+[recovery.md](recovery.md) for the failure matrix and restart instructions.
+
+Next is Milestone 10: final MVP integration and security assertions. Process-crash
+coverage does not claim exhaustive filesystem or hardware power-loss recovery.

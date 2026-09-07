@@ -347,7 +347,7 @@ async fn durable_history_offline_ack_recovery_and_server_restart() -> Result<()>
     let report = history::catch_up(&bob, &bob_client, "engineering").await?;
     ensure!(report.decrypted == 40 && report.rejected == 0);
     let entries = bob.history("engineering", 100, None)?;
-    ensure!(entries.len() == 41 && entries[0].plaintext.as_deref() == Some(secret));
+    ensure!(entries.len() == 41 && entries[0].plaintext.as_deref() == Some(secret.as_slice()));
     for (index, entry) in entries.iter().skip(1).enumerate() {
         ensure!(entry.plaintext.as_deref() == Some(format!("offline-{index:03}").as_bytes()));
     }
@@ -443,6 +443,151 @@ async fn durable_history_offline_ack_recovery_and_server_restart() -> Result<()>
                 .windows(b"offline-".len())
                 .any(|w| w == b"offline-")
         );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires nats-server; run explicitly in CI and development"]
+async fn resume_pending_invitation_and_ambiguous_publish() -> Result<()> {
+    use epochgrid_core::{delivery, history, messaging};
+    let dir = tempfile::tempdir()?;
+    let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
+    transport::dev_config(dir.path(), port)?;
+    let url = format!("nats://127.0.0.1:{port}");
+    let _nats = server(dir.path())?;
+    let alice = IdentityStore::open(&dir.path().join("alice"))?;
+    let bob = IdentityStore::open(&dir.path().join("bob"))?;
+    let alice_client = connect(&url, &alice).await?;
+    let _daemon = service(dir.path(), &url).await?;
+    register_ready(&alice_client, &alice).await?;
+    let bob_client = connect(&url, &bob).await?;
+    transport::register(&bob_client, bob.registration()?).await?;
+    let group = alice.create_group("engineering")?;
+    let recipient = transport::claim_keypackage(&alice_client, "bob", "laptop", &group.gid).await?;
+    alice.prepare_invitation("engineering", &recipient)?;
+    drop(alice);
+    drop(alice_client);
+    // Restart after the local epoch/Commit/Welcome transaction, before any publish.
+    let alice = IdentityStore::open(&dir.path().join("alice"))?;
+    let alice_client = connect(&url, &alice).await?;
+    history::resume(&alice, &alice_client, "engineering").await?;
+    let js = async_nats::jetstream::new(bob_client.clone());
+    let consumer: async_nats::jetstream::consumer::PullConsumer = js
+        .get_consumer_from_stream(format!("device_{}", bob.nkey()?.public_key()), "MAILBOX")
+        .await?;
+    let mut batch = consumer
+        .fetch()
+        .max_messages(1)
+        .expires(Duration::from_secs(2))
+        .messages()
+        .await?;
+    let message = batch
+        .next()
+        .await
+        .ok_or_else(|| anyhow::anyhow!("Welcome missing"))?
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    ensure!(bob.accept_welcome(&message.payload, &alice.registration()?)? == group);
+    // Model a lost Welcome ACK after the join commit. Retry must not consume keys again.
+    drop(message);
+    drop(batch);
+    drop(consumer);
+    drop(js);
+    drop(bob_client);
+    drop(bob);
+    let bob = IdentityStore::open(&dir.path().join("bob"))?;
+    let bob_client = connect(&url, &bob).await?;
+    tokio::time::timeout(Duration::from_secs(12), async {
+        loop {
+            if let Ok(joined) = delivery::join_next(&bob, &bob_client, "alice", "laptop").await {
+                ensure!(joined == group);
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await??;
+    let mut mailbox: async_nats::jetstream::consumer::PullConsumer =
+        async_nats::jetstream::new(bob_client.clone())
+            .get_consumer_from_stream(format!("device_{}", bob.nkey()?.public_key()), "MAILBOX")
+            .await?;
+    ensure!(mailbox.info().await?.num_ack_pending == 0);
+    ensure!(bob.groups()?.len() == 1 && bob.group("engineering")? == group);
+
+    let admin = IdentityStore::open(&dir.path().join("service"))?;
+    let admin_client = connect(&url, &admin).await?;
+    let admin_js = async_nats::jetstream::new(admin_client);
+    let mut chat = admin_js.get_stream("CHAT").await?;
+    let mut config = chat.info().await?.config.clone();
+    // Shorten only this isolated test's dedup window to exercise an overdue retry.
+    config.duplicate_window = Duration::from_secs(1);
+    admin_js.update_stream(config).await?;
+    let secret = b"EPOCHGRID_RESUME_SECRET_91F3";
+    let ciphertext = alice.encrypt_message("engineering", secret)?;
+    let mut headers = async_nats::HeaderMap::new();
+    // Two invitation outbox rows precede this first application message.
+    headers.insert("Nats-Msg-Id", format!("{}:3", alice.nkey()?.public_key()));
+    let ack = async_nats::jetstream::new(alice_client.clone())
+        .publish_with_headers(group.subject("message"), headers, ciphertext.clone().into())
+        .await?
+        .await?;
+    let original_sequence = ack.sequence;
+    // Server stored it, but the publishing process never committed its local sent marker.
+    drop(alice_client);
+    drop(alice);
+    ensure!(
+        history::resume(&bob, &bob_client, "engineering")
+            .await?
+            .decrypted
+            == 1
+    );
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    let alice = IdentityStore::open(&dir.path().join("alice"))?;
+    let alice_client = connect(&url, &alice).await?;
+    history::resume(&alice, &alice_client, "engineering").await?;
+    let last = chat.info().await?.state.last_sequence;
+    ensure!(
+        last > original_sequence,
+        "test must exercise publication after dedup expiry"
+    );
+    ensure!(chat.get_raw_message(last).await?.payload.as_ref() == ciphertext);
+    ensure!(
+        history::resume(&bob, &bob_client, "engineering")
+            .await?
+            .decrypted
+            == 0
+    );
+    for store in [&alice, &bob] {
+        let entries = store.history("engineering", 10, None)?;
+        ensure!(entries.len() == 1 && entries[0].sequence == Some(original_sequence));
+        ensure!(entries[0].plaintext.as_deref() == Some(secret.as_slice()));
+    }
+    // A second resume has no pending publish, and both ratchets can continue.
+    history::resume(&alice, &alice_client, "engineering").await?;
+    ensure!(chat.info().await?.state.last_sequence == last);
+    messaging::send(
+        &bob,
+        &bob_client,
+        "engineering",
+        b"reply after ambiguous send",
+    )
+    .await?;
+    ensure!(
+        history::resume(&alice, &alice_client, "engineering")
+            .await?
+            .decrypted
+            == 1
+    );
+    messaging::send(&alice, &alice_client, "engineering", b"next generation").await?;
+    ensure!(
+        history::resume(&bob, &bob_client, "engineering")
+            .await?
+            .decrypted
+            == 1
+    );
+    for sequence in 1..=chat.info().await?.state.last_sequence {
+        let stored = chat.get_raw_message(sequence).await?;
+        ensure!(!stored.payload.windows(secret.len()).any(|w| w == secret));
     }
     Ok(())
 }
