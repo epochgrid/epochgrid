@@ -4,10 +4,11 @@ EpochGrid combines NATS infrastructure with MLS end-to-end group encryption.
 Project: https://epochgrid.org (secondary https://epochgrid.net).
 Organization: https://github.com/epochgrid.
 
-**Milestones 0–9 work:** independent NATS/MLS device identities, verified discovery,
+**Milestones 0–10 work:** independent NATS/MLS device identities, verified discovery,
 persistent groups, durable invitations, authenticated Welcome joining and live
 encrypted Alice/Bob chat with durable history, offline catch-up and tested
-process-crash recovery. JetStream
+process-crash recovery. A fresh CLI-driven acceptance test verifies the complete
+MVP and inspects infrastructure data for test plaintext. JetStream
 stores MLS protocol bytes; readable transcripts stay on each device. This is an unaudited development prototype.
 
 NATS supplies transport, authentication, authorization and persistence. OpenMLS
@@ -186,6 +187,14 @@ See [restart and recovery](docs/recovery.md) for tested failure boundaries and l
 
 ## Verify
 
+Run the same complete MVP gate as CI (includes the pinned NATS download and Compose):
+
+```bash
+./scripts/dev/verify.sh
+```
+
+Or run its Cargo and live checks individually after downloading NATS:
+
 ```bash
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -195,7 +204,7 @@ NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service -
 ./scripts/dev/smoke.sh
 ```
 
-The isolated NATS integration test covers registration, discovery, authorization,
+The isolated NATS integration suite covers registration, discovery, authorization,
 offline Welcome delivery, two-way encryption, ordered backlog replay, lost
 acknowledgment recovery and NATS/client state reload. It checks that
 `EPOCHGRID_TEST_SECRET_91F3` never appears in stored CHAT payloads. Unit tests cover
@@ -203,7 +212,13 @@ wrong inviters, tampering, wrong groups, replay and persistence. The Compose smo
 test launches two independent interactive clients, exchanges messages both ways,
 kills both clients without graceful shutdown, then repeats with fresh processes.
 It also verifies device locking, offline history,
-pagination, repeated receives and automatic catch-up. Process tests also kill
+pagination, repeated receives and automatic catch-up. The fresh MVP acceptance
+case drives identity initialization, registration, discovery, invitation and chat
+through separate CLI processes, restarts infrastructure, then scans every stream
+payload/header/subject and broker/service files for test plaintext and client NKey
+seeds. CHAT framing must be MLS PrivateMessage; MAILBOX must contain MLS Welcome.
+See [MVP acceptance coverage](docs/mvp-acceptance.md) for assertions and limits.
+Process tests also kill
 workers with uncommitted SQLite writes; NATS tests cover a lost Welcome ACK and
 a publish retry beyond the server deduplication window. CI runs all of these.
 

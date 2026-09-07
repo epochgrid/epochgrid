@@ -591,3 +591,5 @@ async fn resume_pending_invitation_and_ambiguous_publish() -> Result<()> {
     }
     Ok(())
 }
+
+mod mvp;

@@ -19,3 +19,5 @@ epochgrid-core = { path = "../epochgrid-core" }
 async-nats.workspace = true
 nkeys.workspace = true
 tempfile = "3"
+openmls.workspace = true
+openmls_traits.workspace = true

@@ -2,8 +2,10 @@
 
 EpochGrid is designed to protect application message content from network
 observers, NATS servers, JetStream compromise and infrastructure administrators.
-The implemented two-device flow uses OpenMLS encryption and verifies that a known
-test secret does not appear in CHAT payloads. This is evidence for that tested
+The implemented two-device flow uses OpenMLS encryption. The fresh CLI acceptance
+test verifies MLS PrivateMessage framing in CHAT and checks four known plaintext
+markers and both client NKey seeds are absent from every stream payload, subject
+and header, stopped broker/service files, and the captured service log. This is evidence for that tested
 path, not a production security audit or proof for every possible execution.
 
 The project aims to inherit MLS forward secrecy and post-compromise security when
@@ -55,3 +57,10 @@ Broker retention/deletion, complete power-loss fault injection, retention quotas
 and multi-epoch membership catch-up remain outside this milestone. Backups
 restoring old ratchet state are not safe recovery. No exactly-once delivery or comprehensive crash-safety claim is
 made. Rotation/revocation, package replenishment/expiry and recovery remain open.
+
+Milestone 10's [acceptance matrix](mvp-acceptance.md) records the completed MVP
+checks. A plaintext-marker scan is a regression detector, not proof of semantic
+security or absence of every possible key leak. It does not detect arbitrary
+transformed/encoded leaks or audit memory, side channels, dependency vulnerabilities
+or remote deployments. Tests do not claim to hide public identity metadata, prove
+forward secrecy/post-compromise recovery, or protect an already compromised device.

@@ -775,6 +775,8 @@ dependencies = [
  "epochgrid-core",
  "futures-util",
  "nkeys",
+ "openmls",
+ "openmls_traits",
  "serde_json",
  "tempfile",
  "tokio",

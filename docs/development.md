@@ -75,5 +75,19 @@ before catch-up, as chat startup does. Offline history remains local only. No sc
 wire, consumer or dependency migration is needed for Milestone 9. See
 [recovery.md](recovery.md) for the failure matrix and restart instructions.
 
-Next is Milestone 10: final MVP integration and security assertions. Process-crash
-coverage does not claim exhaustive filesystem or hardware power-loss recovery.
+Milestone 10 completes the narrow MVP acceptance gate. `scripts/dev/verify.sh`
+runs the required Cargo checks, downloads the pinned NATS binary, explicitly runs
+all four live integration cases, and executes the Compose CLI smoke test. CI calls
+the same script. It uses development identities for Compose; close existing clients
+and the host service first. The Rust integration tests use fresh temporary roots
+and ephemeral ports, and never reset `.dev/` or its NATS volume.
+
+The CLI acceptance test requires `cargo build --workspace` before its explicit run
+because it launches the sibling `epochgrid` binary beside `epochgrid-service`.
+It initializes both devices through CLI commands, then performs registration,
+discovery, invitation, offline traffic, infrastructure restart and history checks.
+See [MVP acceptance](mvp-acceptance.md) for the requirement-to-test mapping.
+
+Milestones 0–10 are complete for the two-device slice. This does not establish
+production readiness, hardware power-loss tolerance, member-removal security or
+future-epoch catch-up. No additional product scope is enabled by this milestone.

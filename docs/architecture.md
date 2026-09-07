@@ -1,4 +1,4 @@
-# EpochGrid architecture — through Milestone 9
+# EpochGrid architecture — through Milestone 10
 
 EpochGrid (https://epochgrid.org; secondary https://epochgrid.net) uses NATS for
 transport, authentication, authorization, request/reply and persistence. OpenMLS
@@ -126,3 +126,16 @@ Process tests force termination while stores remain open, including inside an
 uncommitted receive transaction. Live NATS tests cover ambiguous publishes and
 Welcome acknowledgment loss. See [recovery boundaries](recovery.md). This validates
 process-crash recovery on the tested filesystem, not hardware power-loss tolerance.
+
+## MVP acceptance
+
+Milestone 10 adds a fresh CLI-driven end-to-end acceptance case and a shared local/CI
+verification script. It changes no production wire format, permissions or storage
+schema. The test checks key separation, registration/discovery, durable Welcome,
+two-way offline traffic and infrastructure/client restart using the same identities
+and group. An infrastructure observer checks every stored stream message; offline
+scans inspect broker/service files for known test plaintext and client NKey seeds.
+CHAT must contain MLS PrivateMessage application/Commit framing, and MAILBOX must
+contain an MLS Welcome envelope. Public identity KV remains intentionally readable.
+See [the acceptance matrix](mvp-acceptance.md) for evidence and the limits of these
+checks. This finishes the scoped MVP, not a production security review.
