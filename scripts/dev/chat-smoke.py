@@ -55,3 +55,37 @@ def exchange():
 exchange()
 exchange()  # New CLI processes load the existing group and advanced ratchets.
 print('EpochGrid two-client interactive chat and restart passed')
+
+
+def cli(user, *args, data=None, check=True):
+    return subprocess.run(
+        ['./target/debug/epochgrid', '--home', f'.dev/{user}', *args],
+        input=data, text=True, capture_output=True, check=check, timeout=15,
+    )
+
+
+# Neither interactive process is running while Alice publishes this backlog.
+marker = f'EPOCHGRID_OFFLINE_CLI_{time.monotonic_ns()}'
+first, second, third = (f'{marker}_{i}' for i in range(3))
+cli('alice', 'message', 'send', 'engineering', data=first)
+cli('alice', 'message', 'send', 'engineering', data=second)
+transcript = cli('bob', 'message', 'history', 'engineering', '--limit', '2').stdout
+assert transcript.index(first) < transcript.index(second), transcript
+assert transcript.count(first) == transcript.count(second) == 1
+second_sequence = transcript.splitlines()[-1].split(']', 1)[0][1:]
+page = cli('bob', 'message', 'history', 'engineering', '--offline', '--limit', '1', '--before', second_sequence).stdout
+assert first in page and second not in page, page
+# History browsing does not consume the unread queue; repeated receive processes do.
+assert first in cli('bob', 'message', 'receive', 'engineering', '--timeout', '2').stdout
+assert second in cli('bob', 'message', 'receive', 'engineering', '--timeout', '2').stdout
+assert '0 decrypted' in cli('bob', 'channel', 'sync', 'engineering').stdout
+# An unreachable server is ignored for local history display.
+local = cli('bob', '--server', 'nats://127.0.0.1:1', 'message', 'history', 'engineering', '--offline', '--limit', '2').stdout
+assert first in local and second in local
+cli('alice', 'message', 'send', 'engineering', data=third)
+joined = cli('bob', 'chat', 'engineering', data='/quit\n').stdout
+assert third in joined, joined
+resumed = cli('bob', 'chat', 'engineering', data='/quit\n').stdout
+assert third not in resumed, resumed
+assert third in cli('bob', 'message', 'history', 'engineering', '--offline', '--limit', '1').stdout
+print('EpochGrid offline CLI history, pagination, receive and automatic catch-up passed')

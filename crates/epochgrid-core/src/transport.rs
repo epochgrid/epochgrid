@@ -166,7 +166,7 @@ allow_responses: {{max: 1, expires: "5s"}}"#
             )
         } else {
             format!(
-                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup", "epochgrid.v1.identity.keypackage", "epochgrid.v1.group.*.handshake", "epochgrid.v1.group.*.message", "epochgrid.v1.user.*.*.inbox", "$JS.API.CONSUMER.INFO.MAILBOX.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.MAILBOX.device_{key}", "$JS.ACK.MAILBOX.device_{key}.>"]
+                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup", "epochgrid.v1.identity.keypackage", "epochgrid.v1.group.*.handshake", "epochgrid.v1.group.*.message", "epochgrid.v1.user.*.*.inbox", "$JS.API.CONSUMER.INFO.MAILBOX.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.MAILBOX.device_{key}", "$JS.ACK.MAILBOX.device_{key}.>", "$JS.API.CONSUMER.INFO.CHAT.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.CHAT.device_{key}", "$JS.ACK.CHAT.device_{key}.>"]
 subscribe: ["{inbox}", "epochgrid.v1.group.*.message"]"#,
                 key = p.nats_public_key
             )
@@ -276,6 +276,35 @@ pub async fn provision_mailboxes(
                     filter_subject: format!("epochgrid.v1.user.{}.{}.inbox", parts[1], parts[3]),
                     ack_policy: async_nats::jetstream::consumer::AckPolicy::Explicit,
                     ack_wait: Duration::from_secs(5),
+                    max_ack_pending: 1,
+                    max_batch: 1,
+                    ..Default::default()
+                },
+            )
+            .await?;
+    }
+    Ok(())
+}
+
+/// One durable consumer per device in the existing shared development namespace.
+/// Only the service can create consumers; clients cannot alter filters or progress.
+pub async fn provision_chat_consumers(
+    client: async_nats::Client,
+    enrollment: &Enrollment,
+) -> Result<()> {
+    let stream = async_nats::jetstream::new(client)
+        .get_stream("CHAT")
+        .await?;
+    for key in enrollment.values() {
+        stream
+            .get_or_create_consumer(
+                &format!("device_{key}"),
+                async_nats::jetstream::consumer::pull::Config {
+                    durable_name: Some(format!("device_{key}")),
+                    filter_subject: "epochgrid.v1.group.*.message".into(),
+                    deliver_policy: async_nats::jetstream::consumer::DeliverPolicy::All,
+                    ack_policy: async_nats::jetstream::consumer::AckPolicy::Explicit,
+                    ack_wait: Duration::from_secs(2),
                     max_ack_pending: 1,
                     max_batch: 1,
                     ..Default::default()

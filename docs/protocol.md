@@ -1,4 +1,4 @@
-# EpochGrid protocol v1 — Milestones 0–7
+# EpochGrid protocol v1 — Milestones 0–8
 
 NATS request/reply subject: `epochgrid.v1.identity.register`. Registration uses
 this subject exactly; lookup and KeyPackage requests use the fixed subjects
@@ -90,10 +90,27 @@ PrivateMessage/Application and matching MLS group ID before processing. Sender
 labels come from authenticated MLS credentials, never NATS headers. Successful
 processing and an exact-ciphertext deduplication marker commit together. Own
 ciphertexts are recognized from the outbox and are not decrypted again. Plaintext
-is displayed locally; no transcript is persisted and no application plaintext is
-passed to NATS. Received terminal control characters are escaped for display.
+is displayed and retained locally; no application plaintext is passed to NATS. Received terminal control characters are escaped for display.
 
-Consumers in this slice subscribe live to the selected group's message subject.
-JetStream stores those publications with acknowledgments, but no client history
-reader is implemented yet. Application replay/catch-up is Milestone 8. Group
-handshakes after the initial two-member creation are not implemented.
+Milestone 8 replaces live CLI subscriptions with a service-provisioned CHAT pull
+consumer per device, named `device_<NKey>` (consumer names are scoped to streams).
+Filter: `epochgrid.v1.group.*.message`; DeliverPolicy All, AckPolicy Explicit,
+MaxAckPending 1, MaxBatch 1, AckWait 2 seconds. The client can call INFO and
+MSG.NEXT for its own consumer and publish its ACK subjects. The backend remains
+uninvolved in decryption and transcript storage. No protocol discriminants change.
+
+Each delivery is staged in SQLite with its CHAT stream sequence before a confirmed
+ACK. Same-sequence/same-bytes redelivery is idempotent; conflicting sequence reuse
+fails. Per-group processing validates the subject's group against authenticated
+MLS framing and advances ratchets in stream order. Exact ciphertext copies at
+new stream sequences keep one transcript entry at its original sequence. Invalid
+or undecryptable messages are quarantined without advancing the ratchet; storage
+errors leave work pending. Unknown/other group ciphertext stays staged.
+
+`message history` pages the local transcript, fetching backlog unless --offline is
+set. `--before` is an exclusive stream-sequence bound; default limit is 50, maximum
+1000. Outgoing messages awaiting publish confirmation have no sequence and appear
+after confirmed messages. Plaintext processed before Milestone 8 is unavailable;
+no cryptographic recovery is attempted. Acknowledgment means durable local staging,
+not user display. Group handshakes after initial two-member creation remain outside
+this milestone.

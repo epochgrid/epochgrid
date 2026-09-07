@@ -1,4 +1,4 @@
-# EpochGrid architecture — through Milestone 7
+# EpochGrid architecture — through Milestone 8
 
 EpochGrid (https://epochgrid.org; secondary https://epochgrid.net) uses NATS for
 transport, authentication, authorization, request/reply and persistence. OpenMLS
@@ -26,14 +26,16 @@ CHANNELS KV is provisioned but unused. Future channel metadata is not authoritat
 cryptographic membership.
 
 Application messages use MLS PrivateMessages and NATS group subjects. Publishers
-wait for JetStream acknowledgments; live subscribers authenticate/decrypt locally.
+wait for JetStream acknowledgments; durable consumers authenticate/decrypt locally.
 CHAT stores raw versioned MLS protocol bytes. MAILBOX stores a small EpochGrid
-Welcome envelope. Neither contains application plaintext. History retrieval and
-offline catch-up are deferred to Milestone 8.
+Welcome envelope. Neither contains application plaintext. Each device has a
+service-provisioned CHAT durable filtered to application-message subjects in the
+existing shared development namespace. It starts at all retained messages. The
+CLI uses this one path for offline catch-up and ongoing reception.
 
 OpenMLS's SQLite provider and application tables share one connection. Transactions
 cover initialization, group creation, invitation/ratchet changes, ciphertext
-outbox writes and receive deduplication. A file lock prevents concurrent clients
+outbox/transcript writes and receive deduplication. A file lock prevents concurrent clients
 from advancing the same device. Outbox retries reuse exact bytes and stable
 Nats-Msg-Id values. This is not a distributed transaction with NATS; acknowledgments
 and UI display can fail after local commit. No exactly-once display is claimed.
@@ -62,7 +64,7 @@ tested versions; development/CI pins Rust 1.98.1. Source references inspected:
 Static user NKeys and loopback-only NATS are used without TLS. Clients may call
 identity services, publish group message/handshake and inbox traffic, subscribe
 to group application subjects and their own reply prefix, and inspect/pull/ack
-only their service-provisioned mailbox consumer. They cannot create consumers,
+only their own service-provisioned MAILBOX and CHAT consumers. They cannot create consumers,
 read identity KV directly, subscribe to another inbox, or access system subjects.
 
 Group wildcards cover the entire Alice/Bob lab namespace, a documented temporary
@@ -71,3 +73,42 @@ subjects from an authenticated metadata policy (or use account/JWT authorization
 and revoke those permissions with membership changes. MLS still provides content
 authentication/confidentiality independently of those permissions. The service's
 JetStream provisioning authority should also be separated from runtime permissions.
+
+
+## Durable history decisions
+
+Milestone 8 deliberately keeps the existing shared lab authorization scope. A
+single CHAT consumer per device can be authorized with exact NATS API/ACK subject
+permissions; clients cannot create or reconfigure consumers. Per-group consumers
+would require a group authorization/provisioning path and are deferred with exact
+membership-aware permissions. Mailbox consumers remain separately filtered to
+individual inboxes. CHAT excludes handshakes because this slice has only the initial
+two-member epoch; it must not be generalized to membership changes without ordered
+Commit processing.
+
+CHAT uses explicit acknowledgment and at most one unacknowledged delivery. The
+client commits raw ciphertext/subject/stream sequence to `chat_deliveries` before
+sending a confirmed ACK. Restart after a lost ACK repeats that exact storage check.
+A sequence reused with different bytes/subject is rejected rather than overwriting
+history. This detects conflicting stream resets, not every possible retention gap.
+
+For a selected channel, pending ciphertext is processed in increasing stream
+sequence. OpenMLS receive writes, deduplication, authenticated plaintext in
+`transcript`, and the processed marker share a SQLite transaction. Messages for
+other or not-yet-joined groups remain pending locally, even after the server ACK.
+Authentication failures roll back and are quarantined; storage failures stay
+pending and fail the operation. Transcripts also retain local outgoing plaintext,
+atomically with encryption/outbox creation, because MLS cannot decrypt own sends.
+Publish acknowledgments associate outgoing entries with their stream sequence.
+
+A catch-up call drains the finite pending count observed on entry; later arrivals
+remain for the next call. Interactive chat polls every 200 ms. This avoids a
+separate live subscription and its replay/handoff race. The server supplies stream
+ordering; it remains trusted for availability/sequencing, not plaintext. Per-device
+file locking prevents two CLI processes from sharing a durable's ratchet state.
+
+The local display flag is not a network read receipt. History reads do not mark
+messages displayed; receive/chat do so after printing. There is no transaction
+with a terminal: a crash can repeat output, while the transcript remains readable.
+Old Milestone 7 plaintext was not retained and is represented by unavailable rows.
+No new wire format, HTTP endpoint or cryptographic primitive was introduced.

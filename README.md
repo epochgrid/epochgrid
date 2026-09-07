@@ -4,10 +4,10 @@ EpochGrid combines NATS infrastructure with MLS end-to-end group encryption.
 Project: https://epochgrid.org (secondary https://epochgrid.net).
 Organization: https://github.com/epochgrid.
 
-**Milestones 0–7 work:** independent NATS/MLS device identities, verified discovery,
+**Milestones 0–8 work:** independent NATS/MLS device identities, verified discovery,
 persistent groups, durable invitations, authenticated Welcome joining and live
-encrypted Alice/Bob chat. JetStream stores MLS protocol bytes. History replay is
-not implemented yet. This is an unaudited development prototype.
+encrypted Alice/Bob chat with durable history and offline catch-up. JetStream
+stores MLS protocol bytes; readable transcripts stay on each device. This is an unaudited development prototype.
 
 NATS supplies transport, authentication, authorization and persistence. OpenMLS
 supplies group encryption and cryptographic membership. The service handles public
@@ -34,7 +34,8 @@ Hub dependency or publishing is involved. Configuration must exist before the
 first Compose start; subsequent starts can use `docker compose up -d`.
 
 When upgrading from earlier milestones, close clients, re-run bootstrap and
-restart the service to apply the updated NATS permissions and mailbox consumers.
+restart the service to apply the updated NATS permissions and durable consumers. Bootstrap recreates the NATS
+container so regenerated permissions take effect; persistent volumes are retained.
 Existing identities and group state are retained.
 
 Start the host service in a separate terminal:
@@ -86,12 +87,13 @@ Bob's terminal:
 ./target/debug/epochgrid --home .dev/bob chat engineering
 ```
 
-Start both before typing. Received messages display their authenticated MLS sender,
+Messages sent while a peer is offline are retained and fetched when it returns.
+Received messages display their authenticated MLS sender,
 for example `alice/laptop> deployment complete`. `/quit`, EOF or Ctrl-C exits.
 Restart either command to continue with the persisted group and ratchet state.
 One process may use a device directory at a time; the client holds an OS file lock.
 
-For scripting, start a receiver first, then send from the other terminal:
+For scripting, receive the next undisplayed message (including offline backlog):
 
 ```bash
 ./target/debug/epochgrid --home .dev/bob message receive engineering --timeout 30
@@ -121,6 +123,43 @@ A manually initialized device needs explicit NATS enrollment/configuration. The
 bootstrap only enrolls Alice/laptop and Bob/laptop; multi-device users are deferred.
 Stop infrastructure with `docker compose down`; local keys and server data remain.
 
+## History and offline catch-up
+
+Fetch the current backlog and persist its authenticated plaintext locally:
+
+```bash
+./target/debug/epochgrid --home .dev/bob channel sync engineering
+./target/debug/epochgrid --home .dev/bob message history engineering --limit 50
+```
+
+`chat` catches up automatically on startup and polls the same durable path for
+new messages. `message receive` returns one undisplayed incoming message per call;
+remaining messages stay queued locally. Browsing history does not consume that
+queue. A network error can exit the client; reopen it to resume.
+
+History shows JetStream sequence numbers in brackets, in ascending order. Request
+an earlier page with `--before <sequence>` (exclusive). Read locally retained
+history without connecting to NATS with `--offline`:
+
+```bash
+./target/debug/epochgrid --home .dev/bob message history engineering --offline --limit 50
+```
+
+Limits are 1–1000 entries per page. Locally queued sends without a publish
+acknowledgment appear as `[pending]` after published history. Duplicate deliveries
+do not create duplicate transcript entries. Invalid/undecryptable packets are
+quarantined locally and counted rather than blocking later messages.
+
+The first sync after upgrading can only recover ciphertext still retained by
+JetStream and decryptable with local MLS state. Messages already processed by
+Milestone 7 clients have no saved plaintext; history marks those entries
+unavailable. Restoring old keys or replaying ciphertext cannot recover erased keys.
+
+**Local transcripts are unencrypted development storage**, alongside private MLS
+state. Retaining plaintext means endpoint compromise can expose historical content
+even after MLS ratchet keys have been erased. NATS still receives no application
+plaintext. Deleting server or local data independently is not a recovery method.
+
 ## Verify
 
 ```bash
@@ -133,11 +172,13 @@ NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service -
 ```
 
 The isolated NATS integration test covers registration, discovery, authorization,
-offline Welcome delivery, two-way encryption and state reload. It checks that
+offline Welcome delivery, two-way encryption, ordered backlog replay, lost
+acknowledgment recovery and NATS/client state reload. It checks that
 `EPOCHGRID_TEST_SECRET_91F3` never appears in stored CHAT payloads. Unit tests cover
 wrong inviters, tampering, wrong groups, replay and persistence. The Compose smoke
 test launches two independent interactive clients, exchanges messages both ways,
-then repeats after restarting both processes. CI runs all of these.
+then repeats after restarting both processes. It also verifies offline history,
+pagination, repeated receives and automatic catch-up. CI runs all of these.
 
 The smoke test uses the development identities and stops the Compose stack it
 starts; run it while your interactive clients/service are stopped.
@@ -147,8 +188,10 @@ starts; run it while your interactive clients/service are stopped.
 - Two devices per group; one initial KeyPackage per device, reserved for one group.
   No replenishment, rotation, removal or revocation yet. Initial package expiry
   currently also limits signing-key lookup; long-lived identity lifecycle is pending.
-- Live reception only. CHAT retains ciphertext, but offline history replay and
-  catch-up are Milestone 8. There is no local transcript or durable display queue.
+- History currently covers application messages in the existing two-device epoch.
+  Later membership changes and multi-epoch handshake catch-up are not implemented.
+  Retention quotas/cleanup and complete crash/power-loss testing remain pending.
+  A crash around terminal output can repeat display; history remains available.
 - Static development group permissions span the Alice/Bob lab namespace. Exact
   per-group NATS authorization is pending; inbox reads remain device-specific.
 - Loopback development without TLS; SQLite and journals contain unencrypted local

@@ -20,7 +20,7 @@ for integration tests. The existing host-installed 2.10.11 is not the developmen
 pin. Client IDs are 1–32 lowercase ASCII letters, digits or hyphens.
 
 The service provisions CHAT, MAILBOX, IDENTITIES, CHANNELS and durable per-device
-mailbox consumers at startup. Static group permissions span the shared Alice/Bob
+MAILBOX and CHAT consumers at startup. Static group permissions span the shared Alice/Bob
 lab; they are not membership-aware. Consumers are filtered server-side and clients
 cannot create/modify them. Service replies are restricted to `_INBOX.*` to avoid
 turning requests into service-authorized writes to KV or group subjects.
@@ -42,7 +42,28 @@ integration suite spawns isolated NATS/service processes on an ephemeral loopbac
 port, tests both directions of MLS traffic and scans CHAT payloads for plaintext.
 A port allocation race is possible on a busy shared host. The Compose smoke test
 uses `.dev/` and Python 3 to drive two real interactive CLI processes, restarts
-both and repeats the exchange. It stops the Compose stack afterward.
+both and repeats the exchange, then tests offline history and pagination. It stops the Compose stack afterward.
 
-Milestone 8 is next: durable chat history retrieval and ordered offline catch-up.
-Current chat is live-only; missed ciphertext remains in CHAT but is not replayed.
+Milestone 8 implements durable application history. Re-run bootstrap and restart
+the service when upgrading so clients receive their new CHAT permissions and
+consumers. Bootstrap force-recreates the NATS container to reload changed config,
+retaining its named data volume. SQLite schema changes are additive; keys/groups
+and old deduplication records remain intact.
+
+Use `channel sync NAME` to fetch/decrypt the current backlog, or
+`message history NAME --offline` to inspect/process locally staged data without
+NATS. `message receive` consumes one undisplayed entry; `chat` automatically drains
+the local display queue and fetches new deliveries. If catch-up fails due to a
+network/database problem, reopening retries. Unavailable legacy entries and
+quarantined messages are reported. Quarantine retains raw ciphertext and has no
+repair/delete command yet; a failed packet does not advance the ratchet.
+
+Both local transcripts and staged unknown-group ciphertext currently grow without
+quotas. CHAT uses the existing stream retention configuration; history cannot
+restore deleted server messages, reset devices or discarded MLS state. Keep server
+and device state together. Plaintext already displayed by old Milestone 7 clients
+cannot be reconstructed. Do not delete deduplication records to force decryption.
+
+Next is Milestone 9: broader client restart/resume and failure-recovery validation,
+followed by the final MVP integration/security assertions in Milestone 10. The
+Milestone 8 tests cover several of these cases but do not claim exhaustive recovery.

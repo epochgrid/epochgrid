@@ -5,4 +5,4 @@ umask 077
 cargo build --workspace --locked
 ./target/debug/epochgrid dev-config
 ./scripts/dev/download-nats.sh
-docker compose up --build -d
+docker compose up --build --force-recreate -d

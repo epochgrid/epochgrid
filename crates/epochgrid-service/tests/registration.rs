@@ -276,3 +276,173 @@ async fn nats_registration_and_restart() -> Result<()> {
     );
     Ok(())
 }
+
+#[tokio::test]
+#[ignore = "requires nats-server; run explicitly in CI and development"]
+async fn durable_history_offline_ack_recovery_and_server_restart() -> Result<()> {
+    use epochgrid_core::{delivery, history, messaging};
+    let dir = tempfile::tempdir()?;
+    let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
+    transport::dev_config(dir.path(), port)?;
+    let url = format!("nats://127.0.0.1:{port}");
+    let nats = server(dir.path())?;
+    let alice = IdentityStore::open(&dir.path().join("alice"))?;
+    let bob = IdentityStore::open(&dir.path().join("bob"))?;
+    let alice_client = connect(&url, &alice).await?;
+    let _daemon = service(dir.path(), &url).await?;
+    register_ready(&alice_client, &alice).await?;
+    let bob_client = connect(&url, &bob).await?;
+    transport::register(&bob_client, bob.registration()?).await?;
+    alice.create_group("engineering")?;
+    delivery::invite(&alice, &alice_client, "engineering", "bob", "laptop").await?;
+    let secret = b"EPOCHGRID_OFFLINE_SECRET_91F3";
+    messaging::send(&alice, &alice_client, "engineering", secret).await?;
+    // Pull before joining; another channel's sync must not discard unknown-group data.
+    bob.create_group("local")?;
+    ensure!(history::catch_up(&bob, &bob_client, "local").await?.staged == 1);
+    delivery::join_next(&bob, &bob_client, "alice", "laptop").await?;
+    ensure!(bob.process_history("engineering")?.decrypted == 1);
+    drop(bob_client);
+    drop(bob);
+    // Bob has no process/connection while Alice writes the backlog.
+    for index in 0..40 {
+        messaging::send(
+            &alice,
+            &alice_client,
+            "engineering",
+            format!("offline-{index:03}").as_bytes(),
+        )
+        .await?;
+    }
+    let bob = IdentityStore::open(&dir.path().join("bob"))?;
+    let bob_client = connect(&url, &bob).await?;
+    // Receive and stage, then lose the ACK and exit. The durable must redeliver.
+    let consumer = history::consumer(&bob, &bob_client).await?;
+    let mut batch = consumer
+        .fetch()
+        .max_messages(1)
+        .expires(Duration::from_secs(2))
+        .messages()
+        .await?;
+    let delivery = batch
+        .next()
+        .await
+        .ok_or_else(|| anyhow::anyhow!("delivery missing"))?
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    bob.stage_chat(
+        delivery
+            .info()
+            .map_err(|e| anyhow::anyhow!("{e}"))?
+            .stream_sequence,
+        delivery.subject.as_str(),
+        &delivery.payload,
+    )?;
+    drop(delivery);
+    drop(batch);
+    drop(consumer);
+    drop(bob_client);
+    drop(bob);
+    let bob = IdentityStore::open(&dir.path().join("bob"))?;
+    let bob_client = connect(&url, &bob).await?;
+    let report = history::catch_up(&bob, &bob_client, "engineering").await?;
+    ensure!(report.decrypted == 40 && report.rejected == 0);
+    let entries = bob.history("engineering", 100, None)?;
+    ensure!(entries.len() == 41 && entries[0].plaintext.as_deref() == Some(secret));
+    for (index, entry) in entries.iter().skip(1).enumerate() {
+        ensure!(entry.plaintext.as_deref() == Some(format!("offline-{index:03}").as_bytes()));
+    }
+    ensure!(entries.windows(2).all(|w| w[0].sequence < w[1].sequence));
+    ensure!(
+        history::catch_up(&bob, &bob_client, "engineering")
+            .await?
+            .decrypted
+            == 0
+    );
+    let mut consumer = history::consumer(&bob, &bob_client).await?;
+    ensure!(consumer.info().await?.num_ack_pending == 0);
+    // Repeated ciphertext publications must never create duplicate transcript entries.
+    let js = async_nats::jetstream::new(alice_client.clone());
+    let ciphertext = alice.encrypt_message("engineering", b"duplicate-check")?;
+    delivery::flush_outbox(&alice, &alice_client).await?;
+    js.publish(
+        alice.group("engineering")?.subject("message"),
+        ciphertext.into(),
+    )
+    .await?
+    .await?;
+    // A malformed packet is quarantined while the following valid packet is processed.
+    js.publish(
+        alice.group("engineering")?.subject("message"),
+        vec![255, 0].into(),
+    )
+    .await?
+    .await?;
+    messaging::send(
+        &alice,
+        &alice_client,
+        "engineering",
+        b"after corrupt packet",
+    )
+    .await?;
+    let report = history::catch_up(&bob, &bob_client, "engineering").await?;
+    ensure!(report.decrypted == 2 && report.rejected == 1);
+    ensure!(bob.history("engineering", 100, None)?.len() == 43);
+    // New traffic after the initial snapshot is picked up by the same durable path.
+    messaging::send(&alice, &alice_client, "engineering", b"after catch-up").await?;
+    ensure!(
+        history::catch_up(&bob, &bob_client, "engineering")
+            .await?
+            .decrypted
+            == 1
+    );
+    messaging::send(&bob, &bob_client, "engineering", b"offline reply").await?;
+    ensure!(
+        history::catch_up(&alice, &alice_client, "engineering")
+            .await?
+            .decrypted
+            == 1
+    );
+    ensure!(alice.history("engineering", 100, None)?.len() == 45);
+    let alice_js = async_nats::jetstream::new(alice_client.clone());
+    ensure!(
+        alice_js
+            .get_consumer_from_stream::<async_nats::jetstream::consumer::pull::Config, _, _>(
+                format!("device_{}", bob.nkey()?.public_key()),
+                "CHAT"
+            )
+            .await
+            .is_err()
+    );
+    // Restart NATS with persisted consumers, then verify offline sends still catch up.
+    drop(nats);
+    let _nats = server(dir.path())?;
+    let alice_client = connect(&url, &alice).await?;
+    let bob_client = connect(&url, &bob).await?;
+    messaging::send(&alice, &alice_client, "engineering", b"server restarted").await?;
+    ensure!(
+        history::catch_up(&bob, &bob_client, "engineering")
+            .await?
+            .decrypted
+            == 1
+    );
+    drop(bob);
+    let bob = IdentityStore::open(&dir.path().join("bob"))?;
+    ensure!(bob.history("engineering", 100, None)?.len() == 46);
+    ensure!(bob.unread("engineering")?.is_some());
+    let admin = IdentityStore::open(&dir.path().join("service"))?;
+    let admin_client = connect(&url, &admin).await?;
+    let js = async_nats::jetstream::new(admin_client);
+    let mut chat = js.get_stream("CHAT").await?;
+    let last = chat.info().await?.state.last_sequence;
+    for sequence in 1..=last {
+        let stored = chat.get_raw_message(sequence).await?;
+        ensure!(!stored.payload.windows(secret.len()).any(|w| w == secret));
+        ensure!(
+            !stored
+                .payload
+                .windows(b"offline-".len())
+                .any(|w| w == b"offline-")
+        );
+    }
+    Ok(())
+}

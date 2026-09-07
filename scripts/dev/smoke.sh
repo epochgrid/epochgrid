@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 umask 077
 ./target/debug/epochgrid dev-config
-docker compose up --build -d
+docker compose up --build --force-recreate -d
 service_pid=''
 cleanup() {
   if [[ -n "$service_pid" ]]; then

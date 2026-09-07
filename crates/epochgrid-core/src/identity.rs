@@ -87,6 +87,18 @@ impl IdentityStore {
         connection.execute_batch("CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY, subject TEXT NOT NULL, payload BLOB NOT NULL UNIQUE, sent INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS welcomes (payload BLOB PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS received (payload BLOB PRIMARY KEY);")?;
+        connection.execute_batch(
+            "CREATE TABLE IF NOT EXISTS chat_deliveries (
+            sequence INTEGER PRIMARY KEY CHECK(sequence > 0), subject TEXT NOT NULL,
+            payload BLOB NOT NULL, state TEXT NOT NULL DEFAULT 'pending'
+            CHECK(state IN ('pending','processed','rejected')));
+        CREATE INDEX IF NOT EXISTS chat_pending ON chat_deliveries(subject,state,sequence);
+        CREATE TABLE IF NOT EXISTS transcript (
+            id INTEGER PRIMARY KEY, gid TEXT NOT NULL, payload BLOB NOT NULL UNIQUE,
+            sender TEXT, plaintext BLOB, outgoing INTEGER NOT NULL,
+            stream_sequence INTEGER UNIQUE, displayed INTEGER NOT NULL DEFAULT 0);
+        CREATE INDEX IF NOT EXISTS transcript_group ON transcript(gid,stream_sequence,id);",
+        )?;
         let storage = SqliteStorageProvider::new(Rc::clone(&connection));
         Ok(Self {
             connection,

@@ -11,4 +11,5 @@ do not post exploit details or secrets in public issues. No dedicated security
 email or response-time commitment has been established.
 
 Never attach NATS seeds, credentials, SQLite databases or real private messages.
+Local SQLite now retains unencrypted message history as well as private keys.
 See [the threat model](docs/threat-model.md) for implemented boundaries and gaps.

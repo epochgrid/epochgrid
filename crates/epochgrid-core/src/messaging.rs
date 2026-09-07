@@ -3,6 +3,10 @@ use anyhow::{Result, anyhow, ensure};
 use openmls::prelude::tls_codec::Deserialize as _;
 use openmls::prelude::*;
 
+#[derive(Debug, thiserror::Error)]
+#[error("invalid or no-longer-decryptable MLS application message")]
+pub(crate) struct InvalidMessage;
+
 pub const MAX_PLAINTEXT: usize = 16_384;
 #[derive(Debug, PartialEq, Eq)]
 pub struct DecryptedMessage {
@@ -29,41 +33,76 @@ impl IdentityStore {
                 .map_err(|e| anyhow!("encrypt MLS application: {e:?}"))?
                 .to_bytes()?;
             self.queue(&descriptor.subject("message"), &bytes)?;
+            let identity = self.registration()?.payload;
+            self.connection.execute("INSERT INTO transcript(gid,payload,sender,plaintext,outgoing,displayed) VALUES(?1,?2,?3,?4,1,1)",
+                rusqlite::params![descriptor.gid, bytes, format!("{}/{}", identity.user_id, identity.device_id), plaintext])?;
             Ok(bytes)
         })
     }
-    /// Sender identity comes exclusively from authenticated MLS content.
+    /// Persist authenticated plaintext with the receive ratchet, never to NATS.
     pub fn decrypt_message(&self, name: &str, bytes: &[u8]) -> Result<Option<DecryptedMessage>> {
-        ensure!(bytes.len() <= wire::MAX_WIRE, "message too large");
+        self.transaction(|| self.decrypt_inner(name, bytes))
+    }
+    pub(crate) fn decrypt_inner(
+        &self,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<Option<DecryptedMessage>> {
+        ensure!(bytes.len() <= wire::MAX_WIRE, InvalidMessage);
         let descriptor = self.group(name)?;
-        let message = MlsMessageIn::tls_deserialize_exact(bytes)?;
+        let message = MlsMessageIn::tls_deserialize_exact(bytes).map_err(|_| InvalidMessage)?;
         ensure!(
             message.wire_format() == WireFormat::PrivateMessage,
-            "application transport requires MLS ciphertext"
+            InvalidMessage
         );
         let protocol = message
             .try_into_protocol_message()
-            .map_err(|e| anyhow!("invalid MLS protocol message: {e:?}"))?;
+            .map_err(|_| InvalidMessage)?;
         ensure!(
             protocol.group_id().as_slice() == descriptor.mls_id
                 && protocol.content_type() == ContentType::Application,
-            "wrong group or message type"
+            InvalidMessage
         );
-        self.transaction(|| {
-            let known: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM received WHERE payload=?1 UNION ALL SELECT 1 FROM outbox WHERE payload=?1)", [bytes], |r| r.get(0))?;
-            if known { return Ok(None); }
-            let mut group = self.load_group(&descriptor)?;
-            let processed = group.process_message(&self.provider, protocol).map_err(|e| anyhow!("authenticate MLS application: {e:?}"))?;
-            let credential = BasicCredential::try_from(processed.credential().clone()).map_err(|e| anyhow!("invalid sender credential: {e:?}"))?;
-            let sender = std::str::from_utf8(credential.identity())?.to_owned();
-            let ProcessedMessageContent::ApplicationMessage(message) = processed.into_content() else { anyhow::bail!("expected application message"); };
-            let plaintext = message.into_bytes();
-            ensure!(plaintext.len() <= MAX_PLAINTEXT, "received plaintext exceeds limit");
-            self.connection.execute("INSERT INTO received(payload) VALUES(?1)", [bytes])?;
-            Ok(Some(DecryptedMessage { sender, plaintext }))
-        })
+        let known: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM received WHERE payload=?1 UNION ALL SELECT 1 FROM outbox WHERE payload=?1)", [bytes], |r| r.get(0))?;
+        if known {
+            return Ok(None);
+        }
+        let mut group = self.load_group(&descriptor)?;
+        let processed =
+            group
+                .process_message(&self.provider, protocol)
+                .map_err(|error| match error {
+                    ProcessMessageError::StorageError(error) => {
+                        anyhow!("MLS storage failure: {error:?}")
+                    }
+                    ProcessMessageError::LibraryError(error) => {
+                        anyhow!("MLS library failure: {error:?}")
+                    }
+                    ProcessMessageError::GroupStateError(error) => {
+                        anyhow!("MLS group state failure: {error:?}")
+                    }
+                    _ => InvalidMessage.into(),
+                })?;
+        let credential = BasicCredential::try_from(processed.credential().clone())
+            .map_err(|_| InvalidMessage)?;
+        let sender = std::str::from_utf8(credential.identity())
+            .map_err(|_| InvalidMessage)?
+            .to_owned();
+        let ProcessedMessageContent::ApplicationMessage(message) = processed.into_content() else {
+            return Err(InvalidMessage.into());
+        };
+        let plaintext = message.into_bytes();
+        ensure!(plaintext.len() <= MAX_PLAINTEXT, InvalidMessage);
+        self.connection
+            .execute("INSERT INTO received(payload) VALUES(?1)", [bytes])?;
+        self.connection.execute(
+            "INSERT INTO transcript(gid,payload,sender,plaintext,outgoing) VALUES(?1,?2,?3,?4,0)",
+            rusqlite::params![descriptor.gid, bytes, sender, plaintext],
+        )?;
+        Ok(Some(DecryptedMessage { sender, plaintext }))
     }
 }
+
 pub async fn subscribe(
     store: &IdentityStore,
     client: &async_nats::Client,

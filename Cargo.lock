@@ -736,10 +736,8 @@ name = "epochgrid-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-nats",
  "clap",
  "epochgrid-core",
- "futures-util",
  "serde_json",
  "tokio",
  "tracing-subscriber",

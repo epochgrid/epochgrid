@@ -30,8 +30,9 @@ can publish to peer inboxes but cannot read them. A malicious enrolled client ca
 reserve a peer's initial KeyPackage or block its mailbox with unwanted traffic.
 Availability and request flooding are not protected in this slice.
 
-Endpoint compromise can expose private keys and displayed messages. SQLite and
-journals are unencrypted; Unix directories/files use 0700/0600 and an OS file lock.
+Endpoint compromise can expose private keys and the retained plaintext transcript.
+MLS key erasure does not erase the separately retained local plaintext history.
+SQLite and journals are unencrypted; Unix directories/files use 0700/0600 and an OS file lock.
 Use a dedicated private directory on a trusted filesystem. Windows ACL integration
 is not implemented. Future adapters should support Linux Secret Service, macOS
 Keychain/Secure Enclave, Windows CNG/TPM and mobile secure keystores.
@@ -39,8 +40,18 @@ Keychain/Secure Enclave, Windows CNG/TPM and mobile secure keystores.
 Local transactions couple OpenMLS changes to the ciphertext outbox and deduplication
 markers. These are not distributed transactions. Outbox retries can duplicate a
 publish beyond NATS's deduplication window; recipients suppress exact copies.
-History replay, offline catch-up, retention cleanup, fault-injection coverage and
-a durable local display queue are pending. A crash after decrypt/commit but before
-printing can lose display of a message. Backups restoring old ratchet state are
-not safe recovery. No exactly-once delivery or comprehensive crash-safety claim is
+Milestone 8 stages ciphertext before a confirmed ACK and atomically commits the
+receive ratchet, transcript and local delivery marker. Lost ACKs, storage failures,
+ordered replay, duplicate packets and restart are covered by targeted tests.
+Invalid/undecryptable packets are retained in local quarantine so they cannot
+block valid history. Other groups' ciphertext remains staged until explicitly
+processed; it inherits the existing shared lab visibility and storage/DoS risks.
+
+Transcripts and a local undisplayed queue survive restart. A crash between output
+and its local display marker may repeat terminal output, but history is retained.
+There is no distributed exactly-once display guarantee. Milestone 7 clients did not
+retain plaintext, and their already-consumed messages are shown as unavailable.
+Broker retention/deletion, complete power-loss fault injection, retention quotas
+and multi-epoch membership catch-up remain outside this milestone. Backups
+restoring old ratchet state are not safe recovery. No exactly-once delivery or comprehensive crash-safety claim is
 made. Rotation/revocation, package replenishment/expiry and recovery remain open.

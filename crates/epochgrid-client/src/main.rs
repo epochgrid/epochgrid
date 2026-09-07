@@ -20,7 +20,7 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Command {
-    /// Live MLS encrypted chat; /quit exits.
+    /// MLS encrypted chat with automatic offline catch-up; /quit exits.
     Chat { name: String },
     Message {
         #[command(subcommand)]
@@ -66,6 +66,10 @@ enum Channel {
         name: String,
     },
     List,
+    /// Fetch and decrypt the current durable backlog.
+    Sync {
+        name: String,
+    },
     /// Retry queued ciphertext without encrypting it again.
     Flush,
     Invite {
@@ -85,7 +89,17 @@ enum Channel {
 enum Message {
     /// Read one UTF-8 message from stdin and publish MLS ciphertext.
     Send { name: String },
-    /// Wait for one live authenticated message (history replay is not implemented).
+    /// Read retained history, fetching the current backlog unless --offline is set.
+    History {
+        name: String,
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+        #[arg(long)]
+        before: Option<u64>,
+        #[arg(long)]
+        offline: bool,
+    },
+    /// Receive the next undisplayed message, including messages sent while offline.
     Receive {
         name: String,
         #[arg(long, default_value_t = 30)]
@@ -113,6 +127,14 @@ async fn main() -> Result<()> {
                 let client = transport::connect(&args.server, &store).await?;
                 epochgrid_core::messaging::send(&store, &client, &name, text.as_bytes()).await?;
                 println!("EpochGrid encrypted message delivered");
+            }
+            Message::History {
+                name,
+                limit,
+                before,
+                offline,
+            } => {
+                chat::history(&args.home, &args.server, &name, limit, before, offline).await?;
             }
             Message::Receive { name, timeout } => {
                 chat::receive(&args.home, &args.server, &name, timeout).await?;
@@ -149,6 +171,14 @@ async fn main() -> Result<()> {
                         epochgrid_core::delivery::join_next(&store, &client, &from, &device)
                             .await?;
                     println!("EpochGrid channel joined: {} ({})", group.name, group.gid);
+                }
+                Channel::Sync { name } => {
+                    let client = transport::connect(&args.server, &store).await?;
+                    let report = epochgrid_core::history::catch_up(&store, &client, &name).await?;
+                    println!(
+                        "EpochGrid caught up: {} decrypted, {} rejected, {} unavailable",
+                        report.decrypted, report.rejected, report.unavailable
+                    );
                 }
                 Channel::Flush => {
                     let client = transport::connect(&args.server, &store).await?;

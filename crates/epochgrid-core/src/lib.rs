@@ -1,5 +1,6 @@
 pub mod delivery;
 pub mod groups;
+pub mod history;
 pub mod identity;
 pub mod messaging;
 pub mod transport;

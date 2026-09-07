@@ -36,6 +36,7 @@ async fn main() -> Result<()> {
     drop(identity);
     let store = transport::provision(client.clone()).await?;
     transport::provision_mailboxes(client.clone(), &enrollment).await?;
+    transport::provision_chat_consumers(client.clone(), &enrollment).await?;
     let mut requests = client.subscribe("epochgrid.v1.identity.*").await?;
     client.flush().await?;
     tracing::info!("EpochGrid identity service ready");

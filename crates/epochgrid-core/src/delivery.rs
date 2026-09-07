@@ -137,12 +137,17 @@ pub async fn flush_outbox(store: &IdentityStore, client: &async_nats::Client) ->
             "Nats-Msg-Id",
             format!("{}:{id}", store.nkey()?.public_key()),
         );
-        js.publish_with_headers(subject, headers, payload.into())
+        let ack = js
+            .publish_with_headers(subject, headers, payload.clone().into())
             .await?
             .await?;
-        store
-            .connection
-            .execute("UPDATE outbox SET sent=1 WHERE id=?1", [id])?;
+        store.transaction(|| {
+            store.connection.execute("UPDATE outbox SET sent=1 WHERE id=?1", [id])?;
+            if ack.stream == "CHAT" {
+                store.connection.execute("UPDATE transcript SET stream_sequence=COALESCE(stream_sequence,?1) WHERE payload=?2", rusqlite::params![ack.sequence, payload])?;
+            }
+            Ok(())
+        })?;
     }
     Ok(())
 }
