@@ -1,0 +1,7 @@
+/target/
+/.dev/
+*.sqlite*
+*.seed
+*.creds
+*.pem
+.env

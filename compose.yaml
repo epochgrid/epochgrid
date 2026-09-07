@@ -1,0 +1,16 @@
+services:
+  nats:
+    image: ghcr.io/epochgrid/nats-dev:2.14.5
+    pull_policy: never
+    build:
+      context: .dev/nats-image
+    ports:
+      - "127.0.0.1:4222:4222"
+    volumes:
+      - ./.dev/nats-compose.conf:/etc/nats/nats.conf:ro
+      - nats-data:/data
+    # Root inside this development container can initialize the named volume.
+    user: "0:0"
+    restart: unless-stopped
+volumes:
+  nats-data:

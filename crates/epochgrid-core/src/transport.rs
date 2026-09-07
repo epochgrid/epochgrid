@@ -1,0 +1,150 @@
+use crate::{
+    identity::{IdentityStore, verify},
+    wire::{self, Body, DeviceRegistration},
+};
+use anyhow::{Result, anyhow, ensure};
+use std::{collections::BTreeMap, path::Path, time::Duration};
+
+pub type Enrollment = BTreeMap<String, String>;
+pub async fn connect(url: &str, store: &IdentityStore) -> Result<async_nats::Client> {
+    let key = store.nkey()?;
+    Ok(async_nats::ConnectOptions::with_nkey(key.seed()?)
+        .custom_inbox_prefix(format!("_INBOX.{}", key.public_key()))
+        .request_timeout(Some(Duration::from_secs(5)))
+        .connection_timeout(Duration::from_secs(5))
+        .connect(url)
+        .await?)
+}
+pub async fn register(client: &async_nats::Client, registration: DeviceRegistration) -> Result<()> {
+    let response = client
+        .request(
+            wire::REGISTER,
+            wire::encode(Body::Register(registration))?.into(),
+        )
+        .await?;
+    ensure!(
+        matches!(wire::decode(&response.payload)?, Body::Registered),
+        "registration rejected"
+    );
+    Ok(())
+}
+pub async fn provision(client: async_nats::Client) -> Result<async_nats::jetstream::kv::Store> {
+    let js = async_nats::jetstream::new(client);
+    for (name, subjects) in [
+        (
+            "CHAT",
+            vec![
+                "epochgrid.v1.group.*.message",
+                "epochgrid.v1.group.*.handshake",
+            ],
+        ),
+        ("MAILBOX", vec!["epochgrid.v1.user.*.*.inbox"]),
+    ] {
+        js.get_or_create_stream(async_nats::jetstream::stream::Config {
+            name: name.into(),
+            subjects: subjects.into_iter().map(str::to_owned).collect(),
+            max_message_size: wire::MAX_WIRE as i32,
+            ..Default::default()
+        })
+        .await?;
+    }
+    let mut identities = None;
+    for bucket in ["IDENTITIES", "CHANNELS"] {
+        let store = match js.get_key_value(bucket).await {
+            Ok(store) => store,
+            Err(_) => {
+                js.create_key_value(async_nats::jetstream::kv::Config {
+                    bucket: bucket.into(),
+                    history: 1,
+                    ..Default::default()
+                })
+                .await?
+            }
+        };
+        if bucket == "IDENTITIES" {
+            identities = Some(store);
+        }
+    }
+    identities.ok_or_else(|| anyhow!("IDENTITIES not provisioned"))
+}
+pub async fn accept(
+    store: &async_nats::jetstream::kv::Store,
+    enrollment: &Enrollment,
+    registration: DeviceRegistration,
+) -> Result<()> {
+    verify(&registration)?;
+    let key = registration.payload.key();
+    ensure!(
+        enrollment.get(&key) == Some(&registration.payload.nats_public_key),
+        "device is not enrolled"
+    );
+    let bytes = wire::encode(Body::Register(registration))?;
+    match store.create(&key, bytes.clone().into()).await {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            // Exact retries are safe; never overwrite another binding or an existing KeyPackage.
+            let existing = store.get(&key).await?;
+            ensure!(
+                existing.as_deref() == Some(bytes.as_slice()),
+                "registration conflict: {error}"
+            );
+            Ok(())
+        }
+    }
+}
+/// Generate public server configuration and enrollment from pre-created local devices.
+pub fn dev_config(root: &Path, port: u16) -> Result<()> {
+    let mut entries = Vec::new();
+    let mut enrollment = Enrollment::new();
+    for user in ["alice", "bob", "service"] {
+        let mut store = IdentityStore::open(&root.join(user))?;
+        let registration = match store.registration() {
+            Ok(r) => r,
+            Err(_) => store.init(user, "laptop")?,
+        };
+        let p = registration.payload;
+        if user != "service" {
+            enrollment.insert(p.key(), p.nats_public_key.clone());
+        }
+        let inbox = format!("_INBOX.{}.>", p.nats_public_key);
+        let permissions = if user == "service" {
+            format!(
+                r#"publish: ["$JS.API.>", "$KV.IDENTITIES.>", "$KV.CHANNELS.>"]
+subscribe: ["{inbox}", "epochgrid.v1.identity.register"]
+allow_responses: {{max: 1, expires: "5s"}}"#
+            )
+        } else {
+            format!(
+                r#"publish: ["epochgrid.v1.identity.register"]
+subscribe: ["{inbox}"]"#
+            )
+        };
+        entries.push(format!(
+            "{{nkey: \"{}\", permissions: {{{permissions}}}}}",
+            p.nats_public_key
+        ));
+    }
+    std::fs::write(
+        root.join("enrollment.json"),
+        serde_json::to_vec_pretty(&enrollment)?,
+    )?;
+    std::fs::write(
+        root.join("nats.conf"),
+        format!(
+            "listen: 127.0.0.1:{port}\nmax_payload: 65536\njetstream {{store_dir: \"{}\"}}\nauthorization {{users: [{}]}}\n",
+            root.canonicalize()?.join("jetstream").display(),
+            entries.join(",\n")
+        ),
+    )?;
+    // Container path and listener differ; host port is bound to loopback by Compose.
+    let host = std::fs::read_to_string(root.join("nats.conf"))?;
+    std::fs::write(
+        root.join("nats-compose.conf"),
+        host.replace(&format!("127.0.0.1:{port}"), "0.0.0.0:4222")
+            .replace(
+                &root.canonicalize()?.join("jetstream").display().to_string(),
+                "/data",
+            ),
+    )?;
+    Ok(())
+}
