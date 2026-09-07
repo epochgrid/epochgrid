@@ -187,8 +187,10 @@ async fn nats_registration_and_restart() -> Result<()> {
     drop(alice);
     let alice_reopened = IdentityStore::open(&dir.path().join("alice"))?;
     let client = connect(&url, &alice_reopened).await?;
+    drop(admin);
     let _daemon = service(dir.path(), &url).await?;
     register_ready(&client, &alice_reopened).await?;
+    let admin = IdentityStore::open(&dir.path().join("service"))?;
     let admin_client = connect(&url, &admin).await?;
     let kv = async_nats::jetstream::new(admin_client)
         .get_key_value("IDENTITIES")
