@@ -1,13 +1,11 @@
+mod chat;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use epochgrid_core::{identity::IdentityStore, transport};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(
-    name = "epochgrid",
-    about = "EpochGrid secure communications — identity foundation"
-)]
+#[command(name = "epochgrid", about = "EpochGrid secure group communications")]
 struct Args {
     #[arg(long, env = "EPOCHGRID_HOME", default_value = ".dev/alice")]
     home: PathBuf,
@@ -22,6 +20,12 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Live MLS encrypted chat; /quit exits.
+    Chat { name: String },
+    Message {
+        #[command(subcommand)]
+        command: Message,
+    },
     Identity {
         #[command(subcommand)]
         command: Identity,
@@ -62,6 +66,8 @@ enum Channel {
         name: String,
     },
     List,
+    /// Retry queued ciphertext without encrypting it again.
+    Flush,
     Invite {
         name: String,
         user: String,
@@ -75,6 +81,17 @@ enum Channel {
         device: String,
     },
 }
+#[derive(Subcommand)]
+enum Message {
+    /// Read one UTF-8 message from stdin and publish MLS ciphertext.
+    Send { name: String },
+    /// Wait for one live authenticated message (history replay is not implemented).
+    Receive {
+        name: String,
+        #[arg(long, default_value_t = 30)]
+        timeout: u64,
+    },
+}
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -82,6 +99,25 @@ async fn main() -> Result<()> {
         .init();
     let args = Args::parse();
     match args.command {
+        Command::Chat { name } => {
+            chat::interactive(&args.home, &args.server, &name).await?;
+        }
+        Command::Message { command } => match command {
+            Message::Send { name } => {
+                use std::io::Read;
+                let mut text = String::new();
+                std::io::stdin()
+                    .take((epochgrid_core::messaging::MAX_PLAINTEXT + 1) as u64)
+                    .read_to_string(&mut text)?;
+                let store = IdentityStore::open(&args.home)?;
+                let client = transport::connect(&args.server, &store).await?;
+                epochgrid_core::messaging::send(&store, &client, &name, text.as_bytes()).await?;
+                println!("EpochGrid encrypted message delivered");
+            }
+            Message::Receive { name, timeout } => {
+                chat::receive(&args.home, &args.server, &name, timeout).await?;
+            }
+        },
         Command::DevConfig { root, port } => {
             transport::dev_config(&root, port)?;
             println!(
@@ -113,6 +149,11 @@ async fn main() -> Result<()> {
                         epochgrid_core::delivery::join_next(&store, &client, &from, &device)
                             .await?;
                     println!("EpochGrid channel joined: {} ({})", group.name, group.gid);
+                }
+                Channel::Flush => {
+                    let client = transport::connect(&args.server, &store).await?;
+                    epochgrid_core::delivery::flush_outbox(&store, &client).await?;
+                    println!("EpochGrid outbox delivered");
                 }
                 Channel::List => {
                     for group in store.groups()? {

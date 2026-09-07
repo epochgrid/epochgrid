@@ -56,4 +56,5 @@ if ! ./target/debug/epochgrid --home .dev/bob channel list | grep -q '^engineeri
   ./target/debug/epochgrid --home .dev/bob channel join --from alice
 fi
 ./target/debug/epochgrid --home .dev/bob channel members engineering
+python3 scripts/dev/chat-smoke.py
 printf 'EpochGrid Compose and CLI smoke test passed\n'

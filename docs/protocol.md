@@ -1,8 +1,8 @@
-# EpochGrid protocol v1 — registration foundation
+# EpochGrid protocol v1 — Milestones 0–7
 
 NATS request/reply subject: `epochgrid.v1.identity.register`. Registration uses
-this subject exactly; lookup/group subjects from the architecture are reserved
-and have no handlers in this slice. Per-device reply prefixes are
+this subject exactly; lookup and KeyPackage requests use the fixed subjects
+described below. Per-device reply prefixes are
 `_INBOX.<NATS-public-key>.>` so one client cannot subscribe to another's replies.
 
 Payloads are postcard 1.x encodings of `Envelope { version: u16, body: Body }`.
@@ -43,8 +43,8 @@ redirecting service replies into KV or group subjects. Errors return only Reject
 
 Future MLS transport types will carry opaque MLS payloads with explicit version,
 group ID and type as needed. CHAT subjects are `epochgrid.v1.group.*.message` and
-`.handshake`; MAILBOX uses `epochgrid.v1.user.*.*.inbox`. They are provisioned but
-unused. Do not send plaintext into these streams. Public registration data is
+`.handshake`; MAILBOX uses `epochgrid.v1.user.*.*.inbox`. CHAT carries encrypted Commit/application traffic; MAILBOX carries Welcomes.
+Do not send plaintext into these streams. Public registration data is
 intentionally readable by the identity service; it is not application ciphertext.
 
 Milestone 4 adds fixed request/reply subject `epochgrid.v1.identity.lookup` with
@@ -81,3 +81,19 @@ creation and invitation commits include metadata and the ciphertext outbox in th
 same transaction. Publish retries reuse the exact stored bytes and Nats-Msg-Id;
 there is no distributed transaction with NATS. A device file lock prevents
 concurrent processes from advancing the same ratchet state.
+
+
+Milestone 7 application traffic on `epochgrid.v1.group.<gid>.message` is raw
+TLS-serialized MLS PrivateMessage, using MLS's version/type fields rather than a
+redundant EpochGrid envelope. Maximum plaintext is 16,384 bytes. Receivers require
+PrivateMessage/Application and matching MLS group ID before processing. Sender
+labels come from authenticated MLS credentials, never NATS headers. Successful
+processing and an exact-ciphertext deduplication marker commit together. Own
+ciphertexts are recognized from the outbox and are not decrypted again. Plaintext
+is displayed locally; no transcript is persisted and no application plaintext is
+passed to NATS. Received terminal control characters are escaped for display.
+
+Consumers in this slice subscribe live to the selected group's message subject.
+JetStream stores those publications with acknowledgments, but no client history
+reader is implemented yet. Application replay/catch-up is Milestone 8. Group
+handshakes after the initial two-member creation are not implemented.

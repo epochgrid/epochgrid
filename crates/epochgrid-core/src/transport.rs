@@ -166,8 +166,8 @@ allow_responses: {{max: 1, expires: "5s"}}"#
             )
         } else {
             format!(
-                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup", "epochgrid.v1.identity.keypackage", "epochgrid.v1.group.*.handshake", "epochgrid.v1.user.*.*.inbox", "$JS.API.CONSUMER.INFO.MAILBOX.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.MAILBOX.device_{key}", "$JS.ACK.MAILBOX.device_{key}.>"]
-subscribe: ["{inbox}"]"#,
+                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup", "epochgrid.v1.identity.keypackage", "epochgrid.v1.group.*.handshake", "epochgrid.v1.group.*.message", "epochgrid.v1.user.*.*.inbox", "$JS.API.CONSUMER.INFO.MAILBOX.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.MAILBOX.device_{key}", "$JS.ACK.MAILBOX.device_{key}.>"]
+subscribe: ["{inbox}", "epochgrid.v1.group.*.message"]"#,
                 key = p.nats_public_key
             )
         };

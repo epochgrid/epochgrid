@@ -85,7 +85,8 @@ impl IdentityStore {
         let connection = Rc::new(Connection::open(path)?);
         connection.execute_batch("CREATE TABLE IF NOT EXISTS groups (name TEXT PRIMARY KEY, gid TEXT NOT NULL UNIQUE, mls_id BLOB NOT NULL UNIQUE);")?;
         connection.execute_batch("CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY, subject TEXT NOT NULL, payload BLOB NOT NULL UNIQUE, sent INTEGER NOT NULL DEFAULT 0);
-        CREATE TABLE IF NOT EXISTS welcomes (payload BLOB PRIMARY KEY, name TEXT NOT NULL);")?;
+        CREATE TABLE IF NOT EXISTS welcomes (payload BLOB PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS received (payload BLOB PRIMARY KEY);")?;
         let storage = SqliteStorageProvider::new(Rc::clone(&connection));
         Ok(Self {
             connection,
@@ -113,6 +114,9 @@ impl IdentityStore {
         }
     }
     pub fn init(&mut self, user: &str, device: &str) -> Result<DeviceRegistration> {
+        self.transaction(|| self.initialize(user, device))
+    }
+    fn initialize(&self, user: &str, device: &str) -> Result<DeviceRegistration> {
         validate_id(user)?;
         validate_id(device)?;
         ensure!(

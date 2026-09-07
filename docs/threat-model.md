@@ -1,34 +1,46 @@
 # Threat model
 
-EpochGrid aims to protect future message content from network observers, NATS
-servers, JetStream compromise and infrastructure administrators. It aims to inherit
-MLS forward secrecy and post-compromise security when correctly implemented,
-including exclusion of removed members from future epochs. Group messaging and
-removal are not implemented in Milestones 0–3, so these are design goals, not
-properties demonstrated by the current foundation.
+EpochGrid is designed to protect application message content from network
+observers, NATS servers, JetStream compromise and infrastructure administrators.
+The implemented two-device flow uses OpenMLS encryption and verifies that a known
+test secret does not appear in CHAT payloads. This is evidence for that tested
+path, not a production security audit or proof for every possible execution.
 
-Implemented boundaries: independent NATS and MLS keys; NKey challenge-response
-network authentication; signed public registration; OpenMLS KeyPackage validation;
-operator-controlled enrollment; isolated client reply permissions; public-only
-identity KV; local SQLite persistence. The service is trusted for enrollment and
-metadata, but will remain untrusted for message confidentiality. A signature
-proves possession, not human identity. The operator is responsible for enrollment.
+The project aims to inherit MLS forward secrecy and post-compromise security when
+correctly implemented, including exclusion of removed members from future epochs.
+Removal, explicit key updates and those lifecycle security tests are not implemented.
 
-Not hidden: subjects, message sizes/timing, connection metadata, public device
-identities and KeyPackages, eventual presence, or traffic analysis. Public
-registration exposes usernames. TLS is not enabled in the local Compose setup:
-it binds loopback and must not be used remotely. NKeys do not encrypt transport.
-TLS and trust configuration must precede deployment beyond this development scope.
+Implemented boundaries include independent NATS/MLS keys, NKey network
+authentication, signed registration and operator enrollment, verified discovery,
+one-use KeyPackage reservation, authenticated Welcome senders, encrypted MLS
+application/Commit traffic, device-specific mailbox consumption, transactional
+local state and replay suppression. The identity service is trusted for enrollment
+and metadata, but not message confidentiality. A signature proves key possession,
+not human identity. Directory substitution/key transparency remain open problems.
 
-Endpoint compromise can disclose all local secrets. SQLite and its journals are
-unencrypted. Unix directories/files use 0700/0600; Windows ACL integration is not
-implemented. Use a dedicated private local directory on a trusted filesystem.
-Future key-management adapters should integrate Linux Secret Service, macOS
+Not hidden: subjects, timing, sizes, connection metadata, usernames, group names
+inside MLS group IDs, public credentials/KeyPackages, or traffic analysis.
+The local Compose setup has no TLS and binds loopback. NKeys do not encrypt
+transport. Configure TLS and trust roots before any remote deployment.
+
+Development group permissions use namespace wildcards, so enrolled devices can
+observe unrelated lab ciphertext or inject invalid traffic. MLS rejects invalid
+content; transport authorization does not yet enforce exact membership. Clients
+can publish to peer inboxes but cannot read them. A malicious enrolled client can
+reserve a peer's initial KeyPackage or block its mailbox with unwanted traffic.
+Availability and request flooding are not protected in this slice.
+
+Endpoint compromise can expose private keys and displayed messages. SQLite and
+journals are unencrypted; Unix directories/files use 0700/0600 and an OS file lock.
+Use a dedicated private directory on a trusted filesystem. Windows ACL integration
+is not implemented. Future adapters should support Linux Secret Service, macOS
 Keychain/Secure Enclave, Windows CNG/TPM and mobile secure keystores.
 
-Open issues: availability and request flooding, identity rotation/revocation,
-KeyPackage expiry/replenishment, malicious directory substitution/key transparency,
-TLS provisioning, group authorization, atomic group/outbox delivery and crash
-recovery. Local initialization writes MLS keys before its identity row: a crash
-can leave unused MLS records; it does not publish a partial registration.
-No distributed delivery or group-state crash-safety claims are made yet.
+Local transactions couple OpenMLS changes to the ciphertext outbox and deduplication
+markers. These are not distributed transactions. Outbox retries can duplicate a
+publish beyond NATS's deduplication window; recipients suppress exact copies.
+History replay, offline catch-up, retention cleanup, fault-injection coverage and
+a durable local display queue are pending. A crash after decrypt/commit but before
+printing can lose display of a message. Backups restoring old ratchet state are
+not safe recovery. No exactly-once delivery or comprehensive crash-safety claim is
+made. Rotation/revocation, package replenishment/expiry and recovery remain open.

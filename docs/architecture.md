@@ -1,53 +1,73 @@
-# EpochGrid architecture — Milestones 0–3
+# EpochGrid architecture — through Milestone 7
 
 EpochGrid (https://epochgrid.org; secondary https://epochgrid.net) uses NATS for
-transport, authentication, authorization, persistence and service request/reply.
-OpenMLS implements MLS; no custom group cryptography is planned.
+transport, authentication, authorization, request/reply and persistence. OpenMLS
+implements RFC 9420 group cryptography; no custom group encryption is introduced.
 
-The initial workspace has core (protocol, SQLite identity storage and NATS),
-client CLI and a single service. This slice initializes independent NATS user
-NKeys and MLS Ed25519 identities, persists a real OpenMLS KeyPackage and its
-private bundle, authenticates clients and registers public bindings in IDENTITIES
-KV. CHANNELS, CHAT and MAILBOX are provisioned but group operations come later.
-The service has no client secrets. SQLite is local only; HTTP is absent.
+The workspace has core (wire protocol, SQLite/OpenMLS and NATS operations), a host
+CLI, and one NATS-only identity service. NKeys authenticate devices to the fabric;
+independent MLS Ed25519 keys authenticate group members. The service handles
+public registrations, lookup, one-use KeyPackage reservation and stream/consumer
+provisioning. It holds no client secrets or application plaintext. SQLite is local
+only. There is no HTTP API and no backend message-decryption path.
 
-Registration uses a NKey-signed, domain-separated postcard payload, validates
-OpenMLS KeyPackage signatures/lifetime/credential binding, and checks an explicit
-operator-provisioned user/device/NKey allowlist. Core NATS does not expose the
-requester's authenticated NKey to a subscriber. The signed binding plus enrollment
-policy is therefore required; subject permissions alone are insufficient.
-Initial registration is immutable and idempotent. Rotation/revocation are deferred.
+Registration binds user/device/NKey/MLS credential/KeyPackage using an NKey-signed
+postcard payload. The service validates OpenMLS signatures, lifetime and identity,
+then checks explicit enrollment. Core NATS does not tell a subscriber the
+requester's authenticated NKey; signing and enrollment are required independently
+of subject permissions. Directory records are immutable; exact retries succeed.
 
-OpenMLS 0.9.0 requires Rust 1.91 and self-describing storage serialization.
-Use RustCrypto 0.6, basic credential 0.6, traits 0.6 and SQLite provider 0.3
-(with rusqlite 0.37). The provider uses JSON internally for compatibility; the
-wire uses binary postcard, and MLS public objects use TLS serialization.
-async-nats 0.50 uses explicit nkeys, kv, ring and server_2_10 features.
-Cargo.lock records the tested resolution. Upstream sources inspected:
+Alice creates a local MLS group with an authenticated name and random routing ID.
+She reserves Bob's initial KeyPackage, adds him, and queues the encrypted Commit
+and Welcome. Bob pulls his durable mailbox and authenticates the Welcome signer
+against an explicitly selected inviter's directory registration before joining.
+This slice supports one invitation and two devices per group. MLS owns membership;
+CHANNELS KV is provisioned but unused. Future channel metadata is not authoritative
+cryptographic membership.
+
+Application messages use MLS PrivateMessages and NATS group subjects. Publishers
+wait for JetStream acknowledgments; live subscribers authenticate/decrypt locally.
+CHAT stores raw versioned MLS protocol bytes. MAILBOX stores a small EpochGrid
+Welcome envelope. Neither contains application plaintext. History retrieval and
+offline catch-up are deferred to Milestone 8.
+
+OpenMLS's SQLite provider and application tables share one connection. Transactions
+cover initialization, group creation, invitation/ratchet changes, ciphertext
+outbox writes and receive deduplication. A file lock prevents concurrent clients
+from advancing the same device. Outbox retries reuse exact bytes and stable
+Nats-Msg-Id values. This is not a distributed transaction with NATS; acknowledgments
+and UI display can fail after local commit. No exactly-once display is claimed.
+
+## Compatibility decisions
+
+OpenMLS 0.9.0 requires Rust 1.91 and self-describing storage. Use RustCrypto 0.6,
+basic credential 0.6, traits 0.6, SQLite provider 0.3 and rusqlite 0.37. Its storage
+codec uses JSON internally; the wire uses binary postcard and MLS TLS encoding.
+Production Welcome parsing uses `MlsMessageIn::extract()`; the convenient
+`into_welcome()` from some upstream tests is feature-gated. Groups require the
+ratchet-tree extension and use the pure-ciphertext wire policy.
+
+async-nats 0.50 enables nkeys, kv, ring and server_2_10. Cargo.lock records the
+tested versions; development/CI pins Rust 1.98.1. Source references inspected:
+
 - https://book.openmls.tech/releases/0.9.0.html
+- https://book.openmls.tech/user_manual/application_messages.html
+- https://docs.rs/openmls/0.9.0/openmls/group/struct.StagedWelcome.html
 - https://docs.rs/openmls_sqlite_storage/0.3.0/
 - https://docs.rs/async-nats/0.50.0/async_nats/struct.ConnectOptions.html
 - https://docs.nats.io/running-a-nats-service/configuration/securing_nats/auth_intro/nkey_auth
 
-Development uses static user NKeys, restrictive registration/reply subjects and
-an enrollment file generated from local public registrations. Clients cannot
-access JetStream APIs directly. Service provisioning permissions are broader but
-restricted to JetStream APIs/KV and service replies; split provisioning later.
-TLS is deferred for this loopback-only initial slice. Never expose this setup on
-a shared network. Group-specific authorization is deferred with group messaging.
-Future CHAT payloads must be opaque MLS protocol bytes; subjects expose metadata.
-MLS owns membership; CHANNELS is only a metadata directory.
+## Development authorization
 
-Milestones 4–6: verified lookup, persistent group creation and authenticated
-Welcome join are implemented. The SQLite provider and local tables now share a
-connection and transactions. Device directories are locked while in use. Initial
-KeyPackages are reserved once; the scope remains one invitation/two devices per
-group. Groups and their ciphertext outbox are local; no CHANNELS service is needed
-yet. OpenMLS production Welcome extraction uses `MlsMessageIn::extract()`;
-`into_welcome()` in upstream examples is test-feature-gated.
+Static user NKeys and loopback-only NATS are used without TLS. Clients may call
+identity services, publish group message/handshake and inbox traffic, subscribe
+to group application subjects and their own reply prefix, and inspect/pull/ack
+only their service-provisioned mailbox consumer. They cannot create consumers,
+read identity KV directly, subscribe to another inbox, or access system subjects.
 
-Development permissions now allow enrolled clients to publish group handshakes
-and device-directed inbox messages. Inbox subscriptions remain isolated. Static
-lab group permissions are temporary: provision exact group subjects from an
-authorized metadata policy before supporting mutually untrusted groups. MLS
-membership remains independent of those transport permissions.
+Group wildcards cover the entire Alice/Bob lab namespace, a documented temporary
+limitation. Before supporting mutually untrusted groups, provision exact group
+subjects from an authenticated metadata policy (or use account/JWT authorization)
+and revoke those permissions with membership changes. MLS still provides content
+authentication/confidentiality independently of those permissions. The service's
+JetStream provisioning authority should also be separated from runtime permissions.

@@ -16,7 +16,7 @@ jobs:
       - run: cargo test --locked --workspace
       - run: cargo build --locked --workspace
       - run: ./scripts/dev/download-nats.sh
-      - name: NATS authentication, registration and restart integration
+      - name: NATS discovery, MLS invitations, encrypted messaging and restart
         run: NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test --locked -p epochgrid-service --test registration -- --ignored
       - name: Compose and host CLI smoke test
         run: ./scripts/dev/smoke.sh

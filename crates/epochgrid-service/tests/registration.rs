@@ -4,6 +4,7 @@ use epochgrid_core::{
     transport,
     wire::{self, Body},
 };
+use futures_util::StreamExt;
 use std::{
     net::TcpListener,
     process::{Child, Command, Stdio},
@@ -192,9 +193,8 @@ async fn nats_registration_and_restart() -> Result<()> {
     register_ready(&client, &alice_reopened).await?;
     let admin = IdentityStore::open(&dir.path().join("service"))?;
     let admin_client = connect(&url, &admin).await?;
-    let kv = async_nats::jetstream::new(admin_client)
-        .get_key_value("IDENTITIES")
-        .await?;
+    let js = async_nats::jetstream::new(admin_client);
+    let kv = js.get_key_value("IDENTITIES").await?;
     let after = kv
         .entry(alice_reopened.registration()?.payload.key())
         .await?
@@ -218,5 +218,61 @@ async fn nats_registration_and_restart() -> Result<()> {
             .is_err()
     );
 
+    let secret = b"EPOCHGRID_TEST_SECRET_91F3";
+    let mut bob_messages =
+        epochgrid_core::messaging::subscribe(&bob, &bob_client, "engineering").await?;
+    epochgrid_core::messaging::send(&alice_reopened, &client, "engineering", secret).await?;
+    let received = tokio::time::timeout(Duration::from_secs(3), bob_messages.next())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Bob did not receive ciphertext"))?;
+    ensure!(received.payload.as_ref() != secret);
+    let decrypted = bob
+        .decrypt_message("engineering", &received.payload)?
+        .ok_or_else(|| anyhow::anyhow!("message unexpectedly deduplicated"))?;
+    ensure!(decrypted.sender == "alice/laptop" && decrypted.plaintext == secret);
+    let mut alice_messages =
+        epochgrid_core::messaging::subscribe(&alice_reopened, &client, "engineering").await?;
+    epochgrid_core::messaging::send(&bob, &bob_client, "engineering", b"confirmed").await?;
+    let reply = tokio::time::timeout(Duration::from_secs(3), alice_messages.next())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Alice did not receive reply"))?;
+    let reply = alice_reopened
+        .decrypt_message("engineering", &reply.payload)?
+        .ok_or_else(|| anyhow::anyhow!("reply missing"))?;
+    ensure!(reply.sender == "bob/laptop" && reply.plaintext == b"confirmed");
+    let mut chat = js.get_stream("CHAT").await?;
+    let last_sequence = chat.info().await?.state.last_sequence;
+    ensure!(last_sequence >= 3);
+    for sequence in 1..=last_sequence {
+        let stored = chat.get_raw_message(sequence).await?;
+        ensure!(
+            !stored.payload.windows(secret.len()).any(|w| w == secret),
+            "plaintext found in JetStream"
+        );
+        ensure!(
+            !stored
+                .payload
+                .windows(b"confirmed".len())
+                .any(|w| w == b"confirmed")
+        );
+    }
+    // Reload both MLS providers, then continue over the live NATS connection.
+    drop(bob_messages);
+    drop(alice_messages);
+    drop(bob);
+    drop(alice_reopened);
+    let bob = IdentityStore::open(&dir.path().join("bob"))?;
+    let alice = IdentityStore::open(&dir.path().join("alice"))?;
+    let mut messages =
+        epochgrid_core::messaging::subscribe(&bob, &bob_client, "engineering").await?;
+    epochgrid_core::messaging::send(&alice, &client, "engineering", b"after restart").await?;
+    let message = tokio::time::timeout(Duration::from_secs(3), messages.next())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("restart message missing"))?;
+    ensure!(
+        bob.decrypt_message("engineering", &message.payload)?
+            .map(|m| m.plaintext)
+            == Some(b"after restart".to_vec())
+    );
     Ok(())
 }
