@@ -43,6 +43,11 @@ enum Identity {
     },
     Show,
     Register,
+    Lookup {
+        user: String,
+        #[arg(long, default_value = "laptop")]
+        device: String,
+    },
 }
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -72,6 +77,11 @@ async fn main() -> Result<()> {
                     "{}",
                     serde_json::to_string_pretty(&store.registration()?.payload)?
                 ),
+                Identity::Lookup { user, device } => {
+                    let client = transport::connect(&args.server, &store).await?;
+                    let registration = transport::lookup(&client, &user, &device).await?;
+                    println!("{}", serde_json::to_string_pretty(&registration.payload)?);
+                }
                 Identity::Register => {
                     let client = transport::connect(&args.server, &store).await?;
                     transport::register(&client, store.registration()?).await?;

@@ -77,6 +77,13 @@ async fn nats_registration_and_restart() -> Result<()> {
     register_ready(&client, &alice).await?;
     let bob_client = connect(&url, &bob).await?;
     transport::register(&bob_client, bob.registration()?).await?;
+    ensure!(transport::lookup(&client, "bob", "laptop").await? == bob.registration()?);
+    ensure!(
+        transport::lookup(&client, "unknown", "laptop")
+            .await
+            .is_err()
+    );
+    ensure!(transport::lookup(&client, "bob.*", "laptop").await.is_err());
     // A crafted reply must not turn the service into a KV-writing deputy.
     client
         .publish_with_reply(

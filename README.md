@@ -4,10 +4,10 @@ EpochGrid is an open-source secure group communications project combining NATS
 infrastructure with MLS end-to-end group encryption. Project: https://epochgrid.org
 (secondary https://epochgrid.net). Organization: https://github.com/epochgrid.
 
-**Current status: Milestones 0–3.** The working foundation creates independent
+**Current status: Milestones 0–4.** The working foundation creates independent
 NATS and MLS device keys, persists them in SQLite, authenticates with NKeys and
 registers verified public identities/KeyPackages over NATS request/reply.
-Group creation, discovery, invitations and encrypted chat are **not implemented**.
+Group creation, invitations and encrypted chat are **not implemented**.
 No production security claim is made.
 
 NATS supplies transport, authorization and JetStream/KV persistence. OpenMLS will
@@ -47,6 +47,8 @@ Alice's terminal:
 ```bash
 ./target/debug/epochgrid --home .dev/alice identity show
 ./scripts/dev/create-alice.sh
+# After Bob registers:
+./target/debug/epochgrid --home .dev/alice identity lookup bob
 ```
 
 Bob's terminal:

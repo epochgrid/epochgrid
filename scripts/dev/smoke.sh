@@ -33,6 +33,7 @@ if [[ "$ready" != true ]]; then
 fi
 cat .dev/smoke-alice.log
 ./scripts/dev/create-bob.sh
+./target/debug/epochgrid --home .dev/alice identity lookup bob > /dev/null
 # Each command is a new client process loading the persisted identity.
 ./scripts/dev/create-alice.sh
 kill -INT "$service_pid"

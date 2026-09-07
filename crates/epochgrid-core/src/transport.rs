@@ -28,6 +28,57 @@ pub async fn register(client: &async_nats::Client, registration: DeviceRegistrat
     );
     Ok(())
 }
+/// Validate both the returned signature/package and the requested endpoint.
+pub async fn lookup(
+    client: &async_nats::Client,
+    user: &str,
+    device: &str,
+) -> Result<DeviceRegistration> {
+    wire::validate_id(user)?;
+    wire::validate_id(device)?;
+    let response = client
+        .request(
+            wire::LOOKUP,
+            wire::encode(Body::Lookup {
+                user: user.into(),
+                device: device.into(),
+            })?
+            .into(),
+        )
+        .await?;
+    let Body::Found(registration) = wire::decode(&response.payload)? else {
+        anyhow::bail!("device not found or lookup rejected");
+    };
+    verify(&registration)?;
+    ensure!(
+        registration.payload.user_id == user && registration.payload.device_id == device,
+        "directory returned a different device"
+    );
+    Ok(registration)
+}
+pub async fn find(
+    store: &async_nats::jetstream::kv::Store,
+    enrollment: &Enrollment,
+    user: &str,
+    device: &str,
+) -> Result<Body> {
+    wire::validate_id(user)?;
+    wire::validate_id(device)?;
+    let key = format!("users.{user}.devices.{device}");
+    let Some(bytes) = store.get(&key).await? else {
+        return Ok(Body::NotFound);
+    };
+    let Body::Register(registration) = wire::decode(&bytes)? else {
+        anyhow::bail!("invalid directory record");
+    };
+    verify(&registration)?;
+    ensure!(
+        registration.payload.key() == key
+            && enrollment.get(&key) == Some(&registration.payload.nats_public_key),
+        "directory enrollment mismatch"
+    );
+    Ok(Body::Found(registration))
+}
 pub async fn provision(client: async_nats::Client) -> Result<async_nats::jetstream::kv::Store> {
     let js = async_nats::jetstream::new(client);
     for (name, subjects) in [
@@ -110,12 +161,12 @@ pub fn dev_config(root: &Path, port: u16) -> Result<()> {
         let permissions = if user == "service" {
             format!(
                 r#"publish: ["$JS.API.>", "$KV.IDENTITIES.>", "$KV.CHANNELS.>"]
-subscribe: ["{inbox}", "epochgrid.v1.identity.register"]
+subscribe: ["{inbox}", "epochgrid.v1.identity.*"]
 allow_responses: {{max: 1, expires: "5s"}}"#
             )
         } else {
             format!(
-                r#"publish: ["epochgrid.v1.identity.register"]
+                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup"]
 subscribe: ["{inbox}"]"#
             )
         };

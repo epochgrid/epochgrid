@@ -46,3 +46,9 @@ group ID and type as needed. CHAT subjects are `epochgrid.v1.group.*.message` an
 `.handshake`; MAILBOX uses `epochgrid.v1.user.*.*.inbox`. They are provisioned but
 unused. Do not send plaintext into these streams. Public registration data is
 intentionally readable by the identity service; it is not application ciphertext.
+
+Milestone 4 adds fixed request/reply subject `epochgrid.v1.identity.lookup` with
+Lookup=3 { user: String, device: String }, Found=4 { DeviceRegistration },
+NotFound=5. Clients revalidate signatures, package lifetime and the requested
+endpoint. A fixed subject replaces identity.lookup.<user> to keep routing and
+permissions small; the endpoint lives in the binary request. Lookup is read-only.
