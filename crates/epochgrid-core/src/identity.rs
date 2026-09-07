@@ -9,7 +9,9 @@ use openmls_traits::OpenMlsProvider;
 use rusqlite::Connection;
 use serde::{Serialize, de::DeserializeOwned};
 use std::{
+    fs::{File, OpenOptions},
     path::Path,
+    rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -27,12 +29,12 @@ impl Codec for JsonCodec {
 }
 pub struct Provider {
     crypto: RustCrypto,
-    storage: SqliteStorageProvider<JsonCodec, Connection>,
+    storage: SqliteStorageProvider<JsonCodec, Rc<Connection>>,
 }
 impl OpenMlsProvider for Provider {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
-    type StorageProvider = SqliteStorageProvider<JsonCodec, Connection>;
+    type StorageProvider = SqliteStorageProvider<JsonCodec, Rc<Connection>>;
     fn crypto(&self) -> &RustCrypto {
         &self.crypto
     }
@@ -45,7 +47,8 @@ impl OpenMlsProvider for Provider {
 }
 /// Development-only key boundary. The private directory contains unencrypted SQLite.
 pub struct IdentityStore {
-    connection: Connection,
+    pub(crate) connection: Rc<Connection>,
+    _lock: File,
     pub provider: Provider,
 }
 impl IdentityStore {
@@ -56,6 +59,16 @@ impl IdentityStore {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
         }
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let lock = options.open(dir.join("device.lock"))?;
+        lock.try_lock()
+            .context("device is already in use by another process")?;
         let path = dir.join("identity.sqlite");
         let connection = Connection::open(&path)?;
         #[cfg(unix)]
@@ -64,15 +77,38 @@ impl IdentityStore {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
         }
         connection.execute_batch("CREATE TABLE IF NOT EXISTS local_identity (id INTEGER PRIMARY KEY CHECK(id=1), seed TEXT NOT NULL, registration BLOB NOT NULL);")?;
-        let mut storage = SqliteStorageProvider::new(Connection::open(path)?);
+        let mut storage = SqliteStorageProvider::<JsonCodec, _>::new(connection);
         storage.run_migrations()?;
+        // Migrate before sharing the connection: OpenMLS and application writes
+        // then participate in the same SQLite transaction.
+        drop(storage);
+        let connection = Rc::new(Connection::open(path)?);
+        connection.execute_batch("CREATE TABLE IF NOT EXISTS groups (name TEXT PRIMARY KEY, gid TEXT NOT NULL UNIQUE, mls_id BLOB NOT NULL UNIQUE);")?;
+        let storage = SqliteStorageProvider::new(Rc::clone(&connection));
         Ok(Self {
             connection,
+            _lock: lock,
             provider: Provider {
                 crypto: RustCrypto::default(),
                 storage,
             },
         })
+    }
+    pub(crate) fn transaction<T>(&self, action: impl FnOnce() -> Result<T>) -> Result<T> {
+        self.connection.execute_batch("BEGIN IMMEDIATE")?;
+        match action() {
+            Ok(value) => {
+                if let Err(error) = self.connection.execute_batch("COMMIT") {
+                    let _ = self.connection.execute_batch("ROLLBACK");
+                    return Err(error.into());
+                }
+                Ok(value)
+            }
+            Err(error) => {
+                self.connection.execute_batch("ROLLBACK")?;
+                Err(error)
+            }
+        }
     }
     pub fn init(&mut self, user: &str, device: &str) -> Result<DeviceRegistration> {
         validate_id(user)?;

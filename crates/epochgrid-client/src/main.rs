@@ -26,6 +26,10 @@ enum Command {
         #[command(subcommand)]
         command: Identity,
     },
+    Channel {
+        #[command(subcommand)]
+        command: Channel,
+    },
     /// Generate local development identities, enrollment and NATS configuration.
     DevConfig {
         #[arg(long, default_value = ".dev")]
@@ -49,6 +53,12 @@ enum Identity {
         device: String,
     },
 }
+#[derive(Subcommand)]
+enum Channel {
+    Create { name: String },
+    Members { name: String },
+    List,
+}
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -62,6 +72,25 @@ async fn main() -> Result<()> {
                 "EpochGrid development configuration ready in {}",
                 root.display()
             );
+        }
+        Command::Channel { command } => {
+            let store = IdentityStore::open(&args.home)?;
+            match command {
+                Channel::Create { name } => {
+                    let group = store.create_group(&name)?;
+                    println!("EpochGrid channel created: {} ({})", group.name, group.gid);
+                }
+                Channel::Members { name } => {
+                    for member in store.members(&name)? {
+                        println!("{member}");
+                    }
+                }
+                Channel::List => {
+                    for group in store.groups()? {
+                        println!("{} {}", group.name, group.gid);
+                    }
+                }
+            }
         }
         Command::Identity { command } => {
             let mut store = IdentityStore::open(&args.home)?;

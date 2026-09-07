@@ -184,6 +184,7 @@ async fn nats_registration_and_restart() -> Result<()> {
     drop(admin_client);
     // Restart server, service and clients against their existing disk state.
     let _nats = server(dir.path())?;
+    drop(alice);
     let alice_reopened = IdentityStore::open(&dir.path().join("alice"))?;
     let client = connect(&url, &alice_reopened).await?;
     let _daemon = service(dir.path(), &url).await?;

@@ -33,6 +33,7 @@ async fn main() -> Result<()> {
     let enrollment: Enrollment = serde_json::from_slice(&std::fs::read(args.enrollment)?)?;
     let identity = IdentityStore::open(&args.home)?;
     let client = transport::connect(&args.server, &identity).await?;
+    drop(identity);
     let store = transport::provision(client.clone()).await?;
     let mut requests = client.subscribe("epochgrid.v1.identity.*").await?;
     client.flush().await?;
