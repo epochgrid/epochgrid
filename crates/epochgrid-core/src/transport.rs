@@ -166,8 +166,9 @@ allow_responses: {{max: 1, expires: "5s"}}"#
             )
         } else {
             format!(
-                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup"]
-subscribe: ["{inbox}"]"#
+                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup", "epochgrid.v1.identity.keypackage", "epochgrid.v1.group.*.handshake", "epochgrid.v1.user.*.*.inbox", "$JS.API.CONSUMER.INFO.MAILBOX.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.MAILBOX.device_{key}", "$JS.ACK.MAILBOX.device_{key}.>"]
+subscribe: ["{inbox}"]"#,
+                key = p.nats_public_key
             )
         };
         entries.push(format!(
@@ -197,5 +198,90 @@ subscribe: ["{inbox}"]"#
                 "/data",
             ),
     )?;
+    Ok(())
+}
+
+/// Initial KeyPackages are single-use. Retrying the same group's claim is idempotent.
+pub async fn claim(
+    store: &async_nats::jetstream::kv::Store,
+    enrollment: &Enrollment,
+    user: &str,
+    device: &str,
+    group: &str,
+) -> Result<Body> {
+    wire::validate_id(group)?;
+    let found = find(store, enrollment, user, device).await?;
+    ensure!(matches!(found, Body::Found(_)), "device not found");
+    let key = format!("claims.{user}.{device}");
+    if store.create(&key, group.to_owned().into()).await.is_err() {
+        ensure!(
+            store.get(&key).await?.as_deref() == Some(group.as_bytes()),
+            "KeyPackage already reserved for another group"
+        );
+    }
+    Ok(found)
+}
+pub async fn claim_keypackage(
+    client: &async_nats::Client,
+    user: &str,
+    device: &str,
+    group: &str,
+) -> Result<DeviceRegistration> {
+    wire::validate_id(user)?;
+    wire::validate_id(device)?;
+    wire::validate_id(group)?;
+    let response = client
+        .request(
+            wire::KEYPACKAGE,
+            wire::encode(Body::ClaimKeyPackage {
+                user: user.into(),
+                device: device.into(),
+                group: group.into(),
+            })?
+            .into(),
+        )
+        .await?;
+    let Body::Found(registration) = wire::decode(&response.payload)? else {
+        anyhow::bail!(
+            "KeyPackage unavailable (one invitation per device until replenishment is implemented)"
+        );
+    };
+    verify(&registration)?;
+    ensure!(
+        registration.payload.user_id == user && registration.payload.device_id == device,
+        "directory endpoint mismatch"
+    );
+    Ok(registration)
+}
+pub async fn provision_mailboxes(
+    client: async_nats::Client,
+    enrollment: &Enrollment,
+) -> Result<()> {
+    let js = async_nats::jetstream::new(client);
+    let stream = js.get_stream("MAILBOX").await?;
+    for (endpoint, key) in enrollment {
+        let parts: Vec<_> = endpoint.split('.').collect();
+        ensure!(
+            parts.len() == 4 && parts[0] == "users" && parts[2] == "devices",
+            "invalid enrollment endpoint"
+        );
+        wire::validate_id(parts[1])?;
+        wire::validate_id(parts[3])?;
+        nkeys::KeyPair::from_public_key(key)?;
+        stream
+            .get_or_create_consumer(
+                &format!("device_{key}"),
+                async_nats::jetstream::consumer::pull::Config {
+                    durable_name: Some(format!("device_{key}")),
+                    filter_subject: format!("epochgrid.v1.user.{}.{}.inbox", parts[1], parts[3]),
+                    ack_policy: async_nats::jetstream::consumer::AckPolicy::Explicit,
+                    ack_wait: Duration::from_secs(5),
+                    max_ack_pending: 1,
+                    max_batch: 1,
+                    ..Default::default()
+                },
+            )
+            .await?;
+    }
     Ok(())
 }

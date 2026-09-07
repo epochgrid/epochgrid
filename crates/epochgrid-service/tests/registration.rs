@@ -201,5 +201,22 @@ async fn nats_registration_and_restart() -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("registration lost"))?;
     ensure!(before.value == after.value && before.revision == after.revision);
     ensure!(kv.get(bob.registration()?.payload.key()).await?.is_some());
+    alice_reopened.create_group("engineering")?;
+    epochgrid_core::delivery::invite(&alice_reopened, &client, "engineering", "bob", "laptop")
+        .await?;
+    // Bob was not consuming his mailbox when Alice published the Welcome.
+    let bob_client = connect(&url, &bob).await?;
+    let joined = epochgrid_core::delivery::join_next(&bob, &bob_client, "alice", "laptop").await?;
+    ensure!(joined == alice_reopened.group("engineering")?);
+    ensure!(bob.members("engineering")? == alice_reopened.members("engineering")?);
+    // Invitation retries flush original ciphertext; a new group cannot reuse Bob's package.
+    epochgrid_core::delivery::invite(&alice_reopened, &client, "engineering", "bob", "laptop")
+        .await?;
+    ensure!(
+        transport::claim_keypackage(&client, "bob", "laptop", "anothergroup")
+            .await
+            .is_err()
+    );
+
     Ok(())
 }

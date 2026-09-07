@@ -4,10 +4,10 @@ EpochGrid is an open-source secure group communications project combining NATS
 infrastructure with MLS end-to-end group encryption. Project: https://epochgrid.org
 (secondary https://epochgrid.net). Organization: https://github.com/epochgrid.
 
-**Current status: Milestones 0–5.** The working foundation creates independent
+**Current status: Milestones 0–6.** The working foundation creates independent
 NATS and MLS device keys, persists them in SQLite, authenticates with NKeys and
 registers verified public identities/KeyPackages over NATS request/reply.
-Local MLS group creation is implemented. Invitations and encrypted chat are **not implemented**.
+Local MLS group creation is implemented. Durable invitations and authenticated Welcome joining work. Encrypted chat is **not implemented**.
 No production security claim is made.
 
 NATS supplies transport, authorization and JetStream/KV persistence. OpenMLS will
@@ -112,3 +112,17 @@ Create and inspect a persistent local MLS group:
 
 Only one process may open a given device directory at a time. The client holds an
 OS file lock; use separate directories for Alice and Bob.
+
+Invite Bob (after he registers), then join from Bob's terminal:
+
+```bash
+./target/debug/epochgrid --home .dev/alice channel invite engineering bob
+./target/debug/epochgrid --home .dev/bob channel join --from alice
+./target/debug/epochgrid --home .dev/bob channel members engineering
+```
+
+Welcome delivery is durable: Bob may be offline during the invitation. Each device
+has one initial KeyPackage, reserved for one group; replenishment is deferred.
+This slice supports two-device groups only. A failed invitation publish can be
+retried with the same command. Re-run bootstrap and restart the service to apply
+updated NATS permissions and provision mailbox consumers after upgrading.

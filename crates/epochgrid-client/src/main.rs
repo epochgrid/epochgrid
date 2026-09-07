@@ -55,9 +55,25 @@ enum Identity {
 }
 #[derive(Subcommand)]
 enum Channel {
-    Create { name: String },
-    Members { name: String },
+    Create {
+        name: String,
+    },
+    Members {
+        name: String,
+    },
     List,
+    Invite {
+        name: String,
+        user: String,
+        #[arg(long, default_value = "laptop")]
+        device: String,
+    },
+    Join {
+        #[arg(long)]
+        from: String,
+        #[arg(long, default_value = "laptop")]
+        device: String,
+    },
 }
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -84,6 +100,19 @@ async fn main() -> Result<()> {
                     for member in store.members(&name)? {
                         println!("{member}");
                     }
+                }
+                Channel::Invite { name, user, device } => {
+                    let client = transport::connect(&args.server, &store).await?;
+                    epochgrid_core::delivery::invite(&store, &client, &name, &user, &device)
+                        .await?;
+                    println!("EpochGrid invitation delivered to {user}/{device}");
+                }
+                Channel::Join { from, device } => {
+                    let client = transport::connect(&args.server, &store).await?;
+                    let group =
+                        epochgrid_core::delivery::join_next(&store, &client, &from, &device)
+                            .await?;
+                    println!("EpochGrid channel joined: {} ({})", group.name, group.gid);
                 }
                 Channel::List => {
                     for group in store.groups()? {

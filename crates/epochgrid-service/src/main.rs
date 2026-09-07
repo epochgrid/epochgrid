@@ -35,6 +35,7 @@ async fn main() -> Result<()> {
     let client = transport::connect(&args.server, &identity).await?;
     drop(identity);
     let store = transport::provision(client.clone()).await?;
+    transport::provision_mailboxes(client.clone(), &enrollment).await?;
     let mut requests = client.subscribe("epochgrid.v1.identity.*").await?;
     client.flush().await?;
     tracing::info!("EpochGrid identity service ready");
@@ -52,6 +53,7 @@ async fn main() -> Result<()> {
                         if transport::accept(&store, &enrollment, registration).await.is_ok() { Body::Registered } else { Body::Rejected }
                     }
                     (wire::LOOKUP, Ok(Body::Lookup { user, device })) => transport::find(&store, &enrollment, &user, &device).await.unwrap_or(Body::Rejected),
+                    (wire::KEYPACKAGE, Ok(Body::ClaimKeyPackage { user, device, group })) => transport::claim(&store, &enrollment, &user, &device, &group).await.unwrap_or(Body::Rejected),
                     _ => Body::Rejected,
                 };
                 if matches!(response, Body::Rejected) { tracing::warn!("identity request rejected"); }

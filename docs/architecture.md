@@ -37,3 +37,17 @@ TLS is deferred for this loopback-only initial slice. Never expose this setup on
 a shared network. Group-specific authorization is deferred with group messaging.
 Future CHAT payloads must be opaque MLS protocol bytes; subjects expose metadata.
 MLS owns membership; CHANNELS is only a metadata directory.
+
+Milestones 4–6: verified lookup, persistent group creation and authenticated
+Welcome join are implemented. The SQLite provider and local tables now share a
+connection and transactions. Device directories are locked while in use. Initial
+KeyPackages are reserved once; the scope remains one invitation/two devices per
+group. Groups and their ciphertext outbox are local; no CHANNELS service is needed
+yet. OpenMLS production Welcome extraction uses `MlsMessageIn::extract()`;
+`into_welcome()` in upstream examples is test-feature-gated.
+
+Development permissions now allow enrolled clients to publish group handshakes
+and device-directed inbox messages. Inbox subscriptions remain isolated. Static
+lab group permissions are temporary: provision exact group subjects from an
+authorized metadata policy before supporting mutually untrusted groups. MLS
+membership remains independent of those transport permissions.

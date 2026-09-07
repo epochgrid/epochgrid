@@ -52,3 +52,32 @@ Lookup=3 { user: String, device: String }, Found=4 { DeviceRegistration },
 NotFound=5. Clients revalidate signatures, package lifetime and the requested
 endpoint. A fixed subject replaces identity.lookup.<user> to keep routing and
 permissions small; the endpoint lives in the binary request. Lookup is read-only.
+
+Milestone 6 adds `epochgrid.v1.identity.keypackage`: ClaimKeyPackage=6 carries
+user, device and group (Strings); Found returns the signed registration. A KV
+`claims.<user>.<device>` record atomically reserves the initial package for that
+group. Exact retries succeed; another group is rejected. This is one-use package
+distribution, without rotation/replenishment yet. Authenticated enrolled clients
+can exhaust another device's initial package; availability is not protected.
+
+Welcome=7 { payload: Vec<u8> } wraps TLS-serialized MLS Welcome on MAILBOX.
+Bob explicitly selects an inviter and verifies the staged Welcome signing key
+and credential against the directory before committing the join. The MLS group
+ID is UTF-8 `epochgrid/v1/<channel-name>/<32-lowercase-hex-random-id>`; both name
+and routing ID are authenticated by MLS. NATS uses only the random ID as gid.
+The ratchet tree travels inside the MLS Welcome's authenticated GroupInfo.
+CHAT handshake payloads are raw TLS-serialized MLS PrivateMessages, already
+versioned and typed by MLS, without a redundant EpochGrid wrapper.
+
+Each enrolled device has a service-provisioned durable pull consumer on MAILBOX,
+`device_<NKey>`, filtered to exactly its inbox. Devices may inspect/pull/ack only
+their own consumer; they cannot create arbitrary consumers. Welcome acknowledgments
+follow the atomic SQLite join and duplicate marker. Failed validation rolls back
+OpenMLS changes and does not acknowledge the mailbox message. A bad or unexpected
+invitation can block the mailbox; administrative cleanup is currently required.
+
+SQLite shares one connection between OpenMLS and application state. Local group
+creation and invitation commits include metadata and the ciphertext outbox in the
+same transaction. Publish retries reuse the exact stored bytes and Nats-Msg-Id;
+there is no distributed transaction with NATS. A device file lock prevents
+concurrent processes from advancing the same ratchet state.

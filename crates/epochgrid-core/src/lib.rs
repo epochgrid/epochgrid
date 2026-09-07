@@ -1,3 +1,4 @@
+pub mod delivery;
 pub mod groups;
 pub mod identity;
 pub mod transport;

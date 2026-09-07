@@ -48,4 +48,12 @@ for attempt in {1..50}; do
 done
 [[ "$ready" == true ]] || { cat .dev/smoke-service.log >&2; exit 1; }
 cat .dev/smoke-bob.log
+if ! ./target/debug/epochgrid --home .dev/alice channel list | grep -q '^engineering '; then
+  ./target/debug/epochgrid --home .dev/alice channel create engineering
+fi
+./target/debug/epochgrid --home .dev/alice channel invite engineering bob
+if ! ./target/debug/epochgrid --home .dev/bob channel list | grep -q '^engineering '; then
+  ./target/debug/epochgrid --home .dev/bob channel join --from alice
+fi
+./target/debug/epochgrid --home .dev/bob channel members engineering
 printf 'EpochGrid Compose and CLI smoke test passed\n'
