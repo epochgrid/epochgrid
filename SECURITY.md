@@ -18,3 +18,7 @@ The Milestones 0–10 MVP has automated acceptance coverage for the two-device f
 ciphertext storage and restart recovery. Passing it does not constitute a security
 audit or change the prototype's deployment status. See the
 [acceptance evidence and limits](docs/mvp-acceptance.md).
+
+The Milestone 11 terminal client does not change production readiness or key
+storage. Its offline queue and visible history retain the same local plaintext
+storage exposure. Unread indicators are local UI state, not secure read receipts.

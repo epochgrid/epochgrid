@@ -1,4 +1,4 @@
-# EpochGrid architecture — through Milestone 10
+# EpochGrid architecture — through Milestone 11
 
 EpochGrid (https://epochgrid.org; secondary https://epochgrid.net) uses NATS for
 transport, authentication, authorization, request/reply and persistence. OpenMLS
@@ -139,3 +139,10 @@ CHAT must contain MLS PrivateMessage application/Commit framing, and MAILBOX mus
 contain an MLS Welcome envelope. Public identity KV remains intentionally readable.
 See [the acceptance matrix](mvp-acceptance.md) for evidence and the limits of these
 checks. This finishes the scoped MVP, not a production security review.
+
+## Persistent terminal client
+
+Milestone 11 adds a Ratatui frontend while preserving the scripting CLI. A dedicated
+worker owns SQLite/OpenMLS and sends immutable snapshots to the rendering loop;
+network awaits never block terminal input. Existing durable consumers/outbox drive
+history and reconnect. No wire or schema migration is needed. See [TUI decisions](tui.md).

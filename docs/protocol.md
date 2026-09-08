@@ -121,3 +121,7 @@ Nats-Msg-Id even after a process exit. JetStream deduplication is time-bounded;
 an overdue retry can produce a second stored copy. Local ciphertext deduplication
 still prevents a second decryption/transcript entry. The transcript keeps the
 minimum observed sequence, including when an ambiguous outgoing publish is retried.
+
+Milestone 11 introduces no wire changes. The TUI uses the same request/reply,
+Welcome and durable CHAT paths as the CLI. Local unread indicators are derived
+from transcript display flags and are not transmitted as receipts or presence.

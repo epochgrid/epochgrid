@@ -75,6 +75,24 @@ The join checks its authenticated MLS signer against the expected inviter's
 verified directory identity. If Bob has already joined, skip `channel join`.
 `channel create` rejects an existing name; skip it when resuming a group.
 
+## Persistent terminal client
+
+After bootstrap and device registration, run one per terminal:
+
+```bash
+./target/debug/epochgrid --home .dev/alice tui
+./target/debug/epochgrid --home .dev/bob tui
+```
+
+Milestone 11 adds channels, persisted history, composition, unread counts, member
+lists and automatic reconnect. Tab switches channels; Enter sends; Up/Down scroll;
+PgUp loads older history and PgDn returns to latest. Use `/create NAME`,
+`/invite USER [DEVICE]`, `/join INVITER [DEVICE]`, `/members`, `/help`, `/quit` or
+Ctrl-C. Use `//` for a message beginning with `/`. Offline sends are encrypted and
+queued locally; `[pending]` means no server acknowledgment yet. A failed local
+send retains the composition. Uncommitted drafts are not saved on exit.
+See [TUI architecture and controls](docs/tui.md).
+
 ## Chat
 
 Alice's terminal:

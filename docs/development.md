@@ -91,3 +91,11 @@ See [MVP acceptance](mvp-acceptance.md) for the requirement-to-test mapping.
 Milestones 0–10 are complete for the two-device slice. This does not establish
 production readiness, hardware power-loss tolerance, member-removal security or
 future-epoch catch-up. No additional product scope is enabled by this milestone.
+
+Milestone 11 adds `epochgrid tui`; the original `chat` remains useful for scripting.
+The unchanged MVP baseline passed before implementation. `verify.sh` includes the
+isolated `scripts/dev/tui-smoke.py` pseudo-terminal test in addition to the existing
+checks. It needs Unix PTYs (Linux CI) and the built binaries; it does not touch the
+Compose development volume. See [TUI operation](tui.md) for keyboard controls,
+reconnect semantics and the Ratatui feature constraint. Multi-device identity is
+next; membership and enrollment are still limited to the existing MVP model.

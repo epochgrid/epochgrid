@@ -96,9 +96,14 @@ impl IdentityStore {
         let group = self.group(name)?;
         Ok(self.connection.query_row("SELECT id,stream_sequence,sender,plaintext,outgoing FROM transcript WHERE gid=?1 AND outgoing=0 AND plaintext IS NOT NULL AND displayed=0 ORDER BY stream_sequence IS NULL,stream_sequence,id LIMIT 1", [group.gid], entry).optional()?)
     }
+    pub fn unread_count(&self, name: &str) -> Result<u64> {
+        Ok(self.connection.query_row("SELECT COUNT(*) FROM transcript WHERE gid=?1 AND outgoing=0 AND plaintext IS NOT NULL AND displayed=0", [self.group(name)?.gid], |r| r.get(0))?)
+    }
     pub fn mark_displayed(&self, id: i64) -> Result<()> {
-        self.connection
-            .execute("UPDATE transcript SET displayed=1 WHERE id=?1", [id])?;
+        self.connection.execute(
+            "UPDATE transcript SET displayed=1 WHERE id=?1 AND displayed=0",
+            [id],
+        )?;
         Ok(())
     }
     pub fn rejected_history(&self, name: &str) -> Result<u64> {
@@ -248,7 +253,9 @@ mod tests {
         let bob = IdentityStore::open(b.path())?;
         let unread = bob.unread("engineering")?.context("unread lost")?;
         assert_eq!(unread.plaintext.as_deref(), Some(b"first".as_slice()));
+        assert_eq!(bob.unread_count("engineering")?, 2);
         bob.mark_displayed(unread.id)?;
+        assert_eq!(bob.unread_count("engineering")?, 1);
         assert_eq!(
             bob.unread("engineering")?
                 .context("second unread lost")?

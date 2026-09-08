@@ -1,4 +1,5 @@
 mod chat;
+mod tui;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use epochgrid_core::{identity::IdentityStore, transport};
@@ -20,6 +21,8 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Persistent terminal client with history and automatic reconnect.
+    Tui,
     /// MLS encrypted chat with automatic offline catch-up; /quit exits.
     Chat { name: String },
     Message {
@@ -108,11 +111,18 @@ enum Message {
 }
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
     let args = Args::parse();
+    tracing_subscriber::fmt()
+        .with_env_filter(if matches!(args.command, Command::Tui) {
+            tracing_subscriber::EnvFilter::new("off")
+        } else {
+            tracing_subscriber::EnvFilter::from_default_env()
+        })
+        .init();
     match args.command {
+        Command::Tui => {
+            tui::run(args.home, args.server)?;
+        }
         Command::Chat { name } => {
             chat::interactive(&args.home, &args.server, &name).await?;
         }

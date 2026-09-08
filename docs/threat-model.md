@@ -64,3 +64,11 @@ security or absence of every possible key leak. It does not detect arbitrary
 transformed/encoded leaks or audit memory, side channels, dependency vulnerabilities
 or remote deployments. Tests do not claim to hide public identity metadata, prove
 forward secrecy/post-compromise recovery, or protect an already compromised device.
+
+Milestone 11's TUI retains the same cryptographic and authorization boundaries.
+Offline sends persist ciphertext and the existing unencrypted local transcript;
+uncommitted composition is volatile. Incoming terminal control bytes are escaped,
+and bracketed paste does not execute commands automatically. Normal tracing output
+is disabled in TUI mode to avoid leaking content or corrupting terminal rendering;
+operation errors and quarantined-delivery counts are shown in the UI. Local unread
+indicators describe channel navigation, not remotely authenticated reading.
