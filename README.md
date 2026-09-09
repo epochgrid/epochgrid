@@ -1,15 +1,24 @@
 # EpochGrid
 
 EpochGrid combines NATS infrastructure with MLS end-to-end group encryption.
-Project: https://epochgrid.org (secondary https://epochgrid.net).
+Project: https://epochgrid.org.
 Organization: https://github.com/epochgrid.
 
-**Milestones 0–10 work:** independent NATS/MLS device identities, verified discovery,
-persistent groups, durable invitations, authenticated Welcome joining and live
-encrypted Alice/Bob chat with durable history, offline catch-up and tested
-process-crash recovery. A fresh CLI-driven acceptance test verifies the complete
-MVP and inspects infrastructure data for test plaintext. JetStream
-stores MLS protocol bytes; readable transcripts stay on each device. This is an unaudited development prototype.
+**Current status: Milestones 0–12 are complete.** EpochGrid has a working secure
+messaging alpha with a persistent terminal client and independent devices per user.
+JetStream stores MLS protocol bytes; readable transcripts stay on each device.
+This is unaudited development software, not a production-ready security product.
+
+| Milestone | Status | Scope |
+| --- | --- | --- |
+| 0–10 | Complete | NKey authentication, signed device registration and discovery, MLS groups and invitations, encrypted chat, durable history, offline catch-up, restart/resume and ciphertext-only acceptance tests |
+| 11 | Complete | Persistent TUI with history, asynchronous messaging, unread indicators and reconnect |
+| 12 | Complete | Independent devices per user, operator enrollment, device discovery, ordered MLS membership catch-up and logical user membership |
+| 13 | Next | Device verification and key transparency |
+| 14–20 | Planned | Revocation/rekeying, encrypted recovery, attachments, ephemeral events, receipts, message relationships and secure service participants |
+
+See [multi-device setup and upgrade](docs/multi-device.md) for the current enrollment
+workflow, migration requirements and three-device validation scenario.
 
 NATS supplies transport, authentication, authorization and persistence. OpenMLS
 supplies group encryption and cryptographic membership. The service handles public
@@ -87,10 +96,11 @@ After bootstrap and device registration, run one per terminal:
 Milestone 11 adds channels, persisted history, composition, unread counts, member
 lists and automatic reconnect. Tab switches channels; Enter sends; Up/Down scroll;
 PgUp loads older history and PgDn returns to latest. Use `/create NAME`,
-`/invite USER [DEVICE]`, `/join INVITER [DEVICE]`, `/members`, `/help`, `/quit` or
+`/invite USER [DEVICE]`, `/join INVITER [DEVICE]`, `/members`, `/devices`, `/help`, `/quit` or
 Ctrl-C. Use `//` for a message beginning with `/`. Offline sends are encrypted and
 queued locally; `[pending]` means no server acknowledgment yet. A failed local
 send retains the composition. Uncommitted drafts are not saved on exit.
+`/members` groups device leaves by user; `/devices` shows each cryptographic device.
 See [TUI architecture and controls](docs/tui.md).
 
 ## Chat
@@ -207,7 +217,7 @@ See [restart and recovery](docs/recovery.md) for tested failure boundaries and l
 
 ## Verify
 
-Run the same complete MVP gate as CI (includes the pinned NATS download and Compose):
+Run the same complete MVP and alpha gate as CI (includes the pinned NATS download and Compose):
 
 ```bash
 ./scripts/dev/verify.sh
@@ -220,8 +230,9 @@ cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo build --workspace
-NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service --test registration -- --ignored
+NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service --test registration -- --ignored --test-threads=1
 ./scripts/dev/smoke.sh
+NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/tui-smoke.py
 ```
 
 The isolated NATS integration suite covers registration, discovery, authorization,
@@ -245,10 +256,12 @@ a publish retry beyond the server deduplication window. CI runs all of these.
 The smoke test uses the development identities and stops the Compose stack it
 starts; run it while your interactive clients/service are stopped.
 
-Milestone 12 adds `device add`, `device list`, explicit per-device invitations,
-ordered membership catch-up, and logical user membership (`/members`, with
-`/devices` for individual leaves). See [the multi-device guide](docs/multi-device.md)
-for enrollment, migration instructions and the three-device validation scenario.
+The multi-device integration case exercises Alice/laptop, Alice/desktop and
+Bob/laptop: enrollment, device discovery, consumer migration, MLS epoch advancement,
+offline catch-up, restart, mailbox isolation and ciphertext-only storage. The isolated
+real-terminal test runs all three clients, checks logical membership, exchanges
+messages with both Alice devices and verifies that the new device receives no
+pre-join history. It also covers offline queuing, reconnect and terminal restoration.
 
 ## Current limits
 

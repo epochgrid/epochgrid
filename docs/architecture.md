@@ -1,6 +1,6 @@
 # EpochGrid architecture — through Milestone 12
 
-EpochGrid (https://epochgrid.org; secondary https://epochgrid.net) uses NATS for
+EpochGrid (https://epochgrid.org) uses NATS for
 transport, authentication, authorization, request/reply and persistence. OpenMLS
 implements RFC 9420 group cryptography; no custom group encryption is introduced.
 
