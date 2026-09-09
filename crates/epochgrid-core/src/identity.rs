@@ -109,6 +109,7 @@ impl IdentityStore {
             },
         };
         store.migrate_multi_device()?;
+        store.migrate_trust()?;
         Ok(store)
     }
     fn migrate_multi_device(&self) -> Result<()> {
@@ -120,7 +121,7 @@ impl IdentityStore {
             [],
             |r| r.get(0),
         )?;
-        ensure!(version <= 1, "local schema is newer than this client");
+        ensure!(version <= 2, "local schema is newer than this client");
         if version == 0 {
             self.transaction(|| {
                 self.connection.execute_batch(
@@ -231,7 +232,7 @@ impl IdentityStore {
         Ok(nkeys::KeyPair::from_seed(&seed)?)
     }
 }
-pub fn verify(registration: &DeviceRegistration) -> Result<()> {
+pub fn verify_signature(registration: &DeviceRegistration) -> Result<()> {
     let p = &registration.payload;
     validate_id(&p.user_id)?;
     validate_id(&p.device_id)?;
@@ -242,6 +243,11 @@ pub fn verify(registration: &DeviceRegistration) -> Result<()> {
     ensure!(p.nats_public_key.starts_with('U'), "NATS user key required");
     let key = nkeys::KeyPair::from_public_key(&p.nats_public_key)?;
     key.verify(&p.signing_bytes()?, &registration.signature)?;
+    Ok(())
+}
+pub fn verify(registration: &DeviceRegistration) -> Result<()> {
+    verify_signature(registration)?;
+    let p = &registration.payload;
     let package = KeyPackageIn::tls_deserialize_exact(&p.mls_key_package)?
         .validate(&RustCrypto::default(), ProtocolVersion::Mls10)
         .map_err(|e| anyhow!("invalid MLS KeyPackage: {e:?}"))?;

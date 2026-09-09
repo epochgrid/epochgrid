@@ -1,5 +1,9 @@
 # MVP acceptance — Milestone 10
 
+This records the original MVP milestone. For current alpha capabilities and limits,
+see [the README](../README.md), [multi-device membership](multi-device.md) and
+[device verification/transparency](device-verification.md).
+
 Milestones 0–10 implement and test the deliberately narrow Alice/Bob vertical
 slice. No new product features, wire versions, permissions, production dependencies
 or storage schemas are introduced by the final acceptance milestone.

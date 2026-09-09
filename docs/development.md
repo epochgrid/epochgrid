@@ -113,3 +113,13 @@ NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/tui-smoke.py
 These isolated tests leave active development clients and the Compose volume alone.
 The full `verify.sh` also runs the shared Compose smoke test and requires stopping
 your development sessions first.
+
+
+Milestone 13 requires regenerating permissions and restarting the service before
+launching upgraded clients. Existing directory records are imported into
+TRANSPARENCY KV; SQLite migration 2 retains identities/groups/history and adds local
+trust state. Follow [verification setup](device-verification.md), including optional
+independent directory-key pinning before first discovery. The NATS suite now has
+seven cases, including adversarial history/key substitution and competing atomic
+appends. New feature work starts on a clean branch and reaches protected `main`
+through a PR with required status checks; do not push feature commits to `main`.

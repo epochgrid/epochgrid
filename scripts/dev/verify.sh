@@ -10,4 +10,4 @@ cargo build --locked --workspace
 NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test --locked -p epochgrid-service --test registration -- --ignored --test-threads=1
 ./scripts/dev/smoke.sh
 NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/tui-smoke.py
-printf 'EpochGrid MVP and multi-device alpha verification passed\n'
+printf 'EpochGrid MVP and identity alpha verification passed\n'

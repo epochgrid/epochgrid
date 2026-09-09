@@ -191,7 +191,12 @@ pub async fn invite(
             store.load_group(&descriptor)?.own_leaf_index() == LeafNodeIndex::new(0),
             "only the creator device can invite"
         );
+        let expected = crate::transparency::lookup(client, store, user, device).await?;
         let recipient = transport::claim_keypackage(client, user, device, &descriptor.gid).await?;
+        ensure!(
+            recipient == expected,
+            "KeyPackage differs from authenticated log; invitation blocked"
+        );
         store.prepare_invitation(name, &recipient)?;
     }
     flush_outbox(store, client).await
@@ -202,7 +207,7 @@ pub async fn join_next(
     inviter: &str,
     device: &str,
 ) -> Result<Group> {
-    let inviter = transport::lookup(client, inviter, device).await?;
+    let inviter = crate::transparency::lookup(client, store, inviter, device).await?;
     let js = async_nats::jetstream::new(client.clone());
     let consumer: async_nats::jetstream::consumer::PullConsumer = js
         .get_consumer_from_stream(format!("device_{}", store.nkey()?.public_key()), "MAILBOX")

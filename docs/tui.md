@@ -76,3 +76,12 @@ leaves. Invite an additional installation with `/invite USER DEVICE`; it joins w
 first using the [operator workflow](multi-device.md). Online sends catch up before
 encryption; offline queued ciphertext can become unreadable if membership changes
 before publication. Adding devices does not transfer earlier message history.
+
+
+Milestone 13 audits the signed registration log during network polling. Persistent
+trust warnings take precedence over ordinary notices; a changed identity remains
+blocked across restarts. Offline history still renders. Run fingerprint comparison
+and manual verification commands with the TUI closed for that home; see
+[device verification](device-verification.md). A failed audit stops that polling
+cycle, so an unavailable identity service can delay interactive delivery even while
+NATS is reachable. Established scripting chat remains an MLS group operation.

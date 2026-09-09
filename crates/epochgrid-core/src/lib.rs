@@ -12,3 +12,9 @@ mod recovery_tests;
 mod epochs;
 
 pub mod devices;
+
+pub mod transparency;
+pub mod trust;
+
+#[cfg(test)]
+mod trust_tests;

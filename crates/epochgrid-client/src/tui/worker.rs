@@ -122,7 +122,9 @@ impl Session {
             messages,
             members,
             status: self.status.clone(),
-            notice: if let Some(name) = &self.selected {
+            notice: if let Some(warning) = self.store.trust_warning()? {
+                warning
+            } else if let Some(name) = &self.selected {
                 let rejected = self.store.rejected_history(name)?;
                 if rejected > 0 {
                     format!(
@@ -173,6 +175,7 @@ impl Session {
                 self.client = Some(transport::connect(&self.server, &self.store).await?);
             }
             let client = self.client.as_ref().context("connection missing")?;
+            epochgrid_core::transparency::audit(client, &self.store).await?;
             delivery::flush_outbox(&self.store, client).await?;
             if let Some(group) = self.store.groups()?.first() {
                 history::catch_up(&self.store, client, &group.name).await?;
@@ -294,6 +297,23 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn trust_warnings_override_routine_notices_after_restart() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let mut store = IdentityStore::open(dir.path())?;
+        store.init("alice", "laptop")?;
+        store.transparency_failure("TRANSPARENCY FAILURE: signed history rewritten")?;
+        drop(store);
+        let session = Session::new(
+            IdentityStore::open(dir.path())?,
+            "nats://127.0.0.1:1".into(),
+        )?;
+        assert_eq!(
+            session.snapshot()?.notice,
+            "TRANSPARENCY FAILURE: signed history rewritten"
+        );
+        Ok(())
+    }
     #[test]
     fn offline_worker_exposes_identity_creation_and_errors() -> Result<()> {
         let dir = tempfile::tempdir()?;

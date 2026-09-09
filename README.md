@@ -4,7 +4,7 @@ EpochGrid combines NATS infrastructure with MLS end-to-end group encryption.
 Project: https://epochgrid.org.
 Organization: https://github.com/epochgrid.
 
-**Current status: Milestones 0–12 are complete.** EpochGrid has a working secure
+**Current status: Milestones 0–13 are complete.** EpochGrid has a working secure
 messaging alpha with a persistent terminal client and independent devices per user.
 JetStream stores MLS protocol bytes; readable transcripts stay on each device.
 This is unaudited development software, not a production-ready security product.
@@ -14,11 +14,14 @@ This is unaudited development software, not a production-ready security product.
 | 0–10 | Complete | NKey authentication, signed device registration and discovery, MLS groups and invitations, encrypted chat, durable history, offline catch-up, restart/resume and ciphertext-only acceptance tests |
 | 11 | Complete | Persistent TUI with history, asynchronous messaging, unread indicators and reconnect |
 | 12 | Complete | Independent devices per user, operator enrollment, device discovery, ordered MLS membership catch-up and logical user membership |
-| 13 | Next | Device verification and key transparency |
-| 14–20 | Planned | Revocation/rekeying, encrypted recovery, attachments, ephemeral events, receipts, message relationships and secure service participants |
+| 13 | Complete | Manual device verification, persistent key-change warnings and a signed Merkle registration log |
+| 14 | Next | Device revocation and MLS rekeying |
+| 15–20 | Planned | Encrypted recovery, attachments, ephemeral events, receipts, message relationships and secure service participants |
 
 See [multi-device setup and upgrade](docs/multi-device.md) for the current enrollment
 workflow, migration requirements and three-device validation scenario.
+See [device verification and transparency](docs/device-verification.md) for independent
+fingerprint comparison, directory key pinning and the limits of the log.
 
 NATS supplies transport, authentication, authorization and persistence. OpenMLS
 supplies group encryption and cryptographic membership. The service handles public
@@ -155,6 +158,25 @@ additional independent devices through public operator enrollment; see
 [multi-device setup and upgrade](docs/multi-device.md).
 Stop infrastructure with `docker compose down`; local keys and server data remain.
 
+## Verify device identity
+
+Bob displays his own fingerprint with `epochgrid --home .dev/bob device fingerprint`.
+Alice compares it through an independent channel, then supplies the complete value:
+
+```bash
+./target/debug/epochgrid --home .dev/alice device fingerprint bob laptop
+./target/debug/epochgrid --home .dev/alice device verify bob laptop --fingerprint 'FULL FINGERPRINT FROM BOB'
+./target/debug/epochgrid --home .dev/alice transparency audit
+./target/debug/epochgrid --home .dev/alice transparency status
+```
+
+An observed key change is persistently flagged and blocks audited discovery and new
+invitations. The TUI surfaces trust failures. Inspect retained evidence using
+`device fingerprint bob laptop --offline`. The first directory signer is trusted
+on first use unless pinned independently beforehand with `transparency pin U...`.
+The [verification guide](docs/device-verification.md) explains upgrade steps and why
+this does not detect every malicious-server or split-view attack.
+
 ## History and offline catch-up
 
 Retry queued ciphertext, fetch the current backlog and persist its authenticated
@@ -261,7 +283,9 @@ Bob/laptop: enrollment, device discovery, consumer migration, MLS epoch advancem
 offline catch-up, restart, mailbox isolation and ciphertext-only storage. The isolated
 real-terminal test runs all three clients, checks logical membership, exchanges
 messages with both Alice devices and verifies that the new device receives no
-pre-join history. It also covers offline queuing, reconnect and terminal restoration.
+pre-join history. It also covers offline queuing, reconnect and terminal restoration. Two additional
+NATS cases cover directory migration, explicit fingerprint verification, malicious
+history/key substitution, competing log appends and restart persistence.
 
 ## Current limits
 
@@ -272,10 +296,13 @@ pre-join history. It also covers offline queuing, reconnect and terminal restora
 - History processes encrypted Commits and applications in order across additions.
   New devices receive future messages, not earlier history. Offline ciphertext
   queued before an epoch change may become unreadable; avoid membership changes
-  while participants have queued sends. Verification and revocation remain pending.
+  while participants have queued sends. Revocation remains pending.
   Retention quotas/cleanup and hardware power-loss testing remain pending.
   Process termination and interrupted SQLite transaction recovery are tested.
   A crash around terminal output can repeat display; history remains available.
+- The transparency log is bounded to 65,536 encoded bytes and 256 registrations.
+  First-contact trust, isolated split views, freshness and account ownership remain
+  explicit limits; there is no automatic identity-replacement workflow.
 - Static development group permissions span the Alice/Bob lab namespace. Exact
   per-group NATS authorization is pending; inbox reads remain device-specific.
 - Loopback development without TLS; SQLite and journals contain unencrypted local
