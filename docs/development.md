@@ -30,7 +30,7 @@ Use one CLI per device at a time. `channel flush` retries pending ciphertext.
 Repeating `channel invite` for the same peer flushes its original invitation;
 it does not generate another Commit. A failed or unexpected Welcome is not
 acknowledged; it may require operator cleanup. Package reservations do not expire
-or replenish yet. These constraints deliberately limit the first two-device slice.
+or replenish yet. These constraints remain in the multi-device alpha.
 
 There is no automatic destructive reset. Deleting local state independently of
 server data is not a recovery method. `docker compose down` retains data. Review
@@ -77,7 +77,7 @@ wire, consumer or dependency migration is needed for Milestone 9. See
 
 Milestone 10 completes the narrow MVP acceptance gate. `scripts/dev/verify.sh`
 runs the required Cargo checks, downloads the pinned NATS binary, explicitly runs
-all four live integration cases, and executes the Compose CLI smoke test. CI calls
+all live integration cases, and executes the Compose CLI smoke test. CI calls
 the same script. It uses development identities for Compose; close existing clients
 and the host service first. The Rust integration tests use fresh temporary roots
 and ephemeral ports, and never reset `.dev/` or its NATS volume.
@@ -97,5 +97,19 @@ The unchanged MVP baseline passed before implementation. `verify.sh` includes th
 isolated `scripts/dev/tui-smoke.py` pseudo-terminal test in addition to the existing
 checks. It needs Unix PTYs (Linux CI) and the built binaries; it does not touch the
 Compose development volume. See [TUI operation](tui.md) for keyboard controls,
-reconnect semantics and the Ratatui feature constraint. Multi-device identity is
-next; membership and enrollment are still limited to the existing MVP model.
+reconnect semantics and the Ratatui feature constraint.
+
+Milestone 12 supports additional independent devices and creator-serialized MLS
+additions. Follow [multi-device enrollment and migration](multi-device.md) before
+upgrading existing clients. Its fifth live integration case exercises Alice/laptop,
+Alice/desktop and Bob/laptop, including consumer progress migration and restart.
+Run `cargo build --workspace` first, then:
+
+```bash
+NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service --test registration -- --ignored --test-threads=1
+NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/tui-smoke.py
+```
+
+These isolated tests leave active development clients and the Compose volume alone.
+The full `verify.sh` also runs the shared Compose smoke test and requires stopping
+your development sessions first.

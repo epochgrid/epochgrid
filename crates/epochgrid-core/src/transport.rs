@@ -145,20 +145,74 @@ pub async fn accept(
 }
 /// Generate public server configuration and enrollment from pre-created local devices.
 pub fn dev_config(root: &Path, port: u16) -> Result<()> {
-    let mut entries = Vec::new();
-    let mut enrollment = Enrollment::new();
+    dev_config_with_enrollment(root, port, &[])
+}
+
+/// Operator-provided PUBLIC bindings; no private installation state is imported.
+pub fn dev_config_with_enrollment(root: &Path, port: u16, additions: &[String]) -> Result<()> {
+    let mut all = Enrollment::new();
     for user in ["alice", "bob", "service"] {
         let mut store = IdentityStore::open(&root.join(user))?;
         let registration = match store.registration() {
             Ok(r) => r,
             Err(_) => store.init(user, "laptop")?,
         };
-        let p = registration.payload;
-        if user != "service" {
-            enrollment.insert(p.key(), p.nats_public_key.clone());
-        }
-        let inbox = format!("_INBOX.{}.>", p.nats_public_key);
-        let permissions = if user == "service" {
+        all.insert(
+            registration.payload.key(),
+            registration.payload.nats_public_key,
+        );
+    }
+    let path = root.join("additional-enrollment.json");
+    let mut extra: Enrollment = match std::fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Enrollment::new(),
+        Err(error) => return Err(error.into()),
+    };
+    for addition in additions {
+        let (endpoint, key) = addition
+            .split_once('=')
+            .ok_or_else(|| anyhow!("use USER/DEVICE=NKEY"))?;
+        let (user, device) = endpoint
+            .split_once('/')
+            .ok_or_else(|| anyhow!("use USER/DEVICE=NKEY"))?;
+        wire::validate_id(user)?;
+        wire::validate_id(device)?;
+        let endpoint = format!("users.{user}.devices.{device}");
+        ensure!(
+            extra.get(&endpoint).is_none_or(|old| old == key),
+            "enrollment replacement requires a future revocation workflow"
+        );
+        extra.insert(endpoint, key.into());
+    }
+    for (endpoint, key) in &extra {
+        let parts: Vec<_> = endpoint.split('.').collect();
+        ensure!(
+            parts.len() == 4 && parts[0] == "users" && parts[2] == "devices",
+            "invalid enrollment endpoint"
+        );
+        wire::validate_id(parts[1])?;
+        wire::validate_id(parts[3])?;
+        ensure!(
+            parts[1] != "service" && !all.contains_key(endpoint),
+            "reserved enrollment endpoint"
+        );
+        ensure!(key.starts_with('U'), "user NKey required");
+        nkeys::KeyPair::from_public_key(key)?;
+        all.insert(endpoint.clone(), key.clone());
+    }
+    ensure!(
+        all.values()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            == all.len(),
+        "each device needs an independent NKey"
+    );
+    let mut enrollment = all.clone();
+    enrollment.remove("users.service.devices.laptop");
+    let mut entries = Vec::new();
+    for (endpoint, key) in all {
+        let inbox = format!("_INBOX.{}.>", key);
+        let permissions = if endpoint == "users.service.devices.laptop" {
             format!(
                 r#"publish: ["$JS.API.>", "$KV.IDENTITIES.>", "$KV.CHANNELS.>"]
 subscribe: ["{inbox}", "epochgrid.v1.identity.*"]
@@ -166,16 +220,17 @@ allow_responses: {{max: 1, expires: "5s"}}"#
             )
         } else {
             format!(
-                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup", "epochgrid.v1.identity.keypackage", "epochgrid.v1.group.*.handshake", "epochgrid.v1.group.*.message", "epochgrid.v1.user.*.*.inbox", "$JS.API.CONSUMER.INFO.MAILBOX.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.MAILBOX.device_{key}", "$JS.ACK.MAILBOX.device_{key}.>", "$JS.API.CONSUMER.INFO.CHAT.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.CHAT.device_{key}", "$JS.ACK.CHAT.device_{key}.>"]
+                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup", "epochgrid.v1.identity.keypackage", "epochgrid.v1.identity.devices", "epochgrid.v1.group.*.handshake", "epochgrid.v1.group.*.message", "epochgrid.v1.user.*.*.inbox", "$JS.API.CONSUMER.INFO.MAILBOX.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.MAILBOX.device_{key}", "$JS.ACK.MAILBOX.device_{key}.>", "$JS.API.CONSUMER.INFO.CHAT.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.CHAT.device_{key}", "$JS.ACK.CHAT.device_{key}.>"]
 subscribe: ["{inbox}", "epochgrid.v1.group.*.message"]"#,
-                key = p.nats_public_key
+                key = key
             )
         };
         entries.push(format!(
             "{{nkey: \"{}\", permissions: {{{permissions}}}}}",
-            p.nats_public_key
+            key
         ));
     }
+    std::fs::write(path, serde_json::to_vec_pretty(&extra)?)?;
     std::fs::write(
         root.join("enrollment.json"),
         serde_json::to_vec_pretty(&enrollment)?,
@@ -297,20 +352,51 @@ pub async fn provision_chat_consumers(
         .await?;
     for key in enrollment.values() {
         stream
-            .get_or_create_consumer(
-                &format!("device_{key}"),
-                async_nats::jetstream::consumer::pull::Config {
-                    durable_name: Some(format!("device_{key}")),
-                    filter_subject: "epochgrid.v1.group.*.message".into(),
-                    deliver_policy: async_nats::jetstream::consumer::DeliverPolicy::All,
-                    ack_policy: async_nats::jetstream::consumer::AckPolicy::Explicit,
-                    ack_wait: Duration::from_secs(2),
-                    max_ack_pending: 1,
-                    max_batch: 1,
-                    ..Default::default()
-                },
-            )
+            .create_consumer(async_nats::jetstream::consumer::pull::Config {
+                durable_name: Some(format!("device_{key}")),
+                filter_subject: "epochgrid.v1.group.*.*".into(),
+                deliver_policy: async_nats::jetstream::consumer::DeliverPolicy::All,
+                ack_policy: async_nats::jetstream::consumer::AckPolicy::Explicit,
+                ack_wait: Duration::from_secs(2),
+                max_ack_pending: 1,
+                max_batch: 1,
+                ..Default::default()
+            })
             .await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod enrollment_tests {
+    use super::*;
+
+    #[test]
+    fn public_enrollment_preserves_bindings_and_rejects_aliases() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        dev_config(root.path(), 4222)?;
+        let first = nkeys::KeyPair::new_user();
+        let second = nkeys::KeyPair::new_user();
+        let binding = format!("alice/desktop={}", first.public_key());
+        dev_config_with_enrollment(root.path(), 4222, &[binding])?;
+        let public_file = root.path().join("additional-enrollment.json");
+        let original = std::fs::read(&public_file)?;
+        dev_config(root.path(), 4222)?;
+        assert_eq!(std::fs::read(&public_file)?, original);
+        for invalid in [
+            format!("alice/desktop={}", second.public_key()),
+            format!("alice/other={}", first.public_key()),
+            format!("service/desktop={}", second.public_key()),
+            format!("alice/laptop={}", second.public_key()),
+            format!("alice/*={}", second.public_key()),
+            format!("alice/other={}", first.seed()?),
+        ] {
+            assert!(dev_config_with_enrollment(root.path(), 4222, &[invalid]).is_err());
+            assert_eq!(std::fs::read(&public_file)?, original);
+        }
+        for file in ["additional-enrollment.json", "enrollment.json", "nats.conf"] {
+            assert!(!std::fs::read_to_string(root.path().join(file))?.contains(&first.seed()?));
+        }
+        Ok(())
+    }
 }

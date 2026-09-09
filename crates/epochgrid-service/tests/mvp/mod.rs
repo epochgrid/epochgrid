@@ -25,7 +25,7 @@ const SECRETS: [&[u8]; 4] = [
     b"EPOCHGRID_TEST_SECRET_91F3_BOB_RESTART",
 ];
 
-async fn cli(
+pub(super) async fn cli(
     root: &Path,
     url: &str,
     user: &str,
@@ -73,7 +73,7 @@ async fn cli(
     ensure!(status.success(), "CLI command failed: {user} {args:?}");
     Ok(stdout)
 }
-fn daemon(root: &Path, url: &str) -> Result<Process> {
+pub(super) fn daemon(root: &Path, url: &str) -> Result<Process> {
     let log = File::options()
         .create(true)
         .append(true)
@@ -91,7 +91,7 @@ fn daemon(root: &Path, url: &str) -> Result<Process> {
             .spawn()?,
     ))
 }
-async fn ready(root: &Path, url: &str, register: bool) -> Result<()> {
+pub(super) async fn ready(root: &Path, url: &str, register: bool) -> Result<()> {
     let args: &[&str] = if register {
         &["identity", "register"]
     } else {

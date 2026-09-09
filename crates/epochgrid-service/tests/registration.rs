@@ -299,7 +299,7 @@ async fn durable_history_offline_ack_recovery_and_server_restart() -> Result<()>
     messaging::send(&alice, &alice_client, "engineering", secret).await?;
     // Pull before joining; another channel's sync must not discard unknown-group data.
     bob.create_group("local")?;
-    ensure!(history::catch_up(&bob, &bob_client, "local").await?.staged == 1);
+    ensure!(history::catch_up(&bob, &bob_client, "local").await?.staged == 2);
     delivery::join_next(&bob, &bob_client, "alice", "laptop").await?;
     ensure!(bob.process_history("engineering")?.decrypted == 1);
     drop(bob_client);
@@ -593,3 +593,5 @@ async fn resume_pending_invitation_and_ambiguous_publish() -> Result<()> {
 }
 
 mod mvp;
+
+mod multi_device;

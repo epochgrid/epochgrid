@@ -1,4 +1,4 @@
-# EpochGrid protocol v1 — Milestones 0–8
+# EpochGrid protocol v1 — through Milestone 12
 
 NATS request/reply subject: `epochgrid.v1.identity.register`. Registration uses
 this subject exactly; lookup and KeyPackage requests use the fixed subjects
@@ -94,7 +94,7 @@ is displayed and retained locally; no application plaintext is passed to NATS. R
 
 Milestone 8 replaces live CLI subscriptions with a service-provisioned CHAT pull
 consumer per device, named `device_<NKey>` (consumer names are scoped to streams).
-Filter: `epochgrid.v1.group.*.message`; DeliverPolicy All, AckPolicy Explicit,
+Current filter (extended in Milestone 12): `epochgrid.v1.group.*.*`; DeliverPolicy All, AckPolicy Explicit,
 MaxAckPending 1, MaxBatch 1, AckWait 2 seconds. The client can call INFO and
 MSG.NEXT for its own consumer and publish its ACK subjects. The backend remains
 uninvolved in decryption and transcript storage. No protocol discriminants change.
@@ -112,8 +112,7 @@ set. `--before` is an exclusive stream-sequence bound; default limit is 50, maxi
 1000. Outgoing messages awaiting publish confirmation have no sequence and appear
 after confirmed messages. Plaintext processed before Milestone 8 is unavailable;
 no cryptographic recovery is attempted. Acknowledgment means durable local staging,
-not user display. Group handshakes after initial two-member creation remain outside
-this milestone.
+not user display. Milestone 12 adds ordered processing of membership Commits.
 
 Milestone 9 changes no wire discriminants. Resuming online sync/history flushes the
 persisted outbox before catch-up. Publish retries keep their original bytes and
@@ -125,3 +124,26 @@ minimum observed sequence, including when an ambiguous outgoing publish is retri
 Milestone 11 introduces no wire changes. The TUI uses the same request/reply,
 Welcome and durable CHAT paths as the CLI. Local unread indicators are derived
 from transcript display flags and are not transmitted as receipts or presence.
+
+
+Milestone 12 appends two v1 postcard Body variants without changing existing
+indices or registration signing bytes: `ListDevices=8 { user: String }` and
+`Devices=9(Vec<DeviceRegistration>)`. Request/reply uses the fixed subject
+`epochgrid.v1.identity.devices`. Responses contain only enrolled, registered devices,
+ordered by device key, bounded to 32 entries and MAX_WIRE. Oversized responses are
+Rejected. Clients verify each registration and reject mismatched users or duplicate
+device IDs/NKeys. Empty lists are valid. Old services reject the new request; existing
+operation encodings remain unchanged. Public listing grants no enrollment authority.
+
+CHAT consumers now include encrypted Commit traffic. Receivers require MLS
+PrivateMessage/Commit with the correct group and authenticate the sender as creator
+leaf 0 before merging. Applications and Commits advance local state in stream order;
+own/replayed ciphertext is idempotent. Commit failures are quarantined and counted
+with application failures; storage failures roll back and remain pending. A persisted
+join-epoch floor skips earlier framed group traffic without decrypting/authenticating
+it. See [multi-device semantics](multi-device.md). The MLS payload format is unchanged.
+
+Updating the durable filter retains server delivery progress, but requires coordinated
+client/service upgrade: Milestone 11 clients validate the old filter and cannot
+process subsequent membership changes. Migration 1 is additive and preserves local
+keys, ratchets and transcripts; older binaries must not reopen upgraded state.

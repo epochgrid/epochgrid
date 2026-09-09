@@ -1,4 +1,4 @@
-# EpochGrid architecture — through Milestone 11
+# EpochGrid architecture — through Milestone 12
 
 EpochGrid (https://epochgrid.org; secondary https://epochgrid.net) uses NATS for
 transport, authentication, authorization, request/reply and persistence. OpenMLS
@@ -21,7 +21,8 @@ Alice creates a local MLS group with an authenticated name and random routing ID
 She reserves Bob's initial KeyPackage, adds him, and queues the encrypted Commit
 and Welcome. Bob pulls his durable mailbox and authenticates the Welcome signer
 against an explicitly selected inviter's directory registration before joining.
-This slice supports one invitation and two devices per group. MLS owns membership;
+The creator device can add multiple independent device leaves, including multiple
+devices belonging to one user. MLS owns membership;
 CHANNELS KV is provisioned but unused. Future channel metadata is not authoritative
 cryptographic membership.
 
@@ -29,7 +30,7 @@ Application messages use MLS PrivateMessages and NATS group subjects. Publishers
 wait for JetStream acknowledgments; durable consumers authenticate/decrypt locally.
 CHAT stores raw versioned MLS protocol bytes. MAILBOX stores a small EpochGrid
 Welcome envelope. Neither contains application plaintext. Each device has a
-service-provisioned CHAT durable filtered to application-message subjects in the
+service-provisioned CHAT durable filtered to application and handshake subjects in the
 existing shared development namespace. It starts at all retained messages. The
 CLI uses this one path for offline catch-up and ongoing reception.
 
@@ -82,9 +83,8 @@ single CHAT consumer per device can be authorized with exact NATS API/ACK subjec
 permissions; clients cannot create or reconfigure consumers. Per-group consumers
 would require a group authorization/provisioning path and are deferred with exact
 membership-aware permissions. Mailbox consumers remain separately filtered to
-individual inboxes. CHAT excludes handshakes because this slice has only the initial
-two-member epoch; it must not be generalized to membership changes without ordered
-Commit processing.
+individual inboxes. Milestone 12 extends CHAT consumption to encrypted handshakes
+and processes creator Commits together with application messages in stream order.
 
 CHAT uses explicit acknowledgment and at most one unacknowledged delivery. The
 client commits raw ciphertext/subject/stream sequence to `chat_deliveries` before
@@ -146,3 +146,15 @@ Milestone 11 adds a Ratatui frontend while preserving the scripting CLI. A dedic
 worker owns SQLite/OpenMLS and sends immutable snapshots to the rendering loop;
 network awaits never block terminal input. Existing durable consumers/outbox drive
 history and reconnect. No wire or schema migration is needed. See [TUI decisions](tui.md).
+
+
+## Multi-device alpha
+
+Milestone 12 retains independent installation state and operator-authorized public
+NKey enrollment. Device listing uses NATS request/reply and existing IDENTITIES KV.
+The TUI groups MLS device leaves into logical users without merging cryptographic
+identities. Creator-only additions serialize membership changes. Migration 1 adds
+per-group join epochs; pre-join traffic is skipped and new members gain no historical
+keys. CHAT consumer updates preserve acknowledgment progress. See
+[multi-device design and upgrade](multi-device.md) for commands, validation, offline
+epoch limitations and the required coordinated client/service upgrade.

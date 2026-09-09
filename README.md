@@ -140,7 +140,9 @@ inspect local MLS groups. `--home`/`EPOCHGRID_HOME` selects the device directory
 ```
 
 A manually initialized device needs explicit NATS enrollment/configuration. The
-bootstrap only enrolls Alice/laptop and Bob/laptop; multi-device users are deferred.
+bootstrap initially enrolls Alice/laptop and Bob/laptop. Milestone 12 supports
+additional independent devices through public operator enrollment; see
+[multi-device setup and upgrade](docs/multi-device.md).
 Stop infrastructure with `docker compose down`; local keys and server data remain.
 
 ## History and offline catch-up
@@ -243,13 +245,21 @@ a publish retry beyond the server deduplication window. CI runs all of these.
 The smoke test uses the development identities and stops the Compose stack it
 starts; run it while your interactive clients/service are stopped.
 
+Milestone 12 adds `device add`, `device list`, explicit per-device invitations,
+ordered membership catch-up, and logical user membership (`/members`, with
+`/devices` for individual leaves). See [the multi-device guide](docs/multi-device.md)
+for enrollment, migration instructions and the three-device validation scenario.
+
 ## Current limits
 
-- Two devices per group; one initial KeyPackage per device, reserved for one group.
+- Multiple device leaves per user; additions are serialized by the creator device.
+  One initial KeyPackage per device is reserved for one group.
   No replenishment, rotation, removal or revocation yet. Initial package expiry
   currently also limits signing-key lookup; long-lived identity lifecycle is pending.
-- History currently covers application messages in the existing two-device epoch.
-  Later membership changes and multi-epoch handshake catch-up are not implemented.
+- History processes encrypted Commits and applications in order across additions.
+  New devices receive future messages, not earlier history. Offline ciphertext
+  queued before an epoch change may become unreadable; avoid membership changes
+  while participants have queued sends. Verification and revocation remain pending.
   Retention quotas/cleanup and hardware power-loss testing remain pending.
   Process termination and interrupted SQLite transaction recovery are tested.
   A crash around terminal output can repeat display; history remains available.

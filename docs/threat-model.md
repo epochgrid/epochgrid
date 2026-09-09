@@ -72,3 +72,16 @@ and bracketed paste does not execute commands automatically. Normal tracing outp
 is disabled in TUI mode to avoid leaking content or corrupting terminal rendering;
 operation errors and quarantined-delivery counts are shown in the UI. Local unread
 indicators describe channel navigation, not remotely authenticated reading.
+
+
+Milestone 12 supports independent device leaves for the same logical user. A
+compromised device exposes its own local state and can impersonate that device;
+collapsing user labels does not make devices share keys. Enrollment is still trusted
+to the operator/directory: manual verification, key-change detection, transparency
+and revocation remain unimplemented. A new device receives a Welcome for its join
+epoch, not prior history. Earlier framed traffic is skipped without authentication
+because the new device has no historical keys. Creator Commits are authenticated and
+merged atomically with local progress. Offline ciphertext from before a membership
+change may be undecryptable afterward. Transport suppression/reordering and group
+permission wildcards remain availability/metadata limitations. No revocation or
+historical erasure guarantee is added. See [multi-device boundaries](multi-device.md).

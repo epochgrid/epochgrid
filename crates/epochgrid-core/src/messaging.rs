@@ -25,7 +25,7 @@ impl IdentityStore {
         self.transaction(|| {
             let mut group = self.load_group(&descriptor)?;
             ensure!(
-                group.members().count() == 2,
+                group.members().count() >= 2,
                 "invite a peer before sending messages"
             );
             let bytes = group
@@ -120,6 +120,7 @@ pub async fn send(
     name: &str,
     plaintext: &[u8],
 ) -> Result<()> {
+    crate::history::resume(store, client, name).await?;
     store.encrypt_message(name, plaintext)?;
     flush_outbox(store, client).await
 }

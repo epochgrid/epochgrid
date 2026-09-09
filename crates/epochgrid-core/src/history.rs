@@ -46,11 +46,17 @@ impl IdentityStore {
         let group = self.group(name)?;
         let mut report = SyncReport::default();
         loop {
-            let row = self.connection.query_row("SELECT sequence,payload FROM chat_deliveries WHERE subject=?1 AND state='pending' ORDER BY sequence LIMIT 1", [group.subject("message")], |r| Ok((r.get::<_, u64>(0)?, r.get::<_, Vec<u8>>(1)?))).optional()?;
-            let Some((sequence, payload)) = row else {
+            let row = self.connection.query_row("SELECT sequence,payload,subject FROM chat_deliveries WHERE subject IN (?1,?2) AND state='pending' ORDER BY sequence LIMIT 1", params![group.subject("message"), group.subject("handshake")], |r| Ok((r.get::<_, u64>(0)?, r.get::<_, Vec<u8>>(1)?, r.get::<_, String>(2)?))).optional()?;
+            let Some((sequence, payload, subject)) = row else {
                 break;
             };
             let result = self.transaction(|| {
+                let before_join = self.before_join(name, &payload)?;
+                if before_join || subject == group.subject("handshake") {
+                    if !before_join { self.process_handshake(name, &payload)?; }
+                    self.connection.execute("UPDATE chat_deliveries SET state='processed' WHERE sequence=?1", [sequence])?;
+                    return Ok((false, false));
+                }
                 let decrypted = self.decrypt_inner(name, &payload)?.is_some();
                 // Older clients erased plaintext after processing. Keep an explicit gap.
                 let inserted = self.connection.execute("INSERT OR IGNORE INTO transcript(gid,payload,outgoing) VALUES(?1,?2,EXISTS(SELECT 1 FROM outbox WHERE payload=?2))", params![group.gid, payload])?;
@@ -108,8 +114,11 @@ impl IdentityStore {
     }
     pub fn rejected_history(&self, name: &str) -> Result<u64> {
         Ok(self.connection.query_row(
-            "SELECT COUNT(*) FROM chat_deliveries WHERE subject=?1 AND state='rejected'",
-            [self.group(name)?.subject("message")],
+            "SELECT COUNT(*) FROM chat_deliveries WHERE subject IN (?1, ?2) AND state='rejected'",
+            [
+                self.group(name)?.subject("message"),
+                self.group(name)?.subject("handshake"),
+            ],
             |r| r.get(0),
         )?)
     }
@@ -135,8 +144,7 @@ pub async fn consumer(
             .context("CHAT consumer unavailable; re-run bootstrap and restart the service")?;
     let info = consumer.cached_info();
     ensure!(
-        info.config.filter_subject == "epochgrid.v1.group.*.message"
-            && info.config.max_ack_pending == 1,
+        info.config.filter_subject == "epochgrid.v1.group.*.*" && info.config.max_ack_pending == 1,
         "unexpected CHAT consumer configuration"
     );
     Ok(consumer)

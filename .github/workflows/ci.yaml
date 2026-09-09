@@ -11,5 +11,5 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
-      - name: Complete MVP verification (Cargo, NATS acceptance and Compose CLI)
+      - name: Complete MVP and alpha verification (Cargo, NATS, Compose and TUI)
         run: ./scripts/dev/verify.sh

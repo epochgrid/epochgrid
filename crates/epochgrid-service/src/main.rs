@@ -53,12 +53,19 @@ async fn main() -> Result<()> {
                     (wire::REGISTER, Ok(Body::Register(registration))) => {
                         if transport::accept(&store, &enrollment, registration).await.is_ok() { Body::Registered } else { Body::Rejected }
                     }
+                    (wire::DEVICES, Ok(Body::ListDevices { user })) => epochgrid_core::devices::find_devices(&store, &enrollment, &user).await.unwrap_or(Body::Rejected),
                     (wire::LOOKUP, Ok(Body::Lookup { user, device })) => transport::find(&store, &enrollment, &user, &device).await.unwrap_or(Body::Rejected),
                     (wire::KEYPACKAGE, Ok(Body::ClaimKeyPackage { user, device, group })) => transport::claim(&store, &enrollment, &user, &device, &group).await.unwrap_or(Body::Rejected),
                     _ => Body::Rejected,
                 };
                 if matches!(response, Body::Rejected) { tracing::warn!("identity request rejected"); }
-                client.publish(reply, wire::encode(response)?.into()).await?;
+                // A bounded listing can still exceed the envelope byte limit. Reject
+                // that response without terminating the service.
+                let bytes = match wire::encode(response) {
+                    Ok(bytes) => bytes,
+                    Err(_) => wire::encode(Body::Rejected)?,
+                };
+                client.publish(reply, bytes.into()).await?;
             }
         }
     }

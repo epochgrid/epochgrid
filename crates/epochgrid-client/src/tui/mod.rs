@@ -174,10 +174,23 @@ impl Ui {
             }
             KeyCode::Enter if !self.input.is_empty() => {
                 if self.input == "/members" {
-                    self.notice = format!("Members: {}", state.members.join(", "));
+                    self.notice = format!(
+                        "Members: {}",
+                        state
+                            .members
+                            .iter()
+                            .filter_map(|m| m.split_once('/').map(|(user, _)| user))
+                            .collect::<std::collections::BTreeSet<_>>()
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    self.input.clear();
+                } else if self.input == "/devices" {
+                    self.notice = format!("Device leaves: {}", state.members.join(", "));
                     self.input.clear();
                 } else if self.input == "/help" {
-                    self.notice = "Tab channels | Up/Down scroll | PgUp older / PgDn latest | /create NAME | /invite USER [DEVICE] | /join INVITER [DEVICE] | /members | /quit | // literal slash".into();
+                    self.notice = "Tab channels | Up/Down scroll | PgUp older / PgDn latest | /create NAME | /invite USER [DEVICE] | /join INVITER [DEVICE] | /members | /devices | /quit | // literal slash".into();
                     self.input.clear();
                 } else {
                     return submit(&self.input, state.selected.as_deref()).map(Some);
@@ -435,6 +448,30 @@ mod tests {
             }
         );
         assert!(!safe_text("escape\u{1b}[2J").contains('\u{1b}'));
+        Ok(())
+    }
+    #[test]
+    fn members_collapse_users_and_devices_remain_visible() -> Result<()> {
+        let state = Snapshot {
+            members: vec![
+                "alice/laptop".into(),
+                "alice/desktop".into(),
+                "bob/laptop".into(),
+            ],
+            ..Default::default()
+        };
+        let mut ui = Ui {
+            input: "/members".into(),
+            ..Default::default()
+        };
+        ui.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &state)?;
+        assert_eq!(ui.notice, "Members: alice, bob");
+        ui.input = "/devices".into();
+        ui.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &state)?;
+        assert_eq!(
+            ui.notice,
+            "Device leaves: alice/laptop, alice/desktop, bob/laptop"
+        );
         Ok(())
     }
     #[test]

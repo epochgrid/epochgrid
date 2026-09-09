@@ -146,6 +146,11 @@ def run():
             return subprocess.run([BINARY, '--home', str(root / user), '--server', url, *args], capture_output=True, timeout=10)
         def register(user):
             return cli(user, 'identity', 'register').returncode == 0
+        added = cli('alice-desktop', 'device', 'add', 'alice', '--device', 'desktop')
+        assert added.returncode == 0, added.stderr
+        binding = added.stdout.decode().split('Operator enrollment: ')[1].strip()
+        subprocess.run([BINARY, 'dev-config', '--root', str(root), '--port', str(port),
+                        '--enroll', binding], check=True, capture_output=True)
         try:
             broker = nats()
             with socket.socket() as probe:
@@ -154,6 +159,7 @@ def run():
             processes.append(service)
             wait(lambda: register('alice'), 'service startup')
             assert register('bob')
+            assert register('alice-desktop')
             alice, bob = Client(root, 'alice', url), Client(root, 'bob', url)
             wait(lambda: all('Online' in c.screen.text for c in [alice, bob]), 'TUI online')
             alice.type('/create engineering\r')
@@ -193,6 +199,27 @@ def run():
             wait(lambda: has(root, 'alice', secrets[3]) and secrets[3] in alice.screen.text, 'reply after reconnect')
             for user in ['alice', 'bob']:
                 assert query(root, user, 'SELECT COUNT(*) FROM transcript') == 4
+            desktop = Client(root, 'alice-desktop', url)
+            wait(lambda: 'Online' in desktop.screen.text, 'desktop TUI online')
+            alice.type('/invite alice desktop\r')
+            wait(lambda: 'Invitation delivered' in alice.screen.text, 'desktop invitation')
+            desktop.type('/join alice\r')
+            wait(lambda: query(root, 'alice-desktop', 'SELECT COUNT(*) FROM groups') == 1, 'desktop joins')
+            # Bob's persistent worker must merge the Commit before its next send.
+            wait(lambda: query(root, 'bob', "SELECT COUNT(*) FROM chat_deliveries WHERE subject LIKE '%.handshake' AND state='processed'") == 2, 'Bob Commit catch-up')
+            bob.type('/members\r')
+            wait(lambda: 'Members: alice, bob' in bob.screen.text, 'logical membership display')
+            bob.type('/devices\r')
+            wait(lambda: 'alice/desktop' in bob.screen.text, 'device leaves display')
+            secrets.extend(['TUI_BOTH_ALICES_8DC4', 'TUI_DESKTOP_REPLY_A192'])
+            bob.type(secrets[4] + '\r')
+            wait(lambda: all(has(root, user, secrets[4]) for user in ['alice', 'alice-desktop']), 'Bob to both Alice devices')
+            desktop.type(secrets[5] + '\r')
+            wait(lambda: all(has(root, user, secrets[5]) for user in ['alice', 'bob']), 'desktop to existing clients')
+            for user in ['alice', 'bob']:
+                assert query(root, user, 'SELECT COUNT(*) FROM transcript') == 6
+            assert query(root, 'alice-desktop', 'SELECT COUNT(*) FROM transcript') == 2, 'no pre-join history'
+            desktop.close()
             alice.close()
             bob.close()
             for process in processes:
@@ -203,7 +230,7 @@ def run():
                 if path.is_file():
                     data = path.read_bytes()
                     assert all(secret.encode() not in data for secret in secrets), 'TUI plaintext in NATS storage'
-            print('EpochGrid TUI create/invite/join, asynchronous messages, unread, offline queue, reconnect, history and terminal restoration passed')
+            print('EpochGrid three-device TUI enrollment, create/invite/join, membership, asynchronous messages, unread, offline queue, reconnect, history and terminal restoration passed')
         finally:
             for client in CLIENTS:
                 client.cleanup()

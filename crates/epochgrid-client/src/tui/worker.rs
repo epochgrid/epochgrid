@@ -234,7 +234,23 @@ impl Session {
                 self.notice = "Channel created; invite a peer before sending".into();
             }
             Action::Send { name, text } => {
-                let result = self.store.encrypt_message(&name, text.as_bytes());
+                // Catch up membership before encrypting when connected; failures retain the draft.
+                let synced = if let Some(client) = self.client.as_ref().filter(|client| {
+                    client.connection_state() == async_nats::connection::State::Connected
+                }) {
+                    tokio::time::timeout(
+                        Duration::from_secs(3),
+                        history::catch_up(&self.store, client, &name),
+                    )
+                    .await
+                    .context("sync before send timed out; retry after reconnect")
+                    .and_then(|result| result)
+                    .map(|_| ())
+                } else {
+                    Ok(())
+                };
+                let result =
+                    synced.and_then(|()| self.store.encrypt_message(&name, text.as_bytes()));
                 self.send_count += 1;
                 self.send_error = result.as_ref().err().map(|error| format!("{error:#}"));
                 result?;

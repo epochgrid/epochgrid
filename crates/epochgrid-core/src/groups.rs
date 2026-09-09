@@ -93,7 +93,26 @@ impl IdentityStore {
                 rusqlite::params![group.name, group.gid, group.mls_id],
             )
             .context("channel name or group ID already exists")?;
+        self.connection.execute(
+            "INSERT INTO group_join_epochs(gid,epoch) VALUES(?1,0)",
+            [&group.gid],
+        )?;
         Ok(())
+    }
+    pub fn group_epoch(&self, name: &str) -> Result<u64> {
+        Ok(self.load_group(&self.group(name)?)?.epoch().as_u64())
+    }
+    pub fn users(&self, name: &str) -> Result<Vec<String>> {
+        self.members(name)?
+            .into_iter()
+            .map(|member| {
+                let (user, device) = member.split_once('/').context("invalid member identity")?;
+                validate_id(user)?;
+                validate_id(device)?;
+                Ok(user.to_owned())
+            })
+            .collect::<Result<std::collections::BTreeSet<_>>>()
+            .map(|users| users.into_iter().collect())
     }
     pub fn groups(&self) -> Result<Vec<Group>> {
         let mut statement = self

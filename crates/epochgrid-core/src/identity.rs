@@ -100,14 +100,45 @@ impl IdentityStore {
         CREATE INDEX IF NOT EXISTS transcript_group ON transcript(gid,stream_sequence,id);",
         )?;
         let storage = SqliteStorageProvider::new(Rc::clone(&connection));
-        Ok(Self {
+        let store = Self {
             connection,
             _lock: lock,
             provider: Provider {
                 crypto: RustCrypto::default(),
                 storage,
             },
-        })
+        };
+        store.migrate_multi_device()?;
+        Ok(store)
+    }
+    fn migrate_multi_device(&self) -> Result<()> {
+        self.connection.execute_batch(
+            "CREATE TABLE IF NOT EXISTS epochgrid_migrations(version INTEGER PRIMARY KEY);",
+        )?;
+        let version: u64 = self.connection.query_row(
+            "SELECT COALESCE(MAX(version),0) FROM epochgrid_migrations",
+            [],
+            |r| r.get(0),
+        )?;
+        ensure!(version <= 1, "local schema is newer than this client");
+        if version == 0 {
+            self.transaction(|| {
+                self.connection.execute_batch(
+                    "CREATE TABLE group_join_epochs(gid TEXT PRIMARY KEY, epoch INTEGER NOT NULL);",
+                )?;
+                for group in self.groups()? {
+                    let epoch = self.load_group(&group)?.epoch().as_u64();
+                    self.connection.execute(
+                        "INSERT INTO group_join_epochs VALUES(?1,?2)",
+                        rusqlite::params![group.gid, epoch],
+                    )?;
+                }
+                self.connection
+                    .execute("INSERT INTO epochgrid_migrations VALUES(1)", [])?;
+                Ok(())
+            })?;
+        }
+        Ok(())
     }
     pub(crate) fn transaction<T>(&self, action: impl FnOnce() -> Result<T>) -> Result<T> {
         self.connection.execute_batch("BEGIN IMMEDIATE")?;

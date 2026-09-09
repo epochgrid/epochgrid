@@ -68,3 +68,11 @@ failed with a transient device-lock contention while process-spawning tests were
 running together. The shared gate now serializes those process-based integration
 cases (`--test-threads=1`); all assertions and production device locking remain
 unchanged. Each case still starts isolated NATS/service processes.
+
+
+Milestone 12: `/members` lists unique logical users; `/devices` lists their MLS
+leaves. Invite an additional installation with `/invite USER DEVICE`; it joins with
+`/join INVITER DEVICE` (inviter device defaults to laptop). Enrollment must happen
+first using the [operator workflow](multi-device.md). Online sends catch up before
+encryption; offline queued ciphertext can become unreadable if membership changes
+before publication. Adding devices does not transfer earlier message history.

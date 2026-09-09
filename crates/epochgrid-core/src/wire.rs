@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub const VERSION: u16 = 1;
 pub const KEYPACKAGE: &str = "epochgrid.v1.identity.keypackage";
+pub const DEVICES: &str = "epochgrid.v1.identity.devices";
 pub const LOOKUP: &str = "epochgrid.v1.identity.lookup";
 pub const REGISTER: &str = "epochgrid.v1.identity.register";
 pub const MAX_WIRE: usize = 65_536;
@@ -75,6 +76,10 @@ pub enum Body {
     Welcome {
         payload: Vec<u8>,
     },
+    ListDevices {
+        user: String,
+    },
+    Devices(Vec<DeviceRegistration>),
 }
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Envelope {

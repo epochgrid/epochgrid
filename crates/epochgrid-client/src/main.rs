@@ -23,6 +23,11 @@ struct Args {
 enum Command {
     /// Persistent terminal client with history and automatic reconnect.
     Tui,
+    /// Initialize an independent device or list a user's registered devices.
+    Device {
+        #[command(subcommand)]
+        command: Device,
+    },
     /// MLS encrypted chat with automatic offline catch-up; /quit exits.
     Chat { name: String },
     Message {
@@ -43,6 +48,20 @@ enum Command {
         root: PathBuf,
         #[arg(long, default_value_t = 4222)]
         port: u16,
+        /// Operator-authorized public binding, USER/DEVICE=NKEY; repeat for multiple devices.
+        #[arg(long)]
+        enroll: Vec<String>,
+    },
+}
+#[derive(Subcommand)]
+enum Device {
+    Add {
+        user: String,
+        #[arg(long)]
+        device: String,
+    },
+    List {
+        user: Option<String>,
     },
 }
 #[derive(Subcommand)]
@@ -67,6 +86,9 @@ enum Channel {
     },
     Members {
         name: String,
+        /// Collapse device leaves into logical user membership.
+        #[arg(long)]
+        users: bool,
     },
     List,
     /// Retry queued ciphertext, then fetch and decrypt the current durable backlog.
@@ -120,6 +142,27 @@ async fn main() -> Result<()> {
         })
         .init();
     match args.command {
+        Command::Device { command } => {
+            let mut store = IdentityStore::open(&args.home)?;
+            match command {
+                Device::Add { user, device } => {
+                    let registration = store.init(&user, &device)?;
+                    println!("EpochGrid device initialized: {user}/{device}");
+                    println!(
+                        "Operator enrollment: {user}/{device}={}",
+                        registration.payload.nats_public_key
+                    );
+                }
+                Device::List { user } => {
+                    let user = user.unwrap_or(store.registration()?.payload.user_id);
+                    let client = transport::connect(&args.server, &store).await?;
+                    for registration in epochgrid_core::devices::list(&client, &user).await? {
+                        let p = registration.payload;
+                        println!("{}/{} {}", p.user_id, p.device_id, p.nats_public_key);
+                    }
+                }
+            }
+        }
         Command::Tui => {
             tui::run(args.home, args.server)?;
         }
@@ -150,8 +193,8 @@ async fn main() -> Result<()> {
                 chat::receive(&args.home, &args.server, &name, timeout).await?;
             }
         },
-        Command::DevConfig { root, port } => {
-            transport::dev_config(&root, port)?;
+        Command::DevConfig { root, port, enroll } => {
+            transport::dev_config_with_enrollment(&root, port, &enroll)?;
             println!(
                 "EpochGrid development configuration ready in {}",
                 root.display()
@@ -164,8 +207,12 @@ async fn main() -> Result<()> {
                     let group = store.create_group(&name)?;
                     println!("EpochGrid channel created: {} ({})", group.name, group.gid);
                 }
-                Channel::Members { name } => {
-                    for member in store.members(&name)? {
+                Channel::Members { name, users } => {
+                    for member in if users {
+                        store.users(&name)?
+                    } else {
+                        store.members(&name)?
+                    } {
                         println!("{member}");
                     }
                 }

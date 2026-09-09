@@ -33,12 +33,19 @@ impl IdentityStore {
         self.transaction(|| {
             let mut group = self.load_group(&descriptor)?;
             ensure!(
-                group.members().count() == 1,
-                "this slice supports one invitation per group"
+                group.own_leaf_index() == LeafNodeIndex::new(0),
+                "only the creator device can add members in this alpha slice"
             );
             ensure!(
                 recipient.payload.nats_public_key != self.registration()?.payload.nats_public_key,
                 "cannot invite this device to itself"
+            );
+            ensure!(
+                !self.members(name)?.contains(&format!(
+                    "{}/{}",
+                    recipient.payload.user_id, recipient.payload.device_id
+                )),
+                "device is already a member"
             );
             let (commit, welcome, _) = group
                 .add_members(&self.provider, &signer, &[package])
@@ -105,11 +112,23 @@ impl IdentityStore {
                 "Welcome signer is not the expected inviter"
             );
             ensure!(
-                staged.members().count() == 2,
-                "this slice only accepts two-device groups"
+                staged.members().any(|member| {
+                    member.index == LeafNodeIndex::new(0)
+                        && member.signature_key.as_slice() == sender.signature_key().as_slice()
+                        && &member.credential == sender.credential()
+                }),
+                "Welcome must be signed by the creator device"
+            );
+            ensure!(
+                staged.members().count() >= 2,
+                "Welcome must include at least two devices"
             );
             let descriptor = Group::from_mls_id(staged.group_context().group_id())?;
             self.insert_group(&descriptor)?;
+            self.connection.execute(
+                "UPDATE group_join_epochs SET epoch=?1 WHERE gid=?2",
+                rusqlite::params![staged.group_context().epoch().as_u64(), descriptor.gid],
+            )?;
             staged
                 .into_group(&self.provider)
                 .map_err(|e| anyhow!("join MLS group: {e:?}"))?;
@@ -165,15 +184,15 @@ pub async fn invite(
     wire::validate_id(user)?;
     wire::validate_id(device)?;
     let descriptor = store.group(name)?;
+    crate::history::resume(store, client, name).await?;
     let members = store.members(name)?;
-    if members.len() == 1 {
+    if !members.contains(&format!("{user}/{device}")) {
+        ensure!(
+            store.load_group(&descriptor)?.own_leaf_index() == LeafNodeIndex::new(0),
+            "only the creator device can invite"
+        );
         let recipient = transport::claim_keypackage(client, user, device, &descriptor.gid).await?;
         store.prepare_invitation(name, &recipient)?;
-    } else {
-        ensure!(
-            members.contains(&format!("{user}/{device}")),
-            "group already has another invitee"
-        );
     }
     flush_outbox(store, client).await
 }
