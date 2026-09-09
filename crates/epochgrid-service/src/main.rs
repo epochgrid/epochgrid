@@ -33,10 +33,14 @@ async fn main() -> Result<()> {
     let enrollment: Enrollment = serde_json::from_slice(&std::fs::read(args.enrollment)?)?;
     let identity = IdentityStore::open(&args.home)?;
     let client = transport::connect(&args.server, &identity).await?;
+    let signing_key = identity.nkey()?;
     drop(identity);
     let store = transport::provision(client.clone()).await?;
     transport::provision_mailboxes(client.clone(), &enrollment).await?;
     transport::provision_chat_consumers(client.clone(), &enrollment).await?;
+    let log =
+        epochgrid_core::transparency::provision(client.clone(), &store, &enrollment, &signing_key)
+            .await?;
     let mut requests = client.subscribe("epochgrid.v1.identity.*").await?;
     client.flush().await?;
     tracing::info!("EpochGrid identity service ready");
@@ -51,8 +55,9 @@ async fn main() -> Result<()> {
                 if !reply.as_str().starts_with("_INBOX.") { continue; }
                 let response = match (message.subject.as_str(), wire::decode(&message.payload)) {
                     (wire::REGISTER, Ok(Body::Register(registration))) => {
-                        if transport::accept(&store, &enrollment, registration).await.is_ok() { Body::Registered } else { Body::Rejected }
+                        if epochgrid_core::transparency::register(&log, &store, &enrollment, &signing_key, registration).await.is_ok() { Body::Registered } else { Body::Rejected }
                     }
+                    (wire::AUDIT, Ok(Body::Audit)) => epochgrid_core::transparency::read(&log).await.map(Body::AuditLog).unwrap_or(Body::Rejected),
                     (wire::DEVICES, Ok(Body::ListDevices { user })) => epochgrid_core::devices::find_devices(&store, &enrollment, &user).await.unwrap_or(Body::Rejected),
                     (wire::LOOKUP, Ok(Body::Lookup { user, device })) => transport::find(&store, &enrollment, &user, &device).await.unwrap_or(Body::Rejected),
                     (wire::KEYPACKAGE, Ok(Body::ClaimKeyPackage { user, device, group })) => transport::claim(&store, &enrollment, &user, &device, &group).await.unwrap_or(Body::Rejected),

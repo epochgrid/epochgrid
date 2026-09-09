@@ -334,7 +334,16 @@ async fn cli_mvp_ciphertext_only_and_restart() -> Result<()> {
         names.push(info?.config.name);
     }
     names.sort();
-    ensure!(names == ["CHAT", "KV_CHANNELS", "KV_IDENTITIES", "MAILBOX"]);
+    ensure!(
+        names
+            == [
+                "CHAT",
+                "KV_CHANNELS",
+                "KV_IDENTITIES",
+                "KV_TRANSPARENCY",
+                "MAILBOX"
+            ]
+    );
     let group = IdentityStore::open(&root.join("alice"))?.group("engineering")?;
     let expected_mls_id = format!("epochgrid/v1/engineering/{}", group.gid);
     let mut applications = 0;
@@ -343,7 +352,8 @@ async fn cli_mvp_ciphertext_only_and_restart() -> Result<()> {
     for name in names {
         let mut stream = js.get_stream(&name).await?;
         let last = stream.info().await?.state.last_sequence;
-        for sequence in 1..=last {
+        let first = stream.cached_info().state.first_sequence.max(1);
+        for sequence in first..=last {
             let message = stream.get_raw_message(sequence).await?;
             no_secrets(&message.payload, &seeds)?;
             no_secrets(message.subject.as_bytes(), &seeds)?;

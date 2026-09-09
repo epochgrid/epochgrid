@@ -82,10 +82,11 @@ upgrade; do not reset either as a migration strategy.
 ## Limits and trust
 
 One initial KeyPackage per device is still reserved for one group, without
-replenishment. Initial KeyPackage expiry also limits signing-key lookup. Directory
-listing is bounded to 32 devices and the protocol's 65,536-byte envelope limit.
+replenishment. Initial KeyPackage expiry also limits signing-key lookup. Legacy directory listing is bounded to 32 devices and the protocol's 65,536-byte
+envelope limit. Milestone 13 audited listing follows the full-log capacity bound.
 The operator, directory and NATS administrator remain trusted for identity binding;
-manual verification, transparency and revocation are not implemented here.
+Milestone 13 adds [manual verification and transparency](device-verification.md);
+revocation remains future work.
 
 Online sends catch up before encryption. Offline TUI sends remain queued as exact
 ciphertext; if membership changes before publication, that old-epoch ciphertext

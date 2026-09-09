@@ -27,11 +27,24 @@ storage exposure. Unread indicators are local UI state, not secure read receipts
 Milestone 12 supports independent device leaves for the same logical user. A
 compromised device exposes its own local state and can impersonate that device;
 collapsing user labels does not make devices share keys. Enrollment is still trusted
-to the operator/directory: manual verification, key-change detection, transparency
-and revocation remain unimplemented. A new device receives a Welcome for its join
+to the operator/directory for initial authorization. Milestone 13 adds manual
+verification, key-change detection and a bounded authenticated log; revocation
+remains unimplemented. A new device receives a Welcome for its join
 epoch, not prior history. Earlier framed traffic is skipped without authentication
 because the new device has no historical keys. Creator Commits are authenticated and
 merged atomically with local progress. Offline ciphertext from before a membership
 change may be undecryptable afterward. Transport suppression/reordering and group
 permission wildcards remain availability/metadata limitations. No revocation or
 historical erasure guarantee is added. See [multi-device boundaries](docs/multi-device.md).
+
+
+Milestone 13 retains device fingerprints and a signed Merkle prefix checkpoint.
+Manual verification requires an independently obtained complete fingerprint;
+changed observed keys are sticky and block audited discovery/invitation/join.
+Checkpoint rollback, prefix rewriting and signer changes are rejected. First contact
+uses TOFU unless the operator key is pinned independently. No gossip/witness network,
+freshness proof or global split-view detection is provided. A compromised signer can
+append dishonest new identities; local database loss discards observed evidence.
+The log and fingerprints do not prove human identity or retroactively verify every
+existing MLS leaf. TUI audit failures are prominent; local transcripts remain
+readable. The service still cannot read application plaintext. See [verification security boundaries](docs/device-verification.md).

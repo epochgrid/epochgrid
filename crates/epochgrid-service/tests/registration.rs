@@ -595,3 +595,5 @@ async fn resume_pending_invitation_and_ambiguous_publish() -> Result<()> {
 mod mvp;
 
 mod multi_device;
+
+mod verification;

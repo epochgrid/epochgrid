@@ -2,7 +2,7 @@ mod chat;
 mod tui;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use epochgrid_core::{identity::IdentityStore, transport};
+use epochgrid_core::{identity::IdentityStore, transparency, transport, trust};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -21,6 +21,11 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Audit the registration log or inspect/pin its local checkpoint.
+    Transparency {
+        #[command(subcommand)]
+        command: Transparency,
+    },
     /// Persistent terminal client with history and automatic reconnect.
     Tui,
     /// Initialize an independent device or list a user's registered devices.
@@ -54,7 +59,31 @@ enum Command {
     },
 }
 #[derive(Subcommand)]
+enum Transparency {
+    Audit,
+    Status,
+    /// Pin the service public NKey obtained independently before first use.
+    Pin {
+        key: String,
+    },
+}
+#[derive(Subcommand)]
 enum Device {
+    /// Show your own fingerprint, or discover a specific remote device.
+    Fingerprint {
+        user: Option<String>,
+        device: Option<String>,
+        /// Inspect retained fingerprints and warnings without contacting the directory.
+        #[arg(long)]
+        offline: bool,
+    },
+    /// Compare a full fingerprint obtained over an independent channel.
+    Verify {
+        user: String,
+        device: String,
+        #[arg(long)]
+        fingerprint: String,
+    },
     Add {
         user: String,
         #[arg(long)]
@@ -66,6 +95,13 @@ enum Device {
 }
 #[derive(Subcommand)]
 enum Identity {
+    Verify {
+        user: String,
+        #[arg(long, default_value = "laptop")]
+        device: String,
+        #[arg(long)]
+        fingerprint: String,
+    },
     Init {
         user: String,
         #[arg(long, default_value = "laptop")]
@@ -142,9 +178,104 @@ async fn main() -> Result<()> {
         })
         .init();
     match args.command {
+        Command::Transparency { command } => {
+            let store = IdentityStore::open(&args.home)?;
+            match command {
+                Transparency::Pin { key } => {
+                    store.pin_directory(&key)?;
+                    println!("EpochGrid directory key pinned: {key}");
+                }
+                Transparency::Audit => {
+                    let client = transport::connect(&args.server, &store).await?;
+                    let snapshot = transparency::audit(&client, &store).await?;
+                    println!(
+                        "EpochGrid transparency audit passed: {} registrations; signer {}",
+                        snapshot.checkpoint.size, snapshot.checkpoint.signer
+                    );
+                    println!(
+                        "First contact is trust-on-first-use unless the signer was pinned independently."
+                    );
+                }
+                Transparency::Status => {
+                    if let Some(checkpoint) = store.checkpoint()? {
+                        println!(
+                            "EpochGrid transparency checkpoint: {} registrations; signer {}",
+                            checkpoint.size, checkpoint.signer
+                        );
+                        println!(
+                            "Root: {}",
+                            checkpoint
+                                .root
+                                .iter()
+                                .map(|b| format!("{b:02X}"))
+                                .collect::<String>()
+                        );
+                    } else {
+                        println!("EpochGrid transparency: no audited checkpoint");
+                        if let Some(key) = store.directory_key()? {
+                            println!("Pinned signer: {key}");
+                        }
+                    }
+                    if let Some(warning) = store.trust_warning()? {
+                        println!("{warning}");
+                    }
+                }
+            }
+        }
         Command::Device { command } => {
             let mut store = IdentityStore::open(&args.home)?;
             match command {
+                Device::Fingerprint {
+                    user,
+                    device,
+                    offline,
+                } => {
+                    if offline && let Some(user) = &user {
+                        let observed = store
+                            .device_trust(user, device.as_deref().unwrap_or("laptop"))?
+                            .ok_or_else(|| anyhow::anyhow!("device has not been observed"))?;
+                        println!(
+                            "EpochGrid device: {}/{} [{}]",
+                            observed.user, observed.device, observed.state
+                        );
+                        println!(
+                            "Pinned fingerprint: {}",
+                            trust::display_fingerprint(&observed.fingerprint)
+                        );
+                        println!(
+                            "Latest fingerprint: {}",
+                            trust::display_fingerprint(&observed.latest_fingerprint)
+                        );
+                        return Ok(());
+                    }
+                    let registration = if let Some(user) = user {
+                        let client = transport::connect(&args.server, &store).await?;
+                        transparency::lookup(
+                            &client,
+                            &store,
+                            &user,
+                            device.as_deref().unwrap_or("laptop"),
+                        )
+                        .await?
+                    } else {
+                        store.registration()?
+                    };
+                    println!(
+                        "EpochGrid device: {}/{}",
+                        registration.payload.user_id, registration.payload.device_id
+                    );
+                    println!(
+                        "Fingerprint: {}",
+                        trust::display_fingerprint(&trust::fingerprint(&registration)?)
+                    );
+                }
+                Device::Verify {
+                    user,
+                    device,
+                    fingerprint,
+                } => {
+                    verify_device(&store, &args.server, &user, &device, &fingerprint).await?;
+                }
                 Device::Add { user, device } => {
                     let registration = store.init(&user, &device)?;
                     println!("EpochGrid device initialized: {user}/{device}");
@@ -156,9 +287,15 @@ async fn main() -> Result<()> {
                 Device::List { user } => {
                     let user = user.unwrap_or(store.registration()?.payload.user_id);
                     let client = transport::connect(&args.server, &store).await?;
-                    for registration in epochgrid_core::devices::list(&client, &user).await? {
+                    for registration in transparency::devices(&client, &store, &user).await? {
                         let p = registration.payload;
-                        println!("{}/{} {}", p.user_id, p.device_id, p.nats_public_key);
+                        let state = store
+                            .device_trust(&p.user_id, &p.device_id)?
+                            .map_or("unverified".into(), |t| t.state);
+                        println!(
+                            "{}/{} {} [{state}]",
+                            p.user_id, p.device_id, p.nats_public_key
+                        );
                     }
                 }
             }
@@ -252,6 +389,13 @@ async fn main() -> Result<()> {
         Command::Identity { command } => {
             let mut store = IdentityStore::open(&args.home)?;
             match command {
+                Identity::Verify {
+                    user,
+                    device,
+                    fingerprint,
+                } => {
+                    verify_device(&store, &args.server, &user, &device, &fingerprint).await?;
+                }
                 Identity::Init { user, device } => {
                     let r = store.init(&user, &device)?;
                     println!(
@@ -265,16 +409,43 @@ async fn main() -> Result<()> {
                 ),
                 Identity::Lookup { user, device } => {
                     let client = transport::connect(&args.server, &store).await?;
-                    let registration = transport::lookup(&client, &user, &device).await?;
+                    let registration =
+                        transparency::lookup(&client, &store, &user, &device).await?;
                     println!("{}", serde_json::to_string_pretty(&registration.payload)?);
                 }
                 Identity::Register => {
                     let client = transport::connect(&args.server, &store).await?;
                     transport::register(&client, store.registration()?).await?;
+                    let own = store.registration()?;
+                    let logged = transparency::lookup(
+                        &client,
+                        &store,
+                        &own.payload.user_id,
+                        &own.payload.device_id,
+                    )
+                    .await?;
+                    anyhow::ensure!(
+                        logged == own,
+                        "own registration differs from authenticated log"
+                    );
                     println!("EpochGrid device registered");
                 }
             }
         }
     }
+    Ok(())
+}
+
+async fn verify_device(
+    store: &IdentityStore,
+    server: &str,
+    user: &str,
+    device: &str,
+    fingerprint: &str,
+) -> Result<()> {
+    let client = transport::connect(server, store).await?;
+    transparency::lookup(&client, store, user, device).await?;
+    store.verify_device(user, device, fingerprint)?;
+    println!("EpochGrid device verified: {user}/{device}");
     Ok(())
 }

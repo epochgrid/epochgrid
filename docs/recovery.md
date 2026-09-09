@@ -1,5 +1,9 @@
 # Restart and recovery — Milestone 9
 
+This records the original MVP milestone. For current alpha capabilities and limits,
+see [the README](../README.md), [multi-device membership](multi-device.md) and
+[device verification/transparency](device-verification.md).
+
 Reopen the same device directory to continue an existing two-device MLS group.
 Identity, membership, epochs, sending/receiving ratchets, outbox, staging and local
 transcript are persisted in one SQLite database. OpenMLS and application writes

@@ -1,4 +1,4 @@
-# EpochGrid architecture — through Milestone 12
+# EpochGrid architecture — through Milestone 13
 
 EpochGrid (https://epochgrid.org) uses NATS for
 transport, authentication, authorization, request/reply and persistence. OpenMLS
@@ -158,3 +158,16 @@ per-group join epochs; pre-join traffic is skipped and new members gain no histo
 keys. CHAT consumer updates preserve acknowledgment progress. See
 [multi-device design and upgrade](multi-device.md) for commands, validation, offline
 epoch limitations and the required coordinated client/service upgrade.
+
+
+## Device verification and registration transparency
+
+Milestone 13 adds local SHA-256 identity fingerprints and explicit independent
+comparison, backed by migration 2 (`device_trust`, `transparency_state`, `trust_alert`).
+A service-NKey-signed Merkle log lives in one bounded TRANSPARENCY KV snapshot;
+CAS publishes registrations and checkpoint atomically. IDENTITIES is its public
+projection. Clients pin a signer and retain a prefix checkpoint, rejecting rewritten
+history and changed observed identities. Full snapshots replace compact proofs for
+this small alpha. Audited discovery protects invite/join; TUI polling surfaces trust
+failures. See [the design and limits](device-verification.md) for canonical bytes,
+upgrade semantics, first-contact/split-view limitations and the capacity bound.

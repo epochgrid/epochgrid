@@ -147,3 +147,39 @@ Updating the durable filter retains server delivery progress, but requires coord
 client/service upgrade: Milestone 11 clients validate the old filter and cannot
 process subsequent membership changes. Migration 1 is additive and preserves local
 keys, ratchets and transcripts; older binaries must not reopen upgraded state.
+
+Milestone 13 appends `Audit=10` and `AuditLog=11(Snapshot)` to Body without changing
+prior discriminants or registration signing bytes. Audit uses the fixed request/reply
+subject `epochgrid.v1.identity.audit`. `Snapshot` field order is `checkpoint`, then
+`entries: Vec<DeviceRegistration>` in registration sequence order (index + 1).
+Checkpoint field order is `version: u16`, `size: u64`, `root: [u8;32]`, `signer: String`,
+`signature: Vec<u8>`. The checkpoint signature covers ASCII
+`EpochGrid transparency checkpoint v1` plus NUL, followed by postcard serialization
+of `(version, size, root, signer)` in that order. Version is 1. The signer is the
+service's public user NKey. SHA-256 Merkle leaves hash 0x00 plus the canonical v1
+Register envelope; internal nodes hash 0x01 plus two 32-byte child hashes. The empty
+root is SHA-256 of empty bytes. Split at the largest power of two below the leaf count.
+
+Snapshots contain at most 256 entries and must fit the unchanged MAX_WIRE envelope
+limit of 65,536 bytes. All entries and the signed checkpoint publish atomically by
+CAS to key `snapshot` in the public TRANSPARENCY KV bucket. Exact retries do not
+append duplicates; endpoint replacements are rejected. The service validates full
+OpenMLS packages at admission. Historic log validation verifies immutable NKey-signed
+records without requiring expired packages to remain usable. Actual peer discovery
+still checks OpenMLS validity before use. Capacity errors reject admission without
+pruning history. No compact proof or pagination format is introduced.
+
+Clients independently pin a signer or trust it on first use. Subsequent snapshots
+must have the same signer and reproduce the old root over their first retained-size
+entries. Verification is over the full snapshot, not an unauthenticated root supplied
+by the server. Public directory lookup/list operations remain binary-compatible, but
+upgraded CLI discovery uses AuditLog records and compares KeyPackage claims with the
+logged record. Missing/old audit APIs fail closed; this is a coordinated pre-1.0
+upgrade. Stored MLS application/Commit/Welcome bytes remain unchanged.
+
+Migration 2 adds `device_trust`, `transparency_state` and `trust_alert`; it does not
+rewrite MLS state. Local trust states are unverified, verified and changed. Fingerprint
+v1 and first-contact, split-view, migration and offline-inspection semantics are
+specified in [device verification](device-verification.md). No verification state or
+manually supplied comparison value is sent to NATS; user/device public identities remain
+visible to the fabric.

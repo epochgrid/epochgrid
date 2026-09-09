@@ -124,6 +124,16 @@ pub async fn accept(
     registration: DeviceRegistration,
 ) -> Result<()> {
     verify(&registration)?;
+    project_registration(store, enrollment, registration).await
+}
+/// Repair only a registration already authenticated in the persisted log.
+/// Historical package expiry must not prevent service restart.
+pub(crate) async fn project_registration(
+    store: &async_nats::jetstream::kv::Store,
+    enrollment: &Enrollment,
+    registration: DeviceRegistration,
+) -> Result<()> {
+    crate::identity::verify_signature(&registration)?;
     let key = registration.payload.key();
     ensure!(
         enrollment.get(&key) == Some(&registration.payload.nats_public_key),
@@ -214,13 +224,13 @@ pub fn dev_config_with_enrollment(root: &Path, port: u16, additions: &[String]) 
         let inbox = format!("_INBOX.{}.>", key);
         let permissions = if endpoint == "users.service.devices.laptop" {
             format!(
-                r#"publish: ["$JS.API.>", "$KV.IDENTITIES.>", "$KV.CHANNELS.>"]
+                r#"publish: ["$JS.API.>", "$KV.IDENTITIES.>", "$KV.CHANNELS.>", "$KV.TRANSPARENCY.>"]
 subscribe: ["{inbox}", "epochgrid.v1.identity.*"]
 allow_responses: {{max: 1, expires: "5s"}}"#
             )
         } else {
             format!(
-                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup", "epochgrid.v1.identity.keypackage", "epochgrid.v1.identity.devices", "epochgrid.v1.group.*.handshake", "epochgrid.v1.group.*.message", "epochgrid.v1.user.*.*.inbox", "$JS.API.CONSUMER.INFO.MAILBOX.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.MAILBOX.device_{key}", "$JS.ACK.MAILBOX.device_{key}.>", "$JS.API.CONSUMER.INFO.CHAT.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.CHAT.device_{key}", "$JS.ACK.CHAT.device_{key}.>"]
+                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup", "epochgrid.v1.identity.keypackage", "epochgrid.v1.identity.devices", "epochgrid.v1.identity.audit", "epochgrid.v1.group.*.handshake", "epochgrid.v1.group.*.message", "epochgrid.v1.user.*.*.inbox", "$JS.API.CONSUMER.INFO.MAILBOX.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.MAILBOX.device_{key}", "$JS.ACK.MAILBOX.device_{key}.>", "$JS.API.CONSUMER.INFO.CHAT.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.CHAT.device_{key}", "$JS.ACK.CHAT.device_{key}.>"]
 subscribe: ["{inbox}", "epochgrid.v1.group.*.message"]"#,
                 key = key
             )
