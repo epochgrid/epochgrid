@@ -85,3 +85,13 @@ and manual verification commands with the TUI closed for that home; see
 [device verification](device-verification.md). A failed audit stops that polling
 cycle, so an unavailable identity service can delay interactive delivery even while
 NATS is reachable. Established scripting chat remains an MLS group operation.
+
+Milestone 14 network polling also audits revocations, processes removal Commits and
+rekeys when this device is coordinator. New encryption waits for known revoked leaves
+to be removed. Queued old-epoch messages are retained but blocked, with a visible warning;
+resend needed text explicitly after rekeying. Revocation can be issued by the operator
+or another active installation using `device revoke USER DEVICE`. A broker-disconnected
+device shows connection loss; without updated evidence it cannot infer the cause.
+
+Membership views render from the latest worker snapshot, including additions/removals
+while the view is open. Security warnings take precedence over local command notices.

@@ -110,6 +110,7 @@ impl IdentityStore {
         };
         store.migrate_multi_device()?;
         store.migrate_trust()?;
+        store.migrate_revocation()?;
         Ok(store)
     }
     fn migrate_multi_device(&self) -> Result<()> {
@@ -121,7 +122,7 @@ impl IdentityStore {
             [],
             |r| r.get(0),
         )?;
-        ensure!(version <= 2, "local schema is newer than this client");
+        ensure!(version <= 3, "local schema is newer than this client");
         if version == 0 {
             self.transaction(|| {
                 self.connection.execute_batch(

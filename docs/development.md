@@ -123,3 +123,18 @@ independent directory-key pinning before first discovery. The NATS suite now has
 seven cases, including adversarial history/key substitution and competing atomic
 appends. New feature work starts on a clean branch and reaches protected `main`
 through a PR with required status checks; do not push feature commits to `main`.
+
+
+Milestone 14 requires another coordinated bootstrap/service/client restart. Preserve
+existing state: migration 3 is additive and the regenerated configuration retains
+previous revoked-key exclusions. Compose mounts `auth/` as a directory so atomic
+include-file replacement is visible to the broker. The host service needs the
+restricted `.dev/system` identity and write access to `.dev/auth/`; only one actuator
+may own a development root. No NATS process restart is required for an individual
+revocation. See [revocation commands and failure recovery](device-revocation.md).
+
+The shared verification command now runs nine isolated NATS cases and a three-client
+PTY scenario including live revocation. The new cases exercise forced disconnect,
+rekeyed messaging, bootstrap/restart persistence and durable intent surviving actuator
+failure. They use temporary roots and ports. `device list` reports authorization and
+local trust separately; remote connection presence is not inferred from directory state.

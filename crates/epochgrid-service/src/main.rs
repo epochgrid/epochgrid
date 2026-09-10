@@ -1,7 +1,9 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use epochgrid_core::{
+    broker_control::BrokerControl,
     identity::IdentityStore,
+    revocation, transparency,
     transport::{self, Enrollment},
     wire::{self, Body},
 };
@@ -30,7 +32,7 @@ async fn main() -> Result<()> {
         )
         .init();
     let args = Args::parse();
-    let enrollment: Enrollment = serde_json::from_slice(&std::fs::read(args.enrollment)?)?;
+    let enrollment: Enrollment = serde_json::from_slice(&std::fs::read(&args.enrollment)?)?;
     let identity = IdentityStore::open(&args.home)?;
     let client = transport::connect(&args.server, &identity).await?;
     let signing_key = identity.nkey()?;
@@ -41,26 +43,73 @@ async fn main() -> Result<()> {
     let log =
         epochgrid_core::transparency::provision(client.clone(), &store, &enrollment, &signing_key)
             .await?;
+    let registrations = transparency::read(&log).await?;
+    revocation::initialize(&log, &registrations, &signing_key).await?;
+    let root = args
+        .enrollment
+        .parent()
+        .context("enrollment directory missing")?;
+    let mut control = BrokerControl::connect(root, &args.server).await?;
+    control
+        .enforce(
+            &revocation::read(&log, &registrations).await?,
+            &client,
+            true,
+        )
+        .await?;
+    let mut retry = tokio::time::interval(std::time::Duration::from_secs(2));
     let mut requests = client.subscribe("epochgrid.v1.identity.*").await?;
     client.flush().await?;
     tracing::info!("EpochGrid identity service ready");
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
+            _ = retry.tick() => {
+                let result = async {
+                    let registrations = transparency::read(&log).await?;
+                    control.enforce(&revocation::read(&log, &registrations).await?, &client, false).await
+                }.await;
+                if let Err(error) = result { tracing::error!(%error, "revocation enforcement pending; retrying"); }
+            }
             message = requests.next() => {
                 let Some(message) = message else { break };
                 let Some(reply) = message.reply else { continue };
                 // A requester controls reply subjects. Never exercise the service's
                 // publish authority against KV, stream or administrative subjects.
                 if !reply.as_str().starts_with("_INBOX.") { continue; }
+                let state = async {
+                    let registrations = transparency::read(&log).await?;
+                    let revocations = revocation::read(&log, &registrations).await?;
+                    Ok::<_, anyhow::Error>((registrations, revocations))
+                }.await;
+                let (registrations, revocations) = match state {
+                    Ok(state) => state,
+                    Err(error) => {
+                        tracing::error!(%error, "directory integrity failure; request rejected");
+                        client.publish(reply, wire::encode(Body::Rejected)?.into()).await?;
+                        continue;
+                    }
+                };
+                let revoked_keys = revocations.keys();
+                let active: Enrollment = enrollment.iter().filter(|(_,key)| !revoked_keys.contains(*key)).map(|(endpoint,key)| (endpoint.clone(),key.clone())).collect();
                 let response = match (message.subject.as_str(), wire::decode(&message.payload)) {
                     (wire::REGISTER, Ok(Body::Register(registration))) => {
-                        if epochgrid_core::transparency::register(&log, &store, &enrollment, &signing_key, registration).await.is_ok() { Body::Registered } else { Body::Rejected }
+                        if epochgrid_core::transparency::register(&log, &store, &active, &signing_key, registration).await.is_ok() { Body::Registered } else { Body::Rejected }
                     }
-                    (wire::AUDIT, Ok(Body::Audit)) => epochgrid_core::transparency::read(&log).await.map(Body::AuditLog).unwrap_or(Body::Rejected),
-                    (wire::DEVICES, Ok(Body::ListDevices { user })) => epochgrid_core::devices::find_devices(&store, &enrollment, &user).await.unwrap_or(Body::Rejected),
-                    (wire::LOOKUP, Ok(Body::Lookup { user, device })) => transport::find(&store, &enrollment, &user, &device).await.unwrap_or(Body::Rejected),
-                    (wire::KEYPACKAGE, Ok(Body::ClaimKeyPackage { user, device, group })) => transport::claim(&store, &enrollment, &user, &device, &group).await.unwrap_or(Body::Rejected),
+                    (wire::AUDIT, Ok(Body::RegistrationAudit)) => Body::AuditLog(registrations.clone()),
+                    (wire::AUDIT, Ok(Body::Audit)) if revocations.entries.is_empty() => Body::AuditLog(registrations.clone()),
+                    (wire::REVOCATIONS, Ok(Body::RevocationAudit)) => Body::RevocationLog(revocations),
+                    (wire::REVOKE, Ok(Body::Revoke(request))) => {
+                        let result = async {
+                            let cutoff = epochgrid_core::revocation::chat_cutoff(&client).await?;
+                            let log = revocation::append(&log, &registrations, &signing_key, request, cutoff).await?;
+                            control.enforce(&log, &client, false).await
+                        }.await;
+                        match result { Ok(()) => Body::Revoked, Err(error) => { tracing::error!(%error, "revocation not completed; inspect status and retry"); Body::Rejected } }
+                    },
+                    (wire::DEVICES, Ok(Body::ListDevices { user })) => epochgrid_core::devices::find_devices(&store, &active, &user).await.unwrap_or(Body::Rejected),
+                    (wire::LOOKUP, Ok(Body::Lookup { user, device })) => transport::find(&store, &active, &user, &device).await.unwrap_or(Body::Rejected),
+                    (wire::KEYPACKAGE, Ok(Body::ClaimKeyPackage { user, device, group })) => transport::claim(&store, &active, &user, &device, &group).await.unwrap_or(Body::Rejected),
                     _ => Body::Rejected,
                 };
                 if matches!(response, Body::Rejected) { tracing::warn!("identity request rejected"); }

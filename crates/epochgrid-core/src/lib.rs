@@ -18,3 +18,11 @@ pub mod trust;
 
 #[cfg(test)]
 mod trust_tests;
+
+pub mod broker_control;
+pub mod revocation;
+
+mod rekey;
+
+#[cfg(test)]
+mod revocation_tests;

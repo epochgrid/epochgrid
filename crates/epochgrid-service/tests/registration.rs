@@ -597,3 +597,5 @@ mod mvp;
 mod multi_device;
 
 mod verification;
+
+mod revocation;

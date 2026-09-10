@@ -55,7 +55,7 @@ Invitations are explicit per device, not automatic fan-out to every registered d
 
 ## Membership and persistence
 
-The creator device serializes additions. Other members authenticate and merge its
+The coordinator device (initially the creator) serializes additions. Other members authenticate and merge its
 MLS Commits. Non-creator invitations fail before claiming a KeyPackage. Every add
 advances the epoch; existing devices consume encrypted Commits and application
 messages together in CHAT sequence order, including after an offline interval.
@@ -86,7 +86,7 @@ replenishment. Initial KeyPackage expiry also limits signing-key lookup. Legacy 
 envelope limit. Milestone 13 audited listing follows the full-log capacity bound.
 The operator, directory and NATS administrator remain trusted for identity binding;
 Milestone 13 adds [manual verification and transparency](device-verification.md);
-revocation remains future work.
+[revocation and rekeying](device-revocation.md) are implemented in Milestone 14.
 
 Online sends catch up before encryption. Offline TUI sends remain queued as exact
 ciphertext; if membership changes before publication, that old-epoch ciphertext
@@ -101,7 +101,7 @@ Compromising one Alice device exposes its local secrets and plaintext and permit
 sending as that device. Collapsing user labels is presentation, not shared keys or
 proof of the human's identity. NATS group permissions still span the development
 lab; inbox consumption remains per device. No historical erasure or removal security
-is claimed. Revocation requires the later credential/MLS lifecycle milestone.
+is claimed. See [Milestone 14 revocation](device-revocation.md) for credential exclusion and MLS removal.
 
 ## Validation
 

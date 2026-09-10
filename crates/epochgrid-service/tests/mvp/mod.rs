@@ -70,7 +70,17 @@ pub(super) async fn cli(
         .take()
         .context("stdout missing")?
         .read_to_string(&mut stdout)?;
-    ensure!(status.success(), "CLI command failed: {user} {args:?}");
+    let mut stderr = String::new();
+    process
+        .0
+        .stderr
+        .take()
+        .context("stderr missing")?
+        .read_to_string(&mut stderr)?;
+    ensure!(
+        status.success(),
+        "CLI command failed: {user} {args:?}: {stderr}"
+    );
     Ok(stdout)
 }
 pub(super) fn daemon(root: &Path, url: &str) -> Result<Process> {
@@ -354,7 +364,19 @@ async fn cli_mvp_ciphertext_only_and_restart() -> Result<()> {
         let last = stream.info().await?.state.last_sequence;
         let first = stream.cached_info().state.first_sequence.max(1);
         for sequence in first..=last {
-            let message = stream.get_raw_message(sequence).await?;
+            let message = match stream.get_raw_message(sequence).await {
+                Ok(message) => message,
+                Err(error)
+                    if name.starts_with("KV_")
+                        && matches!(
+                            error.kind(),
+                            async_nats::jetstream::stream::RawMessageErrorKind::NoMessageFound
+                        ) =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
             no_secrets(&message.payload, &seeds)?;
             no_secrets(message.subject.as_bytes(), &seeds)?;
             no_secrets(format!("{:?}", message.headers).as_bytes(), &seeds)?;

@@ -197,18 +197,37 @@ impl IdentityStore {
         Ok(())
     }
     pub fn trust_warning(&self) -> Result<Option<String>> {
+        if let Ok(identity) = self.registration()
+            && self.is_revoked(&identity.payload.nats_public_key)?
+        {
+            return Ok(Some(
+                "DEVICE REVOKED: revocation recorded; new sends are disabled".into(),
+            ));
+        }
         let changed: Option<String> = self.connection.query_row("SELECT user || '/' || device FROM device_trust WHERE state='changed' ORDER BY user,device LIMIT 1", [], |r| r.get(0)).optional()?;
         if let Some(device) = changed {
             return Ok(Some(format!(
                 "DEVICE IDENTITY CHANGED: {device}; new invitations blocked"
             )));
         }
-        Ok(self
+        let alert: Option<String> = self
             .connection
             .query_row("SELECT message FROM trust_alert WHERE id=1", [], |r| {
                 r.get(0)
             })
-            .optional()?)
+            .optional()?;
+        if alert.is_some() {
+            return Ok(alert);
+        }
+        let blocked: u64 =
+            self.connection
+                .query_row("SELECT COUNT(*) FROM blocked_outbox", [], |r| r.get(0))?;
+        if blocked > 0 {
+            return Ok(Some(format!(
+                "{blocked} queued messages blocked after revocation; retained locally, resend after rekey"
+            )));
+        }
+        Ok(None)
     }
     pub fn clear_transparency_warning(&self) -> Result<()> {
         self.connection.execute("DELETE FROM trust_alert", [])?;

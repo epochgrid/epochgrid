@@ -201,10 +201,21 @@ pub async fn audit(
 ) -> Result<Snapshot> {
     let result = async {
         let reply = client
-            .request(wire::AUDIT, wire::encode(Body::Audit)?.into())
+            .request(wire::AUDIT, wire::encode(Body::RegistrationAudit)?.into())
             .await?;
         let snapshot = decode(&reply.payload)?;
+        let reply = client
+            .request(
+                wire::REVOCATIONS,
+                wire::encode(Body::RevocationAudit)?.into(),
+            )
+            .await?;
+        let Body::RevocationLog(revocations) = wire::decode(&reply.payload)? else {
+            anyhow::bail!("revocation audit missing; upgrade service")
+        };
+        revocations.validate(&snapshot)?;
         local.accept_checkpoint(&snapshot)?;
+        local.accept_revocations(&revocations, &snapshot)?;
         local.clear_transparency_warning()?;
         Ok::<_, anyhow::Error>(snapshot)
     }
@@ -228,6 +239,10 @@ pub async fn lookup(
         .into_iter()
         .find(|r| r.payload.user_id == user && r.payload.device_id == device)
         .context("device not found in authenticated registration log")?;
+    ensure!(
+        !local.is_revoked(&record.payload.nats_public_key)?,
+        "device is revoked"
+    );
     identity::verify(&record)?;
     local.observe_device(&record)?;
     Ok(record)

@@ -122,6 +122,7 @@ impl Session {
             messages,
             members,
             status: self.status.clone(),
+            security_warning: self.store.trust_warning()?,
             notice: if let Some(warning) = self.store.trust_warning()? {
                 warning
             } else if let Some(name) = &self.selected {
@@ -179,6 +180,11 @@ impl Session {
             delivery::flush_outbox(&self.store, client).await?;
             if let Some(group) = self.store.groups()?.first() {
                 history::catch_up(&self.store, client, &group.name).await?;
+                for group in self.store.groups()? {
+                    self.store.process_history(&group.name)?;
+                    self.store.reconcile_revocations(&group.name)?;
+                }
+                delivery::flush_outbox(&self.store, client).await?;
             } else {
                 client.flush().await?;
             }
@@ -243,7 +249,7 @@ impl Session {
                 }) {
                     tokio::time::timeout(
                         Duration::from_secs(3),
-                        history::catch_up(&self.store, client, &name),
+                        history::resume(&self.store, client, &name),
                     )
                     .await
                     .context("sync before send timed out; retry after reconnect")

@@ -20,6 +20,7 @@ struct Snapshot {
     members: Vec<String>,
     status: String,
     notice: String,
+    security_warning: Option<String>,
     older: bool,
     fatal: Option<String>,
     send_count: u64,
@@ -118,9 +119,53 @@ fn submit(input: &str, selected: Option<&str>) -> Result<Action> {
     })
 }
 #[derive(Default)]
+enum Notice {
+    #[default]
+    None,
+    Text(String),
+    Members,
+    Devices,
+}
+impl From<String> for Notice {
+    fn from(text: String) -> Self {
+        Self::Text(text)
+    }
+}
+impl From<&str> for Notice {
+    fn from(text: &str) -> Self {
+        Self::Text(text.into())
+    }
+}
+impl Notice {
+    fn clear(&mut self) {
+        *self = Self::None;
+    }
+    fn text(&self, state: &Snapshot) -> String {
+        if let Some(warning) = &state.security_warning {
+            return warning.clone();
+        }
+        match self {
+            Self::None => state.notice.clone(),
+            Self::Text(text) => text.clone(),
+            Self::Devices => format!("Device leaves: {}", state.members.join(", ")),
+            Self::Members => format!(
+                "Members: {}",
+                state
+                    .members
+                    .iter()
+                    .filter_map(|m| m.split_once('/').map(|(user, _)| user))
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        }
+    }
+}
+#[derive(Default)]
 struct Ui {
     input: String,
-    notice: String,
+    notice: Notice,
     scroll: u16,
 }
 impl Ui {
@@ -174,20 +219,10 @@ impl Ui {
             }
             KeyCode::Enter if !self.input.is_empty() => {
                 if self.input == "/members" {
-                    self.notice = format!(
-                        "Members: {}",
-                        state
-                            .members
-                            .iter()
-                            .filter_map(|m| m.split_once('/').map(|(user, _)| user))
-                            .collect::<std::collections::BTreeSet<_>>()
-                            .into_iter()
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    );
+                    self.notice = Notice::Members;
                     self.input.clear();
                 } else if self.input == "/devices" {
-                    self.notice = format!("Device leaves: {}", state.members.join(", "));
+                    self.notice = Notice::Devices;
                     self.input.clear();
                 } else if self.input == "/help" {
                     self.notice = "Tab channels | Up/Down scroll | PgUp older / PgDn latest | /create NAME | /invite USER [DEVICE] | /join INVITER [DEVICE] | /members | /devices | /quit | // literal slash".into();
@@ -292,12 +327,8 @@ impl Ui {
                 compose.y + 1,
             ));
         }
-        let notice = if self.notice.is_empty() {
-            &state.notice
-        } else {
-            &self.notice
-        };
-        frame.render_widget(Paragraph::new(format!("{}\nTab channels | Up/Down scroll | PgUp older | PgDn latest | /help | Ctrl-C quit", safe_text(notice))).wrap(Wrap { trim: false }), footer);
+        let notice = self.notice.text(state);
+        frame.render_widget(Paragraph::new(format!("{}\nTab channels | Up/Down scroll | PgUp older | PgDn latest | /help | Ctrl-C quit", safe_text(&notice))).wrap(Wrap { trim: false }), footer);
     }
 }
 struct TerminalGuard;
@@ -328,7 +359,7 @@ pub fn run(home: PathBuf, server: String) -> Result<()> {
             && state.send_count > *count
         {
             if let Some(error) = &state.send_error {
-                ui.notice = format!("Send failed; draft retained: {error}");
+                ui.notice = format!("Send failed; draft retained: {error}").into();
             } else if &ui.input == draft {
                 ui.input.clear();
             }
@@ -381,7 +412,7 @@ pub fn run(home: PathBuf, server: String) -> Result<()> {
                             }
                         }
                         Ok(None) => {}
-                        Err(error) => ui.notice = error.to_string(),
+                        Err(error) => ui.notice = error.to_string().into(),
                     }
                 }
                 Event::Paste(text) => {
@@ -465,13 +496,21 @@ mod tests {
             ..Default::default()
         };
         ui.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &state)?;
-        assert_eq!(ui.notice, "Members: alice, bob");
+        assert_eq!(ui.notice.text(&state), "Members: alice, bob");
         ui.input = "/devices".into();
         ui.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &state)?;
         assert_eq!(
-            ui.notice,
+            ui.notice.text(&state),
             "Device leaves: alice/laptop, alice/desktop, bob/laptop"
         );
+        let mut updated = state.clone();
+        updated.members.remove(1);
+        assert_eq!(
+            ui.notice.text(&updated),
+            "Device leaves: alice/laptop, bob/laptop"
+        );
+        updated.security_warning = Some("REVOCATION FAILURE: test".into());
+        assert_eq!(ui.notice.text(&updated), "REVOCATION FAILURE: test");
         Ok(())
     }
     #[test]

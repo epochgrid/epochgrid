@@ -4,7 +4,7 @@ EpochGrid combines NATS infrastructure with MLS end-to-end group encryption.
 Project: https://epochgrid.org.
 Organization: https://github.com/epochgrid.
 
-**Current status: Milestones 0–13 are complete.** EpochGrid has a working secure
+**Current status: Milestones 0–14 are complete.** EpochGrid has a working secure
 messaging alpha with a persistent terminal client and independent devices per user.
 JetStream stores MLS protocol bytes; readable transcripts stay on each device.
 This is unaudited development software, not a production-ready security product.
@@ -15,13 +15,16 @@ This is unaudited development software, not a production-ready security product.
 | 11 | Complete | Persistent TUI with history, asynchronous messaging, unread indicators and reconnect |
 | 12 | Complete | Independent devices per user, operator enrollment, device discovery, ordered MLS membership catch-up and logical user membership |
 | 13 | Complete | Manual device verification, persistent key-change warnings and a signed Merkle registration log |
-| 14 | Next | Device revocation and MLS rekeying |
-| 15–20 | Planned | Encrypted recovery, attachments, ephemeral events, receipts, message relationships and secure service participants |
+| 14 | Complete | Signed device revocation, native NATS credential exclusion, MLS removal/rekeying and offline reconciliation |
+| 15 | Next | Encrypted recovery |
+| 16–20 | Planned | Attachments, ephemeral events, receipts, message relationships and secure service participants |
 
 See [multi-device setup and upgrade](docs/multi-device.md) for the current enrollment
 workflow, migration requirements and three-device validation scenario.
 See [device verification and transparency](docs/device-verification.md) for independent
 fingerprint comparison, directory key pinning and the limits of the log.
+See [device revocation](docs/device-revocation.md) for upgrade instructions,
+`device revoke USER DEVICE`, network enforcement and offline rekeying semantics.
 
 NATS supplies transport, authentication, authorization and persistence. OpenMLS
 supplies group encryption and cryptographic membership. The service handles public
@@ -285,24 +288,29 @@ real-terminal test runs all three clients, checks logical membership, exchanges
 messages with both Alice devices and verifies that the new device receives no
 pre-join history. It also covers offline queuing, reconnect and terminal restoration. Two additional
 NATS cases cover directory migration, explicit fingerprint verification, malicious
-history/key substitution, competing log appends and restart persistence.
+history/key substitution, competing log appends and restart persistence. Two revocation
+cases cover forced disconnect, refused reconnect, MLS exclusion, durable intent retries
+and service/broker restart. The terminal workflow also exercises live device revocation.
 
 ## Current limits
 
-- Multiple device leaves per user; additions are serialized by the creator device.
+- Multiple device leaves per user; membership changes are serialized by the group coordinator.
   One initial KeyPackage per device is reserved for one group.
-  No replenishment, rotation, removal or revocation yet. Initial package expiry
+  Removal/revocation is implemented; package replenishment and key rotation remain pending. Initial package expiry
   currently also limits signing-key lookup; long-lived identity lifecycle is pending.
 - History processes encrypted Commits and applications in order across additions.
   New devices receive future messages, not earlier history. Offline ciphertext
   queued before an epoch change may become unreadable; avoid membership changes
-  while participants have queued sends. Revocation remains pending.
+  while participants have queued sends. Known revoked-epoch queued sends are blocked
+  and must be resent explicitly after rekeying. Offline groups wait for their coordinator.
   Retention quotas/cleanup and hardware power-loss testing remain pending.
   Process termination and interrupted SQLite transaction recovery are tested.
   A crash around terminal output can repeat display; history remains available.
 - The transparency log is bounded to 65,536 encoded bytes and 256 registrations.
   First-contact trust, isolated split views, freshness and account ownership remain
   explicit limits; there is no automatic identity-replacement workflow.
+- Revocation currently manages one NATS broker and service. The service needs the
+  restricted system NKey and access to its public authorization include.
 - Static development group permissions span the Alice/Bob lab namespace. Exact
   per-group NATS authorization is pending; inbox reads remain device-specific.
 - Loopback development without TLS; SQLite and journals contain unencrypted local

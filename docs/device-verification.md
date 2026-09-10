@@ -65,8 +65,8 @@ TUI. Inspect both values without contacting the directory:
 Changed identities remain blocked even if the old identity reappears. There is no
 silent replacement, reset command or replacement-authorization workflow in this
 milestone. Keep the evidence and investigate with the operator; do not delete the
-local database to suppress a warning. Revocation/replacement authorization is later
-identity-lifecycle work. `revoked` is not claimed as an implemented trust state yet.
+local database to suppress a warning. Milestone 14 adds [revocation](device-revocation.md) as a separate authorization
+state; identity replacement remains unimplemented.
 
 ## Fingerprint construction
 
@@ -135,15 +135,14 @@ cannot be detected without independent comparison/gossip. A compromised log sign
 can append dishonest new identities, though it cannot change a retained prefix
 without detection by a client retaining that checkpoint. Manual fingerprints and
 independent service-key pinning address different first-contact trust decisions.
-No global transparency network, account ownership proof, revocation or erasure of
-historical plaintext is implemented. Removing local trust state loses evidence.
+No global transparency network, account ownership proof or erasure of historical
+plaintext is implemented. Revocation is covered by Milestone 14. Removing local trust state loses evidence.
 
 The TUI audits during network polling; failures are persistent, visible and block
 that polling cycle until corrected. A successful audit clears a transient audit
 warning, but never clears changed-device state. Existing local history stays visible
-and offline composition remains possible. The scripting chat/message path continues
-to use the already authenticated MLS group; this milestone does not re-authorize
-all existing group leaves against the directory for every message. Creator membership
+and offline composition remains possible. Milestone 14 also audits revocations in the online scripting chat/message path
+and reconciles revoked MLS leaves before new encryption. Creator membership
 policy and MLS authentication remain the group boundary. NATS metadata and local
 unencrypted private state/transcripts have the same exposure as before.
 

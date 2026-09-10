@@ -89,7 +89,7 @@ pub async fn receive(home: &Path, server: &str, name: &str, timeout: u64) -> Res
     eprintln!("EpochGrid listening: {name}");
     tokio::time::timeout(Duration::from_secs(timeout), async {
         loop {
-            report(&history::catch_up(&store, &client, name).await?);
+            report(&history::resume(&store, &client, name).await?);
             if let Some(message) = store.unread(name)? {
                 display(&message, false);
                 store.mark_displayed(message.id)?;
@@ -138,7 +138,7 @@ pub async fn interactive(home: &Path, server: &str, name: &str) -> Result<()> {
             _ = poll.tick() => {
                 // An error stops this client without acknowledging unstaged data.
                 // Reopening resumes the durable consumer and any local pending work.
-                report(&history::catch_up(&store, &client, name).await?);
+                report(&history::resume(&store, &client, name).await?);
                 while let Some(message) = store.unread(name)? { display(&message, false); store.mark_displayed(message.id)?; }
             }
         }

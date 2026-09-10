@@ -53,7 +53,7 @@ impl IdentityStore {
             let result = self.transaction(|| {
                 let before_join = self.before_join(name, &payload)?;
                 if before_join || subject == group.subject("handshake") {
-                    if !before_join { self.process_handshake(name, &payload)?; }
+                    if !before_join { self.process_handshake(name, &payload, sequence)?; }
                     self.connection.execute("UPDATE chat_deliveries SET state='processed' WHERE sequence=?1", [sequence])?;
                     return Ok((false, false));
                 }
@@ -202,7 +202,10 @@ pub async fn resume(
 ) -> Result<SyncReport> {
     store.group(name)?;
     crate::delivery::flush_outbox(store, client).await?;
-    catch_up(store, client, name).await
+    let report = catch_up(store, client, name).await?;
+    store.reconcile_revocations(name)?;
+    crate::delivery::flush_outbox(store, client).await?;
+    Ok(report)
 }
 
 #[cfg(test)]

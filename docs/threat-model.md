@@ -57,7 +57,7 @@ retain plaintext, and their already-consumed messages are shown as unavailable.
 Broker retention/deletion, complete power-loss fault injection and retention quotas
 remain limitations; Milestone 12 adds ordered catch-up across membership additions. Backups
 restoring old ratchet state are not safe recovery. No exactly-once delivery or comprehensive crash-safety claim is
-made. Rotation/revocation, package replenishment/expiry and recovery remain open.
+made. Key rotation, package replenishment/expiry and recovery remain open.
 
 Milestone 10's [acceptance matrix](mvp-acceptance.md) records the completed MVP
 checks. A plaintext-marker scan is a regression detector, not proof of semantic
@@ -79,14 +79,12 @@ Milestone 12 supports independent device leaves for the same logical user. A
 compromised device exposes its own local state and can impersonate that device;
 collapsing user labels does not make devices share keys. Enrollment is still trusted
 to the operator/directory for initial authorization. Milestone 13 adds manual
-verification, key-change detection and a bounded authenticated log; revocation
-remains unimplemented. A new device receives a Welcome for its join
+verification, key-change detection and a bounded authenticated log. Milestone 14 adds signed revocation and MLS removal. A new device receives a Welcome for its join
 epoch, not prior history. Earlier framed traffic is skipped without authentication
 because the new device has no historical keys. Creator Commits are authenticated and
 merged atomically with local progress. Offline ciphertext from before a membership
 change may be undecryptable afterward. Transport suppression/reordering and group
-permission wildcards remain availability/metadata limitations. No revocation or
-historical erasure guarantee is added. See [multi-device boundaries](multi-device.md).
+permission wildcards remain availability/metadata limitations. Revocation does not provide historical erasure. See [multi-device boundaries](multi-device.md).
 
 
 Milestone 13 retains device fingerprints and a signed Merkle prefix checkpoint.
@@ -99,3 +97,19 @@ append dishonest new identities; local database loss discards observed evidence.
 The log and fingerprints do not prove human identity or retroactively verify every
 existing MLS leaf. TUI audit failures are prominent; local transcripts remain
 readable. The service still cannot read application plaintext. See [verification security boundaries](device-verification.md).
+
+
+Milestone 14 records signed revocation intent before native NATS credential removal
+and durable-consumer deletion. A successful response confirms network enforcement;
+offline MLS groups advance when their coordinator returns. Updated clients block new
+encryption with known revoked leaves and block queued old-epoch application ciphertext.
+A revoked coordinator is replaced deterministically, with signing-key authority pinned
+across leaf-slot reuse. Remaining members process MLS removal Commits and advance epochs.
+Neither removal nor network exclusion erases historical plaintext or endpoint backups.
+
+The service now holds a restricted system-account reload NKey and controls one broker's
+public authorization include. It remains unable to derive group secrets. An administrator
+can defeat NATS exclusion; post-removal confidentiality relies on MLS. An active same-user
+device or directory operator can authorize revocation. Signed revocation checkpoints
+retain rollback evidence but do not prove freshness or prevent withheld revocations and
+isolated split views. See [revocation design, upgrade and limitations](device-revocation.md).

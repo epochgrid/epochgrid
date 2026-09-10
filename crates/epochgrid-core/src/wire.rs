@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 pub const VERSION: u16 = 1;
 pub const KEYPACKAGE: &str = "epochgrid.v1.identity.keypackage";
+pub const REVOCATIONS: &str = "epochgrid.v1.identity.revocations";
+pub const REVOKE: &str = "epochgrid.v1.identity.revoke";
 pub const AUDIT: &str = "epochgrid.v1.identity.audit";
 pub const DEVICES: &str = "epochgrid.v1.identity.devices";
 pub const LOOKUP: &str = "epochgrid.v1.identity.lookup";
@@ -83,6 +85,11 @@ pub enum Body {
     Devices(Vec<DeviceRegistration>),
     Audit,
     AuditLog(crate::transparency::Snapshot),
+    RegistrationAudit,
+    RevocationAudit,
+    RevocationLog(crate::revocation::RevocationLog),
+    Revoke(crate::revocation::RevokeRequest),
+    Revoked,
 }
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Envelope {

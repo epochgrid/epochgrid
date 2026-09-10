@@ -8,6 +8,7 @@ services:
       - "127.0.0.1:4222:4222"
     volumes:
       - ./.dev/nats-compose.conf:/etc/nats/nats.conf:ro
+      - ./.dev/auth:/etc/nats/auth:ro
       - nats-data:/data
     # Root inside this development container can initialize the named volume.
     user: "0:0"
