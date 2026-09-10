@@ -31,6 +31,13 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
+    // Install before readiness: a background shell may initially ignore SIGINT.
+    let interrupt = tokio::signal::ctrl_c();
+    tokio::pin!(interrupt);
+    // Poll once to register Tokio's handler before any request can report ready.
+    if let std::task::Poll::Ready(result) = futures_util::poll!(&mut interrupt) {
+        return result.map_err(Into::into);
+    }
     let args = Args::parse();
     let enrollment: Enrollment = serde_json::from_slice(&std::fs::read(&args.enrollment)?)?;
     let identity = IdentityStore::open(&args.home)?;
@@ -63,7 +70,7 @@ async fn main() -> Result<()> {
     tracing::info!("EpochGrid identity service ready");
     loop {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => break,
+            _ = &mut interrupt => break,
             _ = retry.tick() => {
                 let result = async {
                     let registrations = transparency::read(&log).await?;

@@ -2,17 +2,32 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 umask 077
-./target/debug/epochgrid dev-config
-docker compose up --build --force-recreate -d
 service_pid=''
+stop_service() {
+  [[ -n "$service_pid" ]] || return 0
+  kill -INT "$service_pid" 2>/dev/null || true
+  for attempt in {1..50}; do
+    if ! kill -0 "$service_pid" 2>/dev/null; then
+      wait "$service_pid"
+      service_pid=''
+      return 0
+    fi
+    sleep 0.1
+  done
+  echo 'EpochGrid service shutdown timed out after 5s; forcing termination' >&2
+  kill -KILL "$service_pid" 2>/dev/null || true
+  service_pid=''
+  return 1
+}
 cleanup() {
-  if [[ -n "$service_pid" ]]; then
-    kill -INT "$service_pid" 2>/dev/null || true
-    wait "$service_pid" || true
-  fi
-  docker compose down
+  stop_service || true
+  python3 scripts/dev/run-bounded.py 20 docker compose down || true
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+./target/debug/epochgrid dev-config
+docker compose up --build --force-recreate -d
 ./target/debug/epochgrid-service >.dev/smoke-service.log 2>&1 &
 service_pid=$!
 ready=false
@@ -36,9 +51,7 @@ cat .dev/smoke-alice.log
 ./target/debug/epochgrid --home .dev/alice identity lookup bob > /dev/null
 # Each command is a new client process loading the persisted identity.
 ./scripts/dev/create-alice.sh
-kill -INT "$service_pid"
-wait "$service_pid"
-service_pid=''
+stop_service
 ./target/debug/epochgrid-service >>.dev/smoke-service.log 2>&1 &
 service_pid=$!
 ready=false

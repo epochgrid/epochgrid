@@ -11,10 +11,10 @@ use openmls::prelude::{tls_codec::Deserialize as _, *};
 use openmls_traits::{OpenMlsProvider, crypto::OpenMlsCrypto};
 use std::{
     fs::File,
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     net::TcpListener,
     path::Path,
-    process::{Command, Stdio},
+    process::Command,
     time::Duration,
 };
 
@@ -34,6 +34,13 @@ pub(super) async fn cli(
 ) -> Result<String> {
     let binary = Path::new(env!("CARGO_BIN_EXE_epochgrid-service"))
         .with_file_name(format!("epochgrid{}", std::env::consts::EXE_SUFFIX));
+    let mut stdin_file = tempfile::tempfile()?;
+    if let Some(input) = input {
+        stdin_file.write_all(input)?;
+    }
+    stdin_file.seek(SeekFrom::Start(0))?;
+    let mut stdout_file = tempfile::tempfile()?;
+    let mut stderr_file = tempfile::tempfile()?;
     let mut process = Process(
         Command::new(binary)
             .arg("--home")
@@ -41,17 +48,12 @@ pub(super) async fn cli(
             .arg("--server")
             .arg(url)
             .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stdin(stdin_file)
+            .stdout(stdout_file.try_clone()?)
+            .stderr(stderr_file.try_clone()?)
             .spawn()
             .context("build host binaries with cargo build --workspace before the MVP test")?,
     );
-    if let Some(mut stdin) = process.0.stdin.take()
-        && let Some(input) = input
-    {
-        stdin.write_all(input)?;
-    }
     let status = tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             if let Some(status) = process.0.try_wait()? {
@@ -62,21 +64,14 @@ pub(super) async fn cli(
     })
     .await
     .context("CLI timed out")??;
-    // These test commands produce bounded output smaller than a pipe buffer.
+    // Files cannot fill a pipe while the parent waits for process exit. Reads do
+    // not wait for EOF from an inherited descriptor in a surviving descendant.
+    stdout_file.seek(SeekFrom::Start(0))?;
+    stderr_file.seek(SeekFrom::Start(0))?;
     let mut stdout = String::new();
-    process
-        .0
-        .stdout
-        .take()
-        .context("stdout missing")?
-        .read_to_string(&mut stdout)?;
+    stdout_file.take(1_048_576).read_to_string(&mut stdout)?;
     let mut stderr = String::new();
-    process
-        .0
-        .stderr
-        .take()
-        .context("stderr missing")?
-        .read_to_string(&mut stderr)?;
+    stderr_file.take(1_048_576).read_to_string(&mut stderr)?;
     ensure!(
         status.success(),
         "CLI command failed: {user} {args:?}: {stderr}"

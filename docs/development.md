@@ -138,3 +138,20 @@ PTY scenario including live revocation. The new cases exercise forced disconnect
 rekeyed messaging, bootstrap/restart persistence and durable intent surviving actuator
 failure. They use temporary roots and ports. `device list` reports authorization and
 local trust separately; remote connection presence is not inferred from directory state.
+
+## Verification deadlines
+
+CI runs the same `scripts/dev/verify.sh` phases separately: `harness`, `fmt`,
+`clippy`, `unit`, `build`, `nats`, `compose` and `tui`. Each phase uses an external
+wall-clock watchdog with a ten-second heartbeat, exit code 124 on timeout, and
+TERM/KILL cleanup of its process group. Deadlines are 60s for formatting, 600s for
+clippy, 180s for unit tests, 300s for build, 120s for NATS download, 360s for the
+nine serial NATS cases, and 180s each for Compose and TUI. The job retains its
+20-minute outer limit; GitHub step limits also apply. A timed-out phase fails CI.
+
+The Compose smoke service must exit within five seconds of SIGINT; otherwise the
+test reports failure and forces termination. Signal handling is registered before
+service readiness. Python child cleanup and Rust test-child cleanup have explicit
+limits; the deliberate crash-test pause has a 30-second failsafe. Test CLI output
+uses temporary files to avoid pipe-buffer deadlocks while awaiting process exit.
+The timeout harness tests normal failure exit codes, hung descendants and cancellation.

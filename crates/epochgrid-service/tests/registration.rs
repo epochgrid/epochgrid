@@ -12,10 +12,28 @@ use std::{
 };
 
 struct Process(Child);
+impl Process {
+    fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = self.0.try_wait()? {
+                return Ok(status);
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "child did not exit within 5s",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
 impl Drop for Process {
     fn drop(&mut self) {
         let _ = self.0.kill();
-        let _ = self.0.wait();
+        let _ = self.wait();
     }
 }
 fn server(root: &std::path::Path) -> Result<Process> {

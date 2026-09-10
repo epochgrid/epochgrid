@@ -83,7 +83,10 @@ class Client:
 
     def pump(self):
         try:
-            while data := os.read(self.master, 65536):
+            for _ in range(16):
+                data = os.read(self.master, 65536)
+                if not data:
+                    break
                 self.output += data
                 self.screen.feed(data)
         except BlockingIOError:
@@ -104,7 +107,7 @@ class Client:
     def cleanup(self):
         if self.process.poll() is None:
             self.process.kill()
-        self.process.wait()
+        self.process.wait(timeout=5)
         os.close(self.master)
         os.close(self.slave)
 
@@ -185,7 +188,7 @@ def run():
             alice.type('\t')
             wait(lambda: query(root, 'alice', 'SELECT displayed FROM transcript WHERE plaintext=?', (secrets[1].encode(),)) == 1, 'selected history clears local unread')
             broker.kill()
-            broker.wait()
+            broker.wait(timeout=5)
             # Input remains responsive during failed network operations and is persisted once.
             alice.type(secrets[2] + '\r')
             wait(lambda: has(root, 'alice', secrets[2]), 'offline encrypted queue')
@@ -233,7 +236,7 @@ def run():
             for process in processes:
                 if process.poll() is None:
                     process.kill()
-                process.wait()
+                process.wait(timeout=5)
             for path in (root / 'jetstream').rglob('*'):
                 if path.is_file():
                     data = path.read_bytes()
@@ -245,7 +248,7 @@ def run():
             for process in processes:
                 if process.poll() is None:
                     process.kill()
-                process.wait()
+                process.wait(timeout=5)
 
 if __name__ == '__main__':
     run()
