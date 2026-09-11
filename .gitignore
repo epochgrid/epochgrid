@@ -5,3 +5,6 @@
 *.creds
 *.pem
 .env
+
+*.egrecovery
+*.egsecret

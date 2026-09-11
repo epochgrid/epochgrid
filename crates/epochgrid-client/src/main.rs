@@ -1,4 +1,5 @@
 mod chat;
+mod recovery;
 mod tui;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -21,6 +22,11 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Client-encrypted identity administration recovery (no MLS history backup).
+    Recovery {
+        #[command(subcommand)]
+        command: recovery::Command,
+    },
     /// Audit the registration log or inspect/pin its local checkpoint.
     Transparency {
         #[command(subcommand)]
@@ -182,7 +188,14 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::from_default_env()
         })
         .init();
+    if matches!(
+        args.command,
+        Command::Tui | Command::Chat { .. } | Command::Message { .. } | Command::Channel { .. }
+    ) {
+        IdentityStore::open(&args.home)?.ensure_messaging_identity()?;
+    }
     match args.command {
+        Command::Recovery { command } => recovery::run(&args.home, command)?,
         Command::Transparency { command } => {
             let store = IdentityStore::open(&args.home)?;
             match command {
@@ -447,6 +460,7 @@ async fn main() -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&registration.payload)?);
                 }
                 Identity::Register => {
+                    store.ensure_messaging_identity()?;
                     let client = transport::connect(&args.server, &store).await?;
                     transport::register(&client, store.registration()?).await?;
                     let own = store.registration()?;

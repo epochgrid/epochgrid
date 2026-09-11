@@ -26,3 +26,5 @@ mod rekey;
 
 #[cfg(test)]
 mod revocation_tests;
+
+pub mod recovery;

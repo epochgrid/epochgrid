@@ -74,6 +74,7 @@ impl IdentityStore {
         })
     }
     pub fn accept_welcome(&self, bytes: &[u8], inviter: &DeviceRegistration) -> Result<Group> {
+        self.ensure_messaging_identity()?;
         verify(inviter)?;
         let Body::Welcome { payload } = wire::decode(bytes)? else {
             anyhow::bail!("mailbox message is not a Welcome");

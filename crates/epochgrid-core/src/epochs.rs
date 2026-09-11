@@ -155,7 +155,7 @@ mod tests {
         assert_ne!(alice.nkey()?.public_key(), desktop.nkey()?.public_key());
         // Emulate the unversioned M11 schema, then verify an additive checkpoint migration.
         bob.connection
-            .execute_batch("DROP TABLE group_join_epochs; DROP TABLE epochgrid_migrations; DROP TABLE device_trust; DROP TABLE transparency_state; DROP TABLE trust_alert; DROP TABLE revoked_devices; DROP TABLE revocation_checkpoint; DROP TABLE blocked_outbox; DROP TABLE group_coordinators;")?;
+            .execute_batch("DROP TABLE group_join_epochs; DROP TABLE epochgrid_migrations; DROP TABLE device_trust; DROP TABLE transparency_state; DROP TABLE trust_alert; DROP TABLE revoked_devices; DROP TABLE revocation_checkpoint; DROP TABLE blocked_outbox; DROP TABLE group_coordinators; DROP TABLE recovery_metadata;")?;
         let count = bob.history("engineering", 10, None)?.len();
         drop(bob);
         let bob = IdentityStore::open(b.path())?;
