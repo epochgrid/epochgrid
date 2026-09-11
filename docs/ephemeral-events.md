@@ -81,3 +81,11 @@ tests, workspace build, all 12 live NATS tests, the three-device PTY workflow an
 isolated Compose chat/restart/history smoke test passed. The Compose check used a
 free host port because an existing local fabric owned 4222; no existing fabric was
 stopped or reset. All subprocess workflows retain the existing watchdog deadlines.
+
+The TUI smoke probe waits for the completed join UI state, then continues editing
+an unsent draft every 500 ms until activity is observed, under the original fixed
+25-second deadline. This models continued typing over a lossy transport instead of
+requiring one short burst to arrive during worker synchronization. Harness regression
+tests simulate six seconds of initial loss and verify that a missing indicator still
+fails at its deadline. Production event freshness, idle expiry and CI timeouts are
+unchanged.
