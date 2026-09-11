@@ -322,3 +322,26 @@ This is an MLS-exporter-protected application envelope, not PrivateMessage frami
 It deliberately avoids advancing the durable application ratchet. It has epoch
 secrecy but no per-event forward secrecy. See [design, freshness and replay limits](ephemeral-events.md).
 No existing wire Body variant or SQLite schema changes.
+
+
+## Milestone 18: encrypted receipt events
+
+The ephemeral v1 enum appends `ReceiptRequest { message: [u8;32] }` at index 2
+and `Receipt { message: [u8;32], state: ReceiptState }` at index 3. ReceiptState is
+postcard enum Delivered=0, Read=1. Typing indices 0/1 and all existing signatures,
+AAD, exporter labels, freshness and epoch rules remain unchanged. Older decoders
+reject these unsupported variants; they continue handling typing and durable chat.
+
+`message` is SHA-256 of the exact immutable MLS message ciphertext, interpreted
+only within the envelope's authenticated group context. The reference and receipt
+state are encrypted. The event's authenticated leaf supplies the responding device
+identity. Requests are answered only by matching an authenticated incoming transcript
+whose original sender is the requesting device. Unknown responses never create
+transcript or receipt records. Duplicate responses merge monotonically: Read wins
+regardless of arrival order. A response causes no response, preventing receipt loops.
+
+SQLite migration 6 backfills `receipt_messages` from retained ciphertext and adds
+`device_receipts` keyed by transcript row/device. No receipt event is put in a durable
+NATS stream; missing claims are recovered by bounded online queries. See
+[receipt semantics and limits](receipts.md). This delivery reference does not replace
+the future application message identity or alter immutable history.

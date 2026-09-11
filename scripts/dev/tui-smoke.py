@@ -167,6 +167,13 @@ def has(root, user, text):
     return query(root, user, 'SELECT COUNT(*) FROM transcript WHERE plaintext=?', (text.encode(),)) == 1
 
 
+
+def receipt_is(root, owner, plaintext, device, state):
+    return query(root, owner,
+                 'SELECT COUNT(*) FROM device_receipts r JOIN transcript t ON t.id=r.transcript_id WHERE t.plaintext=? AND r.device=? AND r.state=?',
+                 (plaintext.encode(), device, state)) == 1
+
+
 def run():
     processes = []
     with tempfile.TemporaryDirectory(prefix='epochgrid-tui-') as directory:
@@ -224,14 +231,18 @@ def run():
             secrets = ['TUI_ALICE_FIRST_91F3', 'TUI_BOB_REPLY_72A1', 'TUI_OFFLINE_QUEUE_5BC7', 'TUI_RECONNECTED_BOB_1D90']
             alice.type(secrets[0] + '\r')
             wait(lambda: has(root, 'bob', secrets[0]) and secrets[0] in bob.screen.text, 'Alice -> Bob render')
+            wait(lambda: receipt_is(root, 'alice', secrets[0], 'bob/laptop', 1)
+                 and 'bob/laptop: read' in alice.screen.text, 'authenticated read receipt display')
             # Switching away must keep background-channel unread state.
             alice.type('/create other\r')
             wait(lambda: query(root, 'alice', 'SELECT COUNT(*) FROM groups') == 2, 'second local channel')
             bob.type(secrets[1] + '\r')
             wait(lambda: has(root, 'alice', secrets[1]), 'Bob -> Alice background arrival')
             assert query(root, 'alice', 'SELECT displayed FROM transcript WHERE plaintext=?', (secrets[1].encode(),)) == 0
+            wait(lambda: receipt_is(root, 'bob', secrets[1], 'alice/laptop', 0), 'background delivery is not read')
             alice.type('\t')
             wait(lambda: query(root, 'alice', 'SELECT displayed FROM transcript WHERE plaintext=?', (secrets[1].encode(),)) == 1, 'selected history clears local unread')
+            wait(lambda: receipt_is(root, 'bob', secrets[1], 'alice/laptop', 1), 'viewing upgrades delivered to read')
             broker.kill()
             broker.wait(timeout=5)
             # Input remains responsive during failed network operations and is persisted once.
@@ -262,6 +273,7 @@ def run():
             secrets.extend(['TUI_BOTH_ALICES_8DC4', 'TUI_DESKTOP_REPLY_A192'])
             bob.type(secrets[4] + '\r')
             wait(lambda: all(has(root, user, secrets[4]) for user in ['alice', 'alice-desktop']), 'Bob to both Alice devices')
+            wait(lambda: all(receipt_is(root, 'bob', secrets[4], device, 1) for device in ['alice/laptop', 'alice/desktop']), 'independent device read receipts')
             desktop.type(secrets[5] + '\r')
             wait(lambda: all(has(root, user, secrets[5]) for user in ['alice', 'bob']), 'desktop to existing clients')
             for user in ['alice', 'bob']:
@@ -297,7 +309,7 @@ def run():
                 if path.is_file():
                     data = path.read_bytes()
                     assert all(secret.encode() not in data for secret in secrets), 'TUI plaintext in NATS storage'
-            print('EpochGrid three-device TUI enrollment, create/invite/join, membership, asynchronous messages, unread, offline queue, reconnect, history, revocation, encrypted attachments, ephemeral typing and terminal restoration passed')
+            print('EpochGrid three-device TUI enrollment, create/invite/join, membership, asynchronous messages, unread, offline queue, reconnect, history, revocation, encrypted attachments, ephemeral typing, device receipts and terminal restoration passed')
         finally:
             for client in CLIENTS:
                 client.cleanup()

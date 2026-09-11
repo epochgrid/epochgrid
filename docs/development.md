@@ -230,3 +230,14 @@ NATS non-durability test and `./scripts/dev/verify.sh tui` for real terminal typ
 and existing messaging workflows. `cargo test --workspace` also tests dropped-event
 ratchet independence, ordering, expiry, tamper, impersonation and revoked leaves.
 See [ephemeral events](ephemeral-events.md) for precise protection and replay limits.
+
+
+## Milestone 18 validation
+
+Schema 6 adds compact receipt metadata and automatically indexes existing retained
+ciphertext. Keep clients updated together. `message receipts CHANNEL --offline`
+shows retained device claims; omit `--offline` for a bounded online exchange.
+The NATS suite exercises Alice laptop/desktop and Bob with different delivered/read
+states, restart, encrypted references and unchanged stream sequences. The TUI suite
+checks background delivery, visible-message reads and separate device receipts.
+No additional infrastructure or service configuration is needed.

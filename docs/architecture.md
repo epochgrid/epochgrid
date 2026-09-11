@@ -231,3 +231,13 @@ and sender leaf signatures. This avoids lossy activity advancing the same applic
 ratchet used by durable messages. No new storage or service is introduced. The TUI
 keeps bounded activity state in memory and handles expiry independently of network
 progress. See [the decision and its secrecy tradeoff](ephemeral-events.md).
+
+
+## Milestone 18: compact encrypted receipts
+
+Core NATS carries signed, exporter-encrypted receipt requests and responses. Local
+SQLite records monotonically merged per-message/device claims, using a delivery
+reference derived from immutable MLS ciphertext. JetStream acknowledgments remain
+distinct from device delivery and presentation. The TUI marks only visible text
+read and periodically queries recent outgoing messages; it does not create durable
+receipt history. See [the receipt design](receipts.md) for offline and trust limits.

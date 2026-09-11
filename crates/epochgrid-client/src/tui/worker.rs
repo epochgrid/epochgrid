@@ -62,6 +62,8 @@ struct Session {
     client: Option<async_nats::Client>,
     ephemeral: Option<async_nats::Subscriber>,
     typing: TypingState,
+    receipt_poll: Instant,
+    receipt_cursor: usize,
     retry: Instant,
     delay: u64,
     status: String,
@@ -81,6 +83,8 @@ impl Session {
             client: None,
             ephemeral: None,
             typing: TypingState::default(),
+            receipt_poll: Instant::now(),
+            receipt_cursor: 0,
             retry: Instant::now(),
             delay: 1,
             status: "Offline — connecting".into(),
@@ -110,16 +114,23 @@ impl Session {
                 .store
                 .history(name, 100, self.before)?
                 .into_iter()
-                .map(|entry| MessageView {
-                    id: entry.id,
-                    sequence: entry.sequence,
-                    text: entry
-                        .plaintext
-                        .map(|s| super::safe_text(&epochgrid_core::attachments::display(&s)))
-                        .unwrap_or_else(|| "[plaintext unavailable]".into()),
-                    sender: entry.sender.unwrap_or_else(|| "unknown".into()),
+                .map(|entry| {
+                    Ok(MessageView {
+                        status: if entry.outgoing {
+                            Some(self.store.message_status(entry.id)?.summary())
+                        } else {
+                            None
+                        },
+                        id: entry.id,
+                        sequence: entry.sequence,
+                        text: entry
+                            .plaintext
+                            .map(|s| super::safe_text(&epochgrid_core::attachments::display(&s)))
+                            .unwrap_or_else(|| "[plaintext unavailable]".into()),
+                        sender: entry.sender.unwrap_or_else(|| "unknown".into()),
+                    })
                 })
-                .collect();
+                .collect::<Result<Vec<_>>>()?;
         }
         Ok(Snapshot {
             identity: format!("{}/{}", identity.user_id, identity.device_id),
@@ -216,10 +227,37 @@ impl Session {
                         .iter()
                         .find(|g| g.subject("ephemeral") == message.subject.as_str())
                         && let Ok(event) = self.store.open_ephemeral(&group.name, &message.payload)
-                        && event.sender != own
+                        && event.sender() != own
                     {
+                        if let Some(response) = self.store.process_receipt(&group.name, &event)? {
+                            let payload = self.store.seal_ephemeral(&group.name, response)?;
+                            client
+                                .publish(group.subject("ephemeral"), payload.into())
+                                .await?;
+                        }
                         self.typing.accept(&group.gid, event);
                     }
+                }
+            }
+            if Instant::now() >= self.receipt_poll {
+                self.receipt_poll = Instant::now() + Duration::from_secs(5);
+                if let Some(name) = &self.selected {
+                    let requests = self.store.receipt_requests(name, 100)?;
+                    let group = self.store.group(name)?;
+                    if self.store.members(name)?.len() > 1 {
+                        for offset in 0..requests.len().min(8) {
+                            let request = requests[(self.receipt_cursor + offset) % requests.len()];
+                            let payload = self.store.seal_ephemeral(name, request)?;
+                            client
+                                .publish(group.subject("ephemeral"), payload.into())
+                                .await?;
+                        }
+                    }
+                    self.receipt_cursor = if requests.is_empty() {
+                        0
+                    } else {
+                        (self.receipt_cursor + 8) % requests.len()
+                    };
                 }
             }
             Ok::<_, anyhow::Error>(())

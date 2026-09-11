@@ -21,6 +21,13 @@ const TTL_MS: u64 = 8000;
 pub enum EphemeralEvent {
     TypingStarted,
     TypingStopped,
+    ReceiptRequest {
+        message: [u8; 32],
+    },
+    Receipt {
+        message: [u8; 32],
+        state: crate::receipts::ReceiptState,
+    },
 }
 #[derive(Serialize, Deserialize)]
 struct Envelope {
@@ -38,11 +45,17 @@ struct Body {
     signature: Vec<u8>,
 }
 pub struct AuthenticatedEvent {
-    pub sender: String,
-    epoch: u64,
+    pub(crate) sender: String,
+    pub(crate) gid: String,
+    pub(crate) epoch: u64,
     issued: u64,
-    event: EphemeralEvent,
-    expires: Instant,
+    pub(crate) event: EphemeralEvent,
+    pub(crate) expires: Instant,
+}
+impl AuthenticatedEvent {
+    pub fn sender(&self) -> &str {
+        &self.sender
+    }
 }
 fn now() -> Result<u64> {
     Ok(SystemTime::now()
@@ -191,6 +204,7 @@ impl IdentityStore {
         validate_id(user)?;
         validate_id(device)?;
         Ok(AuthenticatedEvent {
+            gid: descriptor.gid,
             sender,
             epoch: envelope.epoch,
             issued: body.issued,
@@ -213,6 +227,12 @@ pub struct TypingState {
 }
 impl TypingState {
     pub fn accept(&mut self, gid: &str, event: AuthenticatedEvent) {
+        if !matches!(
+            event.event,
+            EphemeralEvent::TypingStarted | EphemeralEvent::TypingStopped
+        ) {
+            return;
+        }
         let now = Instant::now();
         self.entries.retain(|_, e| e.expires > now);
         let key = (gid.to_owned(), event.sender.clone());
@@ -363,6 +383,7 @@ mod tests {
     fn typing_stop_reordering_expiry_epoch_and_capacity() {
         let mut state = TypingState::default();
         let make = |issued, event| AuthenticatedEvent {
+            gid: "g".into(),
             sender: "alice/laptop".into(),
             epoch: 1,
             issued,

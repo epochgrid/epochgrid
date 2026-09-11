@@ -172,3 +172,13 @@ secret exposes recorded events from that epoch. Signatures authenticate individu
 current leaves. Revocation checks and epoch changes reject removed senders; offline
 clients must first learn revocation. Activity expires within eight seconds, and is
 advisory; bounded replay within that freshness window after restart remains possible.
+
+
+Milestone 18 receipts are signed MLS-exporter-encrypted device claims over Core
+NATS, inheriting the ephemeral transport's epoch-scoped secrecy and metadata
+leakage. A read claim means client presentation, not proof of human attention;
+a malicious group member can lie about delivery or reading. Unknown receipts
+cannot create messages. Local compact receipt metadata is unencrypted and excluded
+from recovery. Loss or non-overlapping online sessions can leave state unknown.
+Previously observed receipts survive revocation as historical claims, not evidence
+of current authorization. See [receipt semantics](receipts.md).

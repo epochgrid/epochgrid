@@ -32,3 +32,5 @@ pub mod recovery;
 pub mod attachments;
 
 pub mod ephemeral;
+
+pub mod receipts;
