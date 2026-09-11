@@ -181,6 +181,14 @@ enum Attachment {
 }
 #[derive(Subcommand)]
 enum Message {
+    /// Exchange encrypted device receipts, or show locally retained status.
+    Receipts {
+        name: String,
+        #[arg(long, default_value_t = 5)]
+        wait: u64,
+        #[arg(long)]
+        offline: bool,
+    },
     /// Read one UTF-8 message from stdin and publish MLS ciphertext.
     Send { name: String },
     /// Read retained history, fetching the current backlog unless --offline is set.
@@ -420,6 +428,40 @@ async fn main() -> Result<()> {
             chat::interactive(&args.home, &args.server, &name).await?;
         }
         Command::Message { command } => match command {
+            Message::Receipts {
+                name,
+                wait,
+                offline,
+            } => {
+                anyhow::ensure!(
+                    (1..=60).contains(&wait),
+                    "receipt wait must be 1–60 seconds"
+                );
+                let store = IdentityStore::open(&args.home)?;
+                if !offline {
+                    let client = transport::connect(&args.server, &store).await?;
+                    epochgrid_core::receipts::exchange(
+                        &store,
+                        &client,
+                        &name,
+                        std::time::Duration::from_secs(wait),
+                    )
+                    .await?;
+                }
+                for entry in store
+                    .history(&name, 100, None)?
+                    .into_iter()
+                    .filter(|e| e.outgoing)
+                {
+                    println!(
+                        "[{}] {}",
+                        entry
+                            .sequence
+                            .map_or_else(|| "pending".into(), |s| s.to_string()),
+                        store.message_status(entry.id)?.summary()
+                    );
+                }
+            }
             Message::Send { name } => {
                 use std::io::Read;
                 let mut text = String::new();
@@ -429,7 +471,7 @@ async fn main() -> Result<()> {
                 let store = IdentityStore::open(&args.home)?;
                 let client = transport::connect(&args.server, &store).await?;
                 epochgrid_core::messaging::send(&store, &client, &name, text.as_bytes()).await?;
-                println!("EpochGrid encrypted message delivered");
+                println!("EpochGrid encrypted message accepted by server");
             }
             Message::History {
                 name,

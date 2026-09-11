@@ -73,7 +73,11 @@ async fn workflow() -> Result<()> {
             .context("missing live event")?;
         ensure!(message.payload.as_ref() == bytes);
         ensure!(!bytes.windows(6).any(|w| w == b"Typing"));
-        ensure!(bob.open_ephemeral("engineering", &message.payload)?.sender == "alice/laptop");
+        ensure!(
+            bob.open_ephemeral("engineering", &message.payload)?
+                .sender()
+                == "alice/laptop"
+        );
     }
     ensure!(
         (

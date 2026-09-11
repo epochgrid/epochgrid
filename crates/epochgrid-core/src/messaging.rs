@@ -38,6 +38,7 @@ impl IdentityStore {
             let identity = self.registration()?.payload;
             self.connection.execute("INSERT INTO transcript(gid,payload,sender,plaintext,outgoing,displayed) VALUES(?1,?2,?3,?4,1,1)",
                 rusqlite::params![descriptor.gid, bytes, format!("{}/{}", identity.user_id, identity.device_id), plaintext])?;
+            self.index_receipt(self.connection.last_insert_rowid(), &descriptor.gid, &bytes)?;
             Ok(bytes)
         })
     }
@@ -102,6 +103,7 @@ impl IdentityStore {
             "INSERT INTO transcript(gid,payload,sender,plaintext,outgoing) VALUES(?1,?2,?3,?4,0)",
             rusqlite::params![descriptor.gid, bytes, sender, plaintext],
         )?;
+        self.index_receipt(self.connection.last_insert_rowid(), &descriptor.gid, bytes)?;
         Ok(Some(DecryptedMessage { sender, plaintext }))
     }
 }

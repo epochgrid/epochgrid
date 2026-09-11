@@ -38,10 +38,27 @@ struct ChannelView {
 }
 #[derive(Clone)]
 struct MessageView {
+    status: Option<String>,
     id: i64,
     sequence: Option<u64>,
     sender: String,
     text: String,
+}
+fn message_lines(message: &MessageView) -> Vec<Line<'static>> {
+    let sequence = message
+        .sequence
+        .map_or_else(|| "pending".into(), |s| s.to_string());
+    let mut lines = vec![Line::from(format!(
+        "{} [{}]",
+        safe_text(&message.sender),
+        sequence
+    ))];
+    lines.extend(message.text.lines().map(|l| Line::from(l.to_owned())));
+    if let Some(status) = &message.status {
+        lines.push(Line::from(safe_text(status)));
+    }
+    lines.push(Line::default());
+    lines
 }
 #[derive(Debug, PartialEq)]
 enum Action {
@@ -273,6 +290,62 @@ impl Ui {
         }
         Ok(None)
     }
+    fn visible_ids(&self, area: ratatui::layout::Rect, state: &Snapshot) -> Vec<i64> {
+        // Same layout and wrapping as draw(); only visible message text counts.
+        let [_, body, _, _] = Layout::vertical([
+            Constraint::Length(2),
+            Constraint::Min(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+        ])
+        .areas(area);
+        let [_, messages] =
+            Layout::horizontal([Constraint::Length(25), Constraint::Min(5)]).areas(body);
+        let width = messages.width.saturating_sub(2);
+        let height = messages.height.saturating_sub(2) as usize;
+        if width == 0 || height == 0 {
+            return Vec::new();
+        }
+        let heights: Vec<_> = state
+            .messages
+            .iter()
+            .map(|m| {
+                Paragraph::new(message_lines(m))
+                    .wrap(Wrap { trim: false })
+                    .line_count(width)
+            })
+            .collect();
+        let top = heights
+            .iter()
+            .sum::<usize>()
+            .saturating_sub(height)
+            .saturating_sub(self.scroll as usize)
+            .min(u16::MAX as usize);
+        let mut offset = 0;
+        state
+            .messages
+            .iter()
+            .zip(heights)
+            .filter_map(|(m, h)| {
+                let header = Paragraph::new(vec![message_lines(m).remove(0)])
+                    .wrap(Wrap { trim: false })
+                    .line_count(width);
+                let text_height = Paragraph::new(
+                    m.text
+                        .lines()
+                        .map(|l| Line::from(l.to_owned()))
+                        .collect::<Vec<_>>(),
+                )
+                .wrap(Wrap { trim: false })
+                .line_count(width);
+                let visible = !m.text.is_empty()
+                    && offset + header < top + height
+                    && offset + header + text_height > top;
+                offset += h;
+                visible.then_some(m.id)
+            })
+            .collect()
+    }
     fn draw(&self, frame: &mut Frame, state: &Snapshot) {
         let [header, body, compose, footer] = Layout::vertical([
             Constraint::Length(2),
@@ -309,23 +382,7 @@ impl Ui {
             List::new(items).block(Block::bordered().title("Channels / unread")),
             channels,
         );
-        let lines: Vec<Line> = state
-            .messages
-            .iter()
-            .flat_map(|message| {
-                let sequence = message
-                    .sequence
-                    .map_or_else(|| "pending".into(), |s| s.to_string());
-                let mut lines = vec![Line::from(format!(
-                    "{} [{}]",
-                    safe_text(&message.sender),
-                    sequence
-                ))];
-                lines.extend(message.text.lines().map(|l| Line::from(l.to_owned())));
-                lines.push(Line::default());
-                lines
-            })
-            .collect();
+        let lines: Vec<Line> = state.messages.iter().flat_map(message_lines).collect();
         let typing = state
             .typing
             .iter()
@@ -481,8 +538,11 @@ pub fn run(home: PathBuf, server: String) -> Result<()> {
         ) {
             let _ = worker.commands.try_send(action);
         }
-        terminal.draw(|frame| ui.draw(frame, &state))?;
-        let ids: Vec<_> = state.messages.iter().map(|m| m.id).collect();
+        let mut ids = Vec::new();
+        terminal.draw(|frame| {
+            ids = ui.visible_ids(frame.area(), &state);
+            ui.draw(frame, &state);
+        })?;
         if viewed != ids
             && worker
                 .commands
@@ -550,6 +610,37 @@ pub fn run(home: PathBuf, server: String) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_visible_message_text_is_marked_read() {
+        let state = Snapshot {
+            messages: (0..20)
+                .map(|id| MessageView {
+                    id,
+                    status: None,
+                    sequence: Some(id as u64),
+                    sender: "bob/laptop".into(),
+                    text: format!("message {id}"),
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let area = ratatui::layout::Rect::new(0, 0, 100, 24);
+        let ui = Ui::default();
+        let latest = ui.visible_ids(area, &state);
+        assert!(latest.contains(&19));
+        assert!(!latest.contains(&0));
+        let older = Ui {
+            scroll: 50,
+            ..Default::default()
+        }
+        .visible_ids(area, &state);
+        assert!(!older.contains(&19));
+        assert!(!older.is_empty());
+        assert!(
+            ui.visible_ids(ratatui::layout::Rect::new(0, 0, 1, 1), &state)
+                .is_empty()
+        );
+    }
     #[test]
     fn typing_drafts_refresh_stop_and_ignore_commands() {
         let mut activity = DraftActivity::default();
@@ -707,6 +798,7 @@ mod tests {
                 unread: 2,
             }],
             messages: vec![MessageView {
+                status: None,
                 id: 1,
                 sequence: None,
                 sender: "alice/laptop".into(),

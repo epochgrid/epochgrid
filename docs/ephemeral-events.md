@@ -89,3 +89,8 @@ requiring one short burst to arrive during worker synchronization. Harness regre
 tests simulate six seconds of initial loss and verify that a missing indicator still
 fails at its deadline. Production event freshness, idle expiry and CI timeouts are
 unchanged.
+
+
+Milestone 18 reuses this protected transport for receipt queries and responses.
+Those events also remain non-durable, but their derived device claims are compacted
+in SQLite. Typing state remains memory-only. See [receipts](receipts.md).
