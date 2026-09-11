@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Real pseudo-terminal Alice/Bob session, using isolated host NATS and SQLite."""
 import codecs
+from contextlib import closing
 import re
 import fcntl
 import os
@@ -123,9 +124,24 @@ def wait(predicate, label, timeout=25):
     raise AssertionError((label, [c.screen.text for c in CLIENTS]))
 
 
-def query(root, user, sql, values=()):
-    with sqlite3.connect(root / user / 'identity.sqlite', timeout=1) as connection:
-        return connection.execute(sql, values).fetchone()[0]
+def query(root, user, sql, values=(), *, timeout=5):
+    # The running client owns a rollback-journal database and briefly takes an
+    # exclusive lock while committing MLS state. That is not a failed assertion.
+    # A connection context manager alone does not close its connection.
+    uri = (root / user / 'identity.sqlite').resolve().as_uri() + '?mode=ro'
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            with closing(sqlite3.connect(uri, uri=True, timeout=0)) as connection:
+                return connection.execute(sql, values).fetchone()[0]
+        except sqlite3.OperationalError as error:
+            code = getattr(error, 'sqlite_errorcode', 0) & 0xff
+            if code not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                raise
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f'TUI database read remained locked for {timeout}s: {user}') from error
+            time.sleep(min(0.025, remaining))
 
 
 def has(root, user, text):

@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Failure injection for deadline, signal and descendant cleanup behavior."""
 import os
+from contextlib import closing
+import importlib.util
+import sqlite3
+import threading
 from pathlib import Path
 import signal
 import subprocess
@@ -10,6 +14,57 @@ import time
 import unittest
 
 RUNNER = str(Path(__file__).with_name('run-bounded.py'))
+
+
+spec = importlib.util.spec_from_file_location('tui_smoke', Path(__file__).with_name('tui-smoke.py'))
+tui = importlib.util.module_from_spec(spec)
+previous_bytecode_setting = sys.dont_write_bytecode
+sys.dont_write_bytecode = True
+try:
+    spec.loader.exec_module(tui)
+finally:
+    sys.dont_write_bytecode = previous_bytecode_setting
+
+
+class DatabaseReadTests(unittest.TestCase):
+    def test_transient_lock_retries_and_connections_close(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'alice').mkdir()
+            path = root / 'alice' / 'identity.sqlite'
+            with closing(sqlite3.connect(path)) as db:
+                db.execute('CREATE TABLE sample(value INTEGER)')
+                db.execute('INSERT INTO sample VALUES(7)')
+                db.commit()
+            locked = threading.Event()
+            def writer():
+                with closing(sqlite3.connect(path)) as db:
+                    db.execute('BEGIN EXCLUSIVE')
+                    locked.set()
+                    time.sleep(0.2)
+                    db.commit()
+            thread = threading.Thread(target=writer, daemon=True)
+            thread.start()
+            try:
+                self.assertTrue(locked.wait(2))
+                self.assertEqual(tui.query(root, 'alice', 'SELECT value FROM sample'), 7)
+            finally:
+                thread.join(timeout=2)
+            self.assertFalse(thread.is_alive())
+            # No inspection connection may leave a read transaction holding a lock.
+            with closing(sqlite3.connect(path, timeout=0)) as db:
+                db.execute('BEGIN EXCLUSIVE')
+                started = time.monotonic()
+                with self.assertRaises(TimeoutError):
+                    tui.query(root, 'alice', 'SELECT value FROM sample', timeout=0.1)
+                self.assertLess(time.monotonic() - started, 1)
+                db.rollback()
+            # Retry only lock contention; genuine SQL errors must remain failures.
+            with self.assertRaises(sqlite3.OperationalError):
+                tui.query(root, 'alice', 'SELECT * FROM missing')
+            with self.assertRaises(sqlite3.OperationalError):
+                tui.query(root, 'alice', 'INSERT INTO sample VALUES(8)')
+            self.assertEqual(tui.query(root, 'alice', 'SELECT COUNT(*) FROM sample'), 1)
 
 
 class BoundedTests(unittest.TestCase):

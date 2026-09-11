@@ -155,3 +155,8 @@ service readiness. Python child cleanup and Rust test-child cleanup have explici
 limits; the deliberate crash-test pause has a 30-second failsafe. Test CLI output
 uses temporary files to avoid pipe-buffer deadlocks while awaiting process exit.
 The timeout harness tests normal failure exit codes, hung descendants and cancellation.
+
+TUI smoke inspections open read-only SQLite connections and close them explicitly.
+Only SQLITE_BUSY/SQLITE_LOCKED is retried, for at most five seconds per read; persistent
+locks and all other SQL errors fail. The harness regression tests exercise a real
+exclusive writer lock, successful retry, deadline expiry, and read-only enforcement.
