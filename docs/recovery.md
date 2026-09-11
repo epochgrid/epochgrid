@@ -40,7 +40,9 @@ than consuming the private KeyPackage again. If no Welcome is available but
 Do not re-run identity initialization, recreate the group, delete databases or
 restore an older database to solve connectivity problems. Keep `.dev/<device>/`
 and the NATS data volume. Stop clients before moving their complete directories;
-backup, rollback-safe restore and key recovery are not implemented.
+full-state backup and rollback-safe MLS restore are not implemented. Milestone 15
+adds separate [encrypted identity-administration recovery](encrypted-recovery.md),
+which excludes every MLS private key and transcript.
 
 ## Tested boundaries
 
@@ -80,8 +82,8 @@ History cannot restore missing ratchet state or ciphertext removed by retention.
 The initial KeyPackage's expiry still limits signing-key lookup in this prototype;
 long-lived identity lifecycle and package replenishment remain future work.
 
-Recovery covers the existing two-device epoch. Later membership changes and
-multi-epoch handshake replay remain unimplemented. Terminal output is not
+The original Milestone 9 tests cover the two-device epoch. Milestones 12–14 add
+ordered membership-Commit replay and revocation; see their architecture notes. Terminal output is not
 transactional: a crash after printing but before marking displayed can repeat a
 line. No exactly-once display or hardware durability guarantee is claimed.
 Local plaintext transcripts and private state remain unencrypted development

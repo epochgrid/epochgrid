@@ -11,7 +11,7 @@ use openmls::prelude::{
 };
 use rusqlite::{OptionalExtension, params};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DeviceTrust {
     pub user: String,
     pub device: String,

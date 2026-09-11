@@ -228,3 +228,41 @@ transferring authority. Raw encrypted MLS Commit and application framing is unch
 Migration 3 and the network acknowledgment/retry semantics are specified in
 [device revocation](device-revocation.md). No private keys or message plaintext occur
 in the revocation API, KV values, authorization include or NATS subjects.
+
+## Milestone 15: encrypted recovery file v1
+
+No NATS subjects, Body discriminants or MLS message formats change. Recovery is a
+local, independently versioned binary file, not a new transport message.
+
+| Offset | Length | Value |
+| --- | --- | --- |
+| 0 | 8 | ASCII `EGRECOV` followed by NUL |
+| 8 | 1 | Format version 1 |
+| 9 | 1 | Algorithm 1: AES-256-GCM |
+| 10 | 12 | Random nonce |
+| 22 | remaining | Ciphertext followed by the 16-byte GCM tag |
+
+The first ten bytes are AEAD associated data. Unknown magic/version/algorithm,
+truncation, authentication failure and inputs above 1,048,576 bytes are rejected.
+A fresh uniform 32-byte secret is used directly as the AES key for each export.
+Its separate text encoding is `EG1-` plus 64 hex digits and an optional newline;
+parsing accepts upper/lowercase hex and surrounding whitespace, with a 128-byte CLI
+input limit. There is no user-password mode or password-derived encryption key.
+
+The encrypted plaintext is one postcard `RecoveryArchive`, in field order:
+`version: u16` (1), `exported_at: i64` (UTC Unix seconds),
+`registration: DeviceRegistration`, `seed: String`, `evidence: Evidence`,
+`groups: Vec<GroupHint>`. Trailing plaintext bytes are rejected. `Evidence` fields:
+`devices: Vec<DeviceTrust>`, `directory_key: Option<String>`,
+`checkpoint: Option<Checkpoint>`, `revocation_checkpoint: Option<Checkpoint>`,
+`revoked: Vec<RevokedDevice>`, `alert: Option<String>`.
+`DeviceTrust`: user, device, fingerprint, latest_fingerprint, state (all String).
+`RevokedDevice`: nkey/user/device (String), mls_key (public Vec<u8>), cutoff (u64).
+`GroupHint`: name/gid (String). Limits are 1024 trust records, 1024 group hints and
+256 cached revoked devices, additionally constrained by total package size.
+
+Registration NKey binding is verified during restore, without requiring a historical
+public KeyPackage to remain unexpired. The package contains no MLS private state;
+its group hints convey neither membership nor decryption ability. Retained signed
+checkpoints remain subject to normal online prefix audit. SQLite recovery markers
+are local state and are not sent to NATS. See [recovery semantics](encrypted-recovery.md).

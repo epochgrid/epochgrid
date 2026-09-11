@@ -146,7 +146,7 @@ CI runs the same `scripts/dev/verify.sh` phases separately: `harness`, `fmt`,
 wall-clock watchdog with a ten-second heartbeat, exit code 124 on timeout, and
 TERM/KILL cleanup of its process group. Deadlines are 60s for formatting, 600s for
 clippy, 180s for unit tests, 300s for build, 120s for NATS download, 360s for the
-nine serial NATS cases, and 180s each for Compose and TUI. The job retains its
+ten serial NATS cases, and 180s each for Compose and TUI. The job retains its
 20-minute outer limit; GitHub step limits also apply. A timed-out phase fails CI.
 
 The Compose smoke service must exit within five seconds of SIGINT; otherwise the
@@ -160,3 +160,36 @@ TUI smoke inspections open read-only SQLite connections and close them explicitl
 Only SQLITE_BUSY/SQLITE_LOCKED is retried, for at most five seconds per read; persistent
 locks and all other SQL errors fail. The harness regression tests exercise a real
 exclusive writer lock, successful retry, deadline expiry, and read-only enforcement.
+
+
+## Milestone 15 recovery validation
+
+Migration 4 is additive and automatic; stop each client before upgrading. No service
+protocol or NATS permission upgrade is required. Keep existing state. Do not downgrade
+a database with a recovery-only marker to an older client.
+
+`recovery export`, `recovery restore` and `recovery status` are local CLI operations.
+Follow [the recovery guide](encrypted-recovery.md) for the complete replacement-device
+workflow. Files ending in `.egrecovery` and `.egsecret` are ignored by Git; do not commit
+recovery material using another extension. The exporter never prints the secret or
+accepts one through command-line arguments/environment variables. Both output paths
+must be new files in existing directories; Unix permissions are 0600.
+
+The shared verification script and CI automatically include the tenth NATS case:
+
+```bash
+cargo build --workspace
+NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 150 \
+  cargo test --locked -p epochgrid-service --test registration encrypted_recovery \
+  -- --ignored --test-threads=1
+```
+
+The recovery test has its own 120-second deadline, uses the existing bounded CLI/process
+helpers, and runs in an isolated temporary fabric. It exports through the CLI, deletes
+the original home, restores verified identity evidence, performs a signed revocation,
+enrolls a new device, retires the lost device, and exchanges new encrypted messages.
+An old archive cannot bypass revocation. Stream payloads and stopped broker/service
+files are scanned for message markers, the original NKey seed and recovery secret.
+The package is also checked for recognizable plaintext. Core/CLI tests cover wrong
+secrets, damaged/oversized inputs, expiry, sticky identity changes, checkpoint rollback,
+file permissions, overwrite refusal and atomic restore/migration behavior.

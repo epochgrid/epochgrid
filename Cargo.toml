@@ -32,3 +32,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "unstable-rendered-line-info"] }
 crossterm = "0.29"
+
+zeroize = { version = "1.9", features = ["serde"] }

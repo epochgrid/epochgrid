@@ -42,6 +42,7 @@ impl Group {
 }
 impl IdentityStore {
     pub(crate) fn signer(&self) -> Result<(SignatureKeyPair, CredentialWithKey)> {
+        self.ensure_messaging_identity()?;
         let registration = self.registration()?;
         let package = KeyPackageIn::tls_deserialize_exact(&registration.payload.mls_key_package)?
             .validate(self.provider.crypto(), ProtocolVersion::Mls10)

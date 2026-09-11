@@ -4,7 +4,7 @@ EpochGrid combines NATS infrastructure with MLS end-to-end group encryption.
 Project: https://epochgrid.org.
 Organization: https://github.com/epochgrid.
 
-**Current status: Milestones 0–14 are complete.** EpochGrid has a working secure
+**Current status: Milestones 0–15 are complete.** EpochGrid has a working secure
 messaging alpha with a persistent terminal client and independent devices per user.
 JetStream stores MLS protocol bytes; readable transcripts stay on each device.
 This is unaudited development software, not a production-ready security product.
@@ -16,8 +16,9 @@ This is unaudited development software, not a production-ready security product.
 | 12 | Complete | Independent devices per user, operator enrollment, device discovery, ordered MLS membership catch-up and logical user membership |
 | 13 | Complete | Manual device verification, persistent key-change warnings and a signed Merkle registration log |
 | 14 | Complete | Signed device revocation, native NATS credential exclusion, MLS removal/rekeying and offline reconciliation |
-| 15 | Next | Encrypted recovery |
-| 16–20 | Planned | Attachments, ephemeral events, receipts, message relationships and secure service participants |
+| 15 | Complete | Client-encrypted control-credential/trust recovery; fresh device enrollment and re-invitation for messaging |
+| 16 | Next | Encrypted attachments via NATS Object Store |
+| 17–20 | Planned | Ephemeral events, receipts, message relationships and secure service participants |
 
 See [multi-device setup and upgrade](docs/multi-device.md) for the current enrollment
 workflow, migration requirements and three-device validation scenario.
@@ -180,6 +181,30 @@ on first use unless pinned independently beforehand with `transparency pin U...`
 The [verification guide](docs/device-verification.md) explains upgrade steps and why
 this does not detect every malicious-server or split-view attack.
 
+## Encrypted identity recovery
+
+Stop the client using this home before exporting. Use two new files; keep the
+secret separately from the encrypted package (for example in a password manager):
+
+```bash
+./target/debug/epochgrid --home .dev/alice recovery export \
+  --output alice.egrecovery --secret-file alice.egsecret
+
+# After loss, restore into a new, empty home.
+./target/debug/epochgrid --home .dev/alice-recovered recovery restore \
+  --input alice.egrecovery --secret-file alice.egsecret
+./target/debug/epochgrid --home .dev/alice-recovered recovery status
+./target/debug/epochgrid --home .dev/alice-recovered transparency audit
+```
+
+The restored home recovers identity administration and retained verification evidence.
+**It cannot chat and contains no MLS private keys or message history.** Resume messaging
+with an independently initialized device, ordinary operator enrollment, revocation of
+the lost device, and a fresh invitation from a remaining group coordinator. Recovery
+does not reactivate revoked credentials. See the [complete recovery workflow and
+security semantics](docs/encrypted-recovery.md). The service never receives the secret
+or decrypted package; encrypted recovery files can be kept in untrusted storage.
+
 ## History and offline catch-up
 
 Retry queued ciphertext, fetch the current backlog and persist its authenticated
@@ -290,7 +315,9 @@ pre-join history. It also covers offline queuing, reconnect and terminal restora
 NATS cases cover directory migration, explicit fingerprint verification, malicious
 history/key substitution, competing log appends and restart persistence. Two revocation
 cases cover forced disconnect, refused reconnect, MLS exclusion, durable intent retries
-and service/broker restart. The terminal workflow also exercises live device revocation.
+and service/broker restart. The terminal workflow also exercises live device revocation. The encrypted-recovery
+case destroys Alice’s original home, restores control authority and trust, verifies
+revocation remains effective, and resumes two-way messaging with a fresh leaf.
 
 ## Current limits
 
@@ -315,6 +342,9 @@ and service/broker restart. The terminal workflow also exercises live device rev
   per-group NATS authorization is pending; inbox reads remain device-specific.
 - Loopback development without TLS; SQLite and journals contain unencrypted local
   private state. Use trusted private directories, not production secrets.
+- Recovery restores identity administration only; no old MLS state or transcript is
+  backed up. Messaging needs operator enrollment and a surviving group coordinator.
+  Lost recovery secrets and already revoked credentials require operator assistance.
 - CHANNELS KV is provisioned but unused. No HTTP, attachments or other non-goals.
 
 See [development](docs/development.md) and [SECURITY.md](SECURITY.md).

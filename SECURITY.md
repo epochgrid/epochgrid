@@ -10,7 +10,8 @@ unavailable, contact an organization maintainer privately to arrange disclosure;
 do not post exploit details or secrets in public issues. No dedicated security
 email or response-time commitment has been established.
 
-Never attach NATS seeds, credentials, SQLite databases or real private messages.
+Never attach NATS seeds, credentials, recovery secrets/packages, SQLite databases
+or real private messages.
 Local SQLite now retains unencrypted message history as well as private keys.
 See [the threat model](docs/threat-model.md) for implemented boundaries and gaps.
 
@@ -62,3 +63,17 @@ can defeat NATS exclusion; post-removal confidentiality relies on MLS. An active
 device or directory operator can authorize revocation. Signed revocation checkpoints
 retain rollback evidence but do not prove freshness or prevent withheld revocations and
 isolated split views. See [revocation design, upgrade and limitations](docs/device-revocation.md).
+
+
+Milestone 15 adds encrypted identity-administration recovery. Possession of both
+archive and secret exposes the original NKey and its still-authorized network/control
+privileges, including same-user revocation. It exposes no MLS private keys, epoch
+secrets or transcript. Restored homes cannot chat; replacement devices need normal
+operator enrollment and fresh invitations. Revoked credentials stay revoked.
+
+Recovery preserves trust evidence only as of export time. A valid older archive
+cannot be detected as stale offline. The service cannot decrypt the package, but
+endpoint compromise, co-located secret/package storage, swap and crash dumps remain
+risks. Keep recovery secrets outside the device and apart from archives. Local
+restored state is unencrypted development SQLite; no hardware-keystore or guaranteed
+secure-erasure claim is made. See [recovery boundaries](docs/encrypted-recovery.md).

@@ -1,4 +1,4 @@
-# EpochGrid architecture — through Milestone 14
+# EpochGrid architecture — through Milestone 15
 
 EpochGrid (https://epochgrid.org) uses NATS for
 transport, authentication, authorization, request/reply and persistence. OpenMLS
@@ -187,3 +187,21 @@ removes known revoked leaves atomically with the encrypted Commit outbox. A CHAT
 cutoff protects historical Commit catch-up while rejecting later revoked-author
 changes. New sends wait for rekeying. Native reload, retry boundaries, trust limits,
 commands and validation are documented in [device revocation](device-revocation.md).
+
+## Encrypted identity-administration recovery
+
+Milestone 15 exports a device NKey, signed public registration and retained trust
+metadata through client-side AES-256-GCM using the existing OpenMLS RustCrypto
+provider. Each package has its own uniform 256-bit secret, stored separately. No
+MLS private signer, KeyPackage private bundle, epoch, ratchet, delivery state or
+transcript is backed up. This avoids restoring stale sending keys and consumed
+KeyPackages. The network protocol, broker permissions and directory bindings remain
+unchanged; there is no recovery service or remote storage dependency.
+
+Migration 4 adds `recovery_metadata`. Restoration commits identity, trust and a
+recovery-only marker together into an empty home. Restored credentials may audit
+and revoke while authorized; the CLI and core prevent MLS use. Messaging resumes
+through ordinary fresh-device enrollment and a new Welcome, preserving irreversible
+revocation and immutable directory history. Secret buffers use zeroize 1.9 (already
+in the lockfile), with its serde support for owned secret fields. See the
+[format, commands, threat model and acceptance coverage](encrypted-recovery.md).

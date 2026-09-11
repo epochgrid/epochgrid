@@ -10,7 +10,8 @@ path, not a production security audit or proof for every possible execution.
 
 The project aims to inherit MLS forward secrecy and post-compromise security when
 correctly implemented, including exclusion of removed members from future epochs.
-Removal, explicit key updates and those lifecycle security tests are not implemented.
+Milestone 14 implements removal and tests future-epoch exclusion. Explicit key
+updates and comprehensive post-compromise lifecycle security testing remain pending.
 
 Implemented boundaries include independent NATS/MLS keys, NKey network
 authentication, signed registration and operator enrollment, verified discovery,
@@ -57,7 +58,8 @@ retain plaintext, and their already-consumed messages are shown as unavailable.
 Broker retention/deletion, complete power-loss fault injection and retention quotas
 remain limitations; Milestone 12 adds ordered catch-up across membership additions. Backups
 restoring old ratchet state are not safe recovery. No exactly-once delivery or comprehensive crash-safety claim is
-made. Key rotation, package replenishment/expiry and recovery remain open.
+made. Key rotation and package replenishment/expiry remain open. Milestone 15
+recovers control credentials and trust metadata without restoring old ratchets.
 
 Milestone 10's [acceptance matrix](mvp-acceptance.md) records the completed MVP
 checks. A plaintext-marker scan is a regression detector, not proof of semantic
@@ -113,3 +115,32 @@ can defeat NATS exclusion; post-removal confidentiality relies on MLS. An active
 device or directory operator can authorize revocation. Signed revocation checkpoints
 retain rollback evidence but do not prove freshness or prevent withheld revocations and
 isolated split views. See [revocation design, upgrade and limitations](device-revocation.md).
+
+
+## Encrypted recovery compromise
+
+An encrypted recovery package contains the original device NKey and public
+identity/trust metadata. Anyone obtaining the package and its separate random secret
+can exercise that credential’s remaining fabric/control privileges, including
+same-user revocation. The package omits all private MLS keys, group epochs, ratchets,
+message history and private KeyPackages; it does not itself decrypt past or future
+chat. The service and storage operators receive neither recovery secret nor plaintext.
+Package size, file existence and any external storage metadata remain observable.
+
+Recovered homes are explicitly administration-only. Fresh messaging devices need
+independent keys, operator enrollment and re-invitation. Old-device revocation must
+still be performed and cannot be undone by restoring an earlier export. If every
+member’s MLS state is lost, the old group and its history cannot be recovered. No
+claim is made that restoring a control credential proves the original endpoint was
+destroyed, erases its plaintext, or establishes human account ownership.
+
+The encrypted snapshot preserves directory pins, verified/changed fingerprints,
+revocation evidence and warnings at export time. Later observations are lost; a
+valid old package cannot prove freshness. Prefix checks retain their existing limited
+rollback detection. A replacement messaging home starts with independent trust state;
+use the recovered fingerprints and directory pin to verify it before invitations.
+Secret files must be stored separately and protected by the user. Filesystem permissions,
+zeroization of owned secret buffers and AEAD authentication do not protect a compromised
+endpoint, swap or library/runtime copies. Tests cover wrong secrets, corruption,
+transaction rollback, no MLS-state restoration, fresh-device messaging and continued
+NATS revocation. They do not establish production readiness.
