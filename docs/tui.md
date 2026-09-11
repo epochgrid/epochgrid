@@ -95,3 +95,15 @@ device shows connection loss; without updated evidence it cannot infer the cause
 
 Membership views render from the latest worker snapshot, including additions/removals
 while the view is open. Security warnings take precedence over local command notices.
+
+## Attachment controls (Milestone 16)
+
+`/attach PATH` uploads an encrypted file to the selected channel; `/save ID PATH`
+authenticates a received attachment and writes a new explicit destination. Paths
+may contain spaces (no shell quoting). Manifests render as filename/size/MIME summaries,
+never as binary bytes or keys. Downloads are explicit; no preview or auto-open occurs.
+These operations require connectivity and have a 30-second network deadline. The
+renderer stays responsive while the worker transfers; incoming catch-up resumes
+afterward. Failed attachment commands report an error and may require explicit retry;
+sync pending messages first after ambiguous sends. The real-PTY test exercises both
+commands with paths containing spaces. See [attachment limits and upgrade](attachments.md).

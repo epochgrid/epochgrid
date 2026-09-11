@@ -217,7 +217,7 @@ impl RecoveryArchive {
             groups: self.groups.clone(),
         };
         store.transaction(|| {
-            let count: u64 = store.connection.query_row("SELECT (SELECT COUNT(*) FROM local_identity) + (SELECT COUNT(*) FROM groups) + (SELECT COUNT(*) FROM recovery_metadata) + (SELECT COUNT(*) FROM device_trust) + (SELECT COUNT(*) FROM transparency_state) + (SELECT COUNT(*) FROM revoked_devices) + (SELECT COUNT(*) FROM revocation_checkpoint) + (SELECT COUNT(*) FROM trust_alert) + (SELECT COUNT(*) FROM transcript) + (SELECT COUNT(*) FROM outbox) + (SELECT COUNT(*) FROM chat_deliveries) + (SELECT COUNT(*) FROM welcomes) + (SELECT COUNT(*) FROM received)", [], |r| r.get(0))?;
+            let count: u64 = store.connection.query_row("SELECT (SELECT COUNT(*) FROM local_identity) + (SELECT COUNT(*) FROM groups) + (SELECT COUNT(*) FROM recovery_metadata) + (SELECT COUNT(*) FROM device_trust) + (SELECT COUNT(*) FROM transparency_state) + (SELECT COUNT(*) FROM revoked_devices) + (SELECT COUNT(*) FROM revocation_checkpoint) + (SELECT COUNT(*) FROM trust_alert) + (SELECT COUNT(*) FROM transcript) + (SELECT COUNT(*) FROM outbox) + (SELECT COUNT(*) FROM chat_deliveries) + (SELECT COUNT(*) FROM welcomes) + (SELECT COUNT(*) FROM received) + (SELECT COUNT(*) FROM attachments)", [], |r| r.get(0))?;
             ensure!(count == 0, "recovery requires an uninitialized home; existing identity/trust state cannot be overwritten");
             store.connection.execute("INSERT INTO local_identity VALUES(1,?1,?2)", params![self.seed.as_str(), postcard::to_allocvec(&self.registration)?])?;
             for device in &self.evidence.devices {

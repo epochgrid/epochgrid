@@ -146,7 +146,7 @@ CI runs the same `scripts/dev/verify.sh` phases separately: `harness`, `fmt`,
 wall-clock watchdog with a ten-second heartbeat, exit code 124 on timeout, and
 TERM/KILL cleanup of its process group. Deadlines are 60s for formatting, 600s for
 clippy, 180s for unit tests, 300s for build, 120s for NATS download, 360s for the
-ten serial NATS cases, and 180s each for Compose and TUI. The job retains its
+eleven serial NATS cases, and 180s each for Compose and TUI. The job retains its
 20-minute outer limit; GitHub step limits also apply. A timed-out phase fails CI.
 
 The Compose smoke service must exit within five seconds of SIGINT; otherwise the
@@ -193,3 +193,30 @@ files are scanned for message markers, the original NKey seed and recovery secre
 The package is also checked for recognizable plaintext. Core/CLI tests cover wrong
 secrets, damaged/oversized inputs, expiry, sticky identity changes, checkpoint rollback,
 file permissions, overwrite refusal and atomic restore/migration behavior.
+
+
+## Milestone 16 attachments
+
+Stop clients/service, rebuild, run bootstrap, then restart the service and all clients.
+Retain existing local and NATS data. Migration 5 is additive; service startup creates
+or updates ATTACHMENTS retention/capacity. Device permissions add publication of
+`$O.ATTACHMENTS.C.*` and `$O.ATTACHMENTS.M.*`, plus exact stream INFO and MSG.GET
+APIs for OBJ_ATTACHMENTS. No client stream purge/delete/update or consumer management
+permissions are granted. Do not send manifests to pre-M16 clients.
+
+The shared verification command now runs eleven isolated NATS cases. The additional
+attachment case has a 120-second outer bound and exercises CLI multi-chunk round trip,
+corruption, Object Store links, expiry, restart and continued NKey revocation. TUI
+smoke also sends/saves an attachment with a path containing spaces, then scans stopped
+NATS storage for the plaintext marker. Run just the new NATS case after building:
+
+```bash
+NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 150 \
+  cargo test --locked -p epochgrid-service --test registration attachments \
+  -- --ignored --test-threads=1
+```
+
+See [attachment commands, limits and retention](attachments.md). CLI/TUI read
+EPOCHGRID_ATTACHMENT_MAX_BYTES and EPOCHGRID_ATTACHMENT_TTL_SECONDS; the service
+exposes attachment-retention-seconds and attachment-store-max-bytes flags. Reducing
+retention can expire existing objects. The client stores no automatic file cache.

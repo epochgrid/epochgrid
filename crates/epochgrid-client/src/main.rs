@@ -22,6 +22,11 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Send, list or explicitly save encrypted attachments.
+    Attachment {
+        #[command(subcommand)]
+        command: Attachment,
+    },
     /// Client-encrypted identity administration recovery (no MLS history backup).
     Recovery {
         #[command(subcommand)]
@@ -158,6 +163,23 @@ enum Channel {
     },
 }
 #[derive(Subcommand)]
+enum Attachment {
+    Send {
+        name: String,
+        file: PathBuf,
+        #[arg(long, default_value = "application/octet-stream")]
+        mime: String,
+    },
+    List {
+        name: String,
+    },
+    Save {
+        name: String,
+        id: String,
+        output: PathBuf,
+    },
+}
+#[derive(Subcommand)]
 enum Message {
     /// Read one UTF-8 message from stdin and publish MLS ciphertext.
     Send { name: String },
@@ -190,11 +212,56 @@ async fn main() -> Result<()> {
         .init();
     if matches!(
         args.command,
-        Command::Tui | Command::Chat { .. } | Command::Message { .. } | Command::Channel { .. }
+        Command::Tui
+            | Command::Chat { .. }
+            | Command::Message { .. }
+            | Command::Channel { .. }
+            | Command::Attachment { .. }
     ) {
         IdentityStore::open(&args.home)?.ensure_messaging_identity()?;
     }
     match args.command {
+        Command::Attachment { command } => {
+            use epochgrid_core::attachments::{self, Limits};
+            let store = IdentityStore::open(&args.home)?;
+            match command {
+                Attachment::List { name } => {
+                    for manifest in store.attachments(&name)? {
+                        println!("{}", manifest.summary());
+                    }
+                }
+                Attachment::Send { name, file, mime } => {
+                    let client = transport::connect(&args.server, &store).await?;
+                    let id = attachments::send_file(
+                        &store,
+                        &client,
+                        &name,
+                        &file,
+                        &mime,
+                        Limits::from_env()?,
+                    )
+                    .await?;
+                    println!("EpochGrid encrypted attachment sent: {id}");
+                }
+                Attachment::Save { name, id, output } => {
+                    let client = transport::connect(&args.server, &store).await?;
+                    attachments::save_file(
+                        &store,
+                        &client,
+                        &name,
+                        &id,
+                        &output,
+                        Limits::from_env()?,
+                    )
+                    .await?;
+                    println!(
+                        "EpochGrid authenticated attachment saved: {}",
+                        output.display()
+                    );
+                }
+            }
+        }
+
         Command::Recovery { command } => recovery::run(&args.home, command)?,
         Command::Transparency { command } => {
             let store = IdentityStore::open(&args.home)?;

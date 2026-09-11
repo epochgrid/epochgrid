@@ -266,3 +266,34 @@ public KeyPackage to remain unexpired. The package contains no MLS private state
 its group hints convey neither membership nor decryption ability. Retained signed
 checkpoints remain subject to normal online prefix audit. SQLite recovery markers
 are local state and are not sent to NATS. See [recovery semantics](encrypted-recovery.md).
+
+
+## Milestone 16: attachment application payload v1
+
+Existing raw UTF-8 application messages remain unchanged. Attachments use prefix
+hex `ff 45 47 41 54 54` (0xff plus ASCII EGATT), then one version byte (1), then
+postcard Manifest fields in order: `id: String` (32 lowercase hex digits),
+`filename: String` (1–255 UTF-8 bytes, no separators/control characters), `mime: String`
+(1–127 ASCII bytes), `size: u64`, `ciphertext_size: u64`, `expires_at: u64`
+(UTC Unix seconds), `hash: [u8;32]` (SHA-256 plaintext), `key: [u8;32]`,
+`nonce: [u8;12]`. The whole payload is inside MLS PrivateMessage application data
+and is limited to 16,384 bytes. Unsupported reserved-prefix versions, invalid
+fields and trailing bytes fail closed. Renderers show only a safe summary.
+
+The object is AES-256-GCM ciphertext followed by its 16-byte tag, with no plaintext
+header. Associated data is ASCII `EpochGrid attachment v1` plus NUL, followed by
+postcard tuple `(group_routing_id: str, object_id: str)`. Each object has independent
+CSPRNG-generated ID, key and nonce. The protected manifest's size, content hash and
+expiry are authoritative, not public ObjectInfo claims. NATS Object Store metadata
+has only a random object name, bucket/chunk IDs, ciphertext size/digest and timestamps;
+no filename, MIME, plaintext digest or DEK is included. Standard chunks are at most
+32 KiB. The bucket is ATTACHMENTS, its stream OBJ_ATTACHMENTS, and subjects are
+`$O.ATTACHMENTS.C.<nuid>` / `$O.ATTACHMENTS.M.<encoded-object-id>`.
+
+No new identity-service Body variant, MLS handshake type or group subject is added.
+Migration 5 creates a local `(gid, object_id)` manifest index, committing with the
+original transcript and ratchet transaction. Duplicate identical manifests are
+idempotent; conflicting reuse of an object ID in one group is rejected. Legacy
+text is not backfilled into this new index. Upgrade all clients before sending
+attachment manifests; older text-only renderers are unsupported for binary payloads.
+See [attachment security and retention](attachments.md).

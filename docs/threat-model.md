@@ -144,3 +144,21 @@ zeroization of owned secret buffers and AEAD authentication do not protect a com
 endpoint, swap or library/runtime copies. Tests cover wrong secrets, corruption,
 transaction rollback, no MLS-state restoration, fresh-device messaging and continued
 NATS revocation. They do not establish production readiness.
+
+
+Milestone 16 protects attachments with client-side AES-256-GCM and puts the key,
+filename, MIME and plaintext hash inside MLS. Object Store sees random names,
+ciphertext, sizes, timing and ciphertext digests. A holder of an MLS-protected
+manifest is an intentional attachment recipient. Revocation prevents future fabric
+access but cannot erase already saved files, ciphertext copies or known DEKs.
+Client expiration is an availability policy, not cryptographic timed erasure.
+
+Local SQLite retains manifest DEKs unencrypted; explicitly saved files are plaintext.
+Recovery excludes both attachment keys and files. No automatic download, path derived
+from a received filename, execution or preview is performed. Authenticating a file
+proves byte integrity, not that a member-supplied file is safe to open. Shared lab
+Object Store permissions allow active devices to observe ciphertext and corrupt or
+fill the bucket; availability, per-object authorization and malware scanning are not
+implemented. Native bucket retention/capacity and bounded transfers limit ordinary
+resource use. All clients must be upgraded to render binary manifests safely.
+See [attachment boundaries and validation](attachments.md).

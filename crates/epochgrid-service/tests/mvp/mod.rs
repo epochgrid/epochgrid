@@ -346,7 +346,8 @@ async fn cli_mvp_ciphertext_only_and_restart() -> Result<()> {
                 "KV_CHANNELS",
                 "KV_IDENTITIES",
                 "KV_TRANSPARENCY",
-                "MAILBOX"
+                "MAILBOX",
+                "OBJ_ATTACHMENTS"
             ]
     );
     let group = IdentityStore::open(&root.join("alice"))?.group("engineering")?;

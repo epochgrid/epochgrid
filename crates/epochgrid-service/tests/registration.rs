@@ -619,3 +619,5 @@ mod verification;
 mod revocation;
 
 mod encrypted_recovery;
+
+mod attachments;

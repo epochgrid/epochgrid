@@ -4,7 +4,7 @@ EpochGrid combines NATS infrastructure with MLS end-to-end group encryption.
 Project: https://epochgrid.org.
 Organization: https://github.com/epochgrid.
 
-**Current status: Milestones 0–15 are complete.** EpochGrid has a working secure
+**Current status: Milestones 0–16 are complete.** EpochGrid has a working secure
 messaging alpha with a persistent terminal client and independent devices per user.
 JetStream stores MLS protocol bytes; readable transcripts stay on each device.
 This is unaudited development software, not a production-ready security product.
@@ -17,8 +17,9 @@ This is unaudited development software, not a production-ready security product.
 | 13 | Complete | Manual device verification, persistent key-change warnings and a signed Merkle registration log |
 | 14 | Complete | Signed device revocation, native NATS credential exclusion, MLS removal/rekeying and offline reconciliation |
 | 15 | Complete | Client-encrypted control-credential/trust recovery; fresh device enrollment and re-invitation for messaging |
-| 16 | Next | Encrypted attachments via NATS Object Store |
-| 17–20 | Planned | Ephemeral events, receipts, message relationships and secure service participants |
+| 16 | Complete | Client-encrypted attachments via NATS Object Store, protected metadata, explicit save, retention and tamper tests |
+| 17 | Next | Ephemeral encrypted events |
+| 18–20 | Planned | Receipts, message relationships and secure service participants |
 
 See [multi-device setup and upgrade](docs/multi-device.md) for the current enrollment
 workflow, migration requirements and three-device validation scenario.
@@ -205,6 +206,25 @@ does not reactivate revoked credentials. See the [complete recovery workflow and
 security semantics](docs/encrypted-recovery.md). The service never receives the secret
 or decrypted package; encrypted recovery files can be kept in untrusted storage.
 
+## Encrypted attachments
+
+Upgrade every group member and rerun bootstrap before sending attachments; see the
+[attachment guide](docs/attachments.md) for permissions, limits and retention.
+
+```bash
+./target/debug/epochgrid --home .dev/alice attachment send engineering ./report.pdf --mime application/pdf
+./target/debug/epochgrid --home .dev/bob channel sync engineering
+./target/debug/epochgrid --home .dev/bob attachment list engineering
+./target/debug/epochgrid --home .dev/bob attachment save engineering ATTACHMENT_ID ./saved-report.pdf
+```
+
+The TUI supports `/attach PATH` and `/save ID OUTPUT_PATH`, including paths with
+spaces. Files are encrypted before Object Store upload; filenames, MIME types and
+keys travel inside MLS. Downloads authenticate before writing and refuse overwrite.
+Default maximum size is 8 MiB, with seven-day object retention. No automatic downloads
+or file execution occur. Local manifests contain plaintext DEKs; explicitly saved
+files are plaintext and are excluded from recovery exports.
+
 ## History and offline catch-up
 
 Retry queued ciphertext, fetch the current backlog and persist its authenticated
@@ -345,6 +365,9 @@ revocation remains effective, and resumes two-way messaging with a fresh leaf.
 - Recovery restores identity administration only; no old MLS state or transcript is
   backed up. Messaging needs operator enrollment and a surviving group coordinator.
   Lost recovery secrets and already revoked credentials require operator assistance.
-- CHANNELS KV is provisioned but unused. No HTTP, attachments or other non-goals.
+- Attachments require connectivity and are buffered within a configurable size limit.
+  Bucket authorization spans the shared lab; malicious members can deny availability.
+  Expiration cannot erase downloaded copies or DEKs already known to recipients.
+- CHANNELS KV is provisioned but unused. No HTTP or external storage service.
 
 See [development](docs/development.md) and [SECURITY.md](SECURITY.md).

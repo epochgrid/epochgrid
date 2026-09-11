@@ -7,7 +7,7 @@ use epochgrid_core::{
 use std::{io::BufRead, path::Path, time::Duration};
 
 fn text(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes)
+    epochgrid_core::attachments::display(bytes)
         .chars()
         .flat_map(|c| {
             if c.is_control() && c != '\n' && c != '\t' {

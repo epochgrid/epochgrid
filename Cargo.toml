@@ -12,7 +12,7 @@ homepage = "https://epochgrid.org"
 
 [workspace.dependencies]
 anyhow = "1"
-async-nats = { version = "0.50", default-features = false, features = ["ring", "nkeys", "kv", "server_2_10"] }
+async-nats = { version = "0.50", default-features = false, features = ["ring", "nkeys", "kv", "object-store", "server_2_10"] }
 clap = { version = "4", features = ["derive", "env"] }
 futures-util = "0.3"
 nkeys = "0.4.5"
