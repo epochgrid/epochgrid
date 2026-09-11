@@ -4,7 +4,7 @@ EpochGrid combines NATS infrastructure with MLS end-to-end group encryption.
 Project: https://epochgrid.org.
 Organization: https://github.com/epochgrid.
 
-**Current status: Milestones 0–16 are complete.** EpochGrid has a working secure
+**Current status: Milestones 0–17 are complete.** EpochGrid has a working secure
 messaging alpha with a persistent terminal client and independent devices per user.
 JetStream stores MLS protocol bytes; readable transcripts stay on each device.
 This is unaudited development software, not a production-ready security product.
@@ -18,8 +18,11 @@ This is unaudited development software, not a production-ready security product.
 | 14 | Complete | Signed device revocation, native NATS credential exclusion, MLS removal/rekeying and offline reconciliation |
 | 15 | Complete | Client-encrypted control-credential/trust recovery; fresh device enrollment and re-invitation for messaging |
 | 16 | Complete | Client-encrypted attachments via NATS Object Store, protected metadata, explicit save, retention and tamper tests |
-| 17 | Next | Ephemeral encrypted events |
+| 17 | Complete | Signed MLS-exporter typing events over Core NATS, bounded expiry and no durable storage |
 | 18–20 | Planned | Receipts, message relationships and secure service participants |
+
+Typing indicators are automatic in the TUI; drafts are never transmitted. See
+[ephemeral events](docs/ephemeral-events.md) for protection, expiry and upgrade details.
 
 See [multi-device setup and upgrade](docs/multi-device.md) for the current enrollment
 workflow, migration requirements and three-device validation scenario.

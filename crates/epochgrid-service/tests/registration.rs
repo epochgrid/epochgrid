@@ -621,3 +621,5 @@ mod revocation;
 mod encrypted_recovery;
 
 mod attachments;
+
+mod ephemeral;

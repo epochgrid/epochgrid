@@ -95,3 +95,13 @@ fill the bucket; availability, per-object authorization and malware scanning are
 implemented. Native bucket retention/capacity and bounded transfers limit ordinary
 resource use. All clients must be upgraded to render binary manifests safely.
 See [attachment boundaries and validation](docs/attachments.md).
+
+
+Milestone 17 typing events use signed MLS-exporter encryption over Core NATS.
+NATS sees routing, epoch, sender leaf index, timing and size, but not event contents.
+No ephemeral event is stored in JetStream or SQLite. Unlike durable MLS messages,
+these events have no per-event forward secrecy: compromise of an epoch exporter
+secret exposes recorded events from that epoch. Signatures authenticate individual
+current leaves. Revocation checks and epoch changes reject removed senders; offline
+clients must first learn revocation. Activity expires within eight seconds, and is
+advisory; bounded replay within that freshness window after restart remains possible.

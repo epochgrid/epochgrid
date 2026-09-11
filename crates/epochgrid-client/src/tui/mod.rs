@@ -8,7 +8,11 @@ use ratatui::{
     text::Line,
     widgets::{Block, List, ListItem, Paragraph, Wrap},
 };
-use std::{io::IsTerminal, path::PathBuf, time::Duration};
+use std::{
+    io::IsTerminal,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 use worker::Worker;
 
 #[derive(Clone, Default)]
@@ -17,6 +21,7 @@ struct Snapshot {
     channels: Vec<ChannelView>,
     selected: Option<String>,
     messages: Vec<MessageView>,
+    typing: Vec<(String, Instant)>,
     members: Vec<String>,
     status: String,
     notice: String,
@@ -40,6 +45,11 @@ struct MessageView {
 }
 #[derive(Debug, PartialEq)]
 enum Action {
+    Typing {
+        name: String,
+        active: bool,
+        observed: Instant,
+    },
     Attach {
         name: String,
         path: String,
@@ -316,13 +326,27 @@ impl Ui {
                 lines
             })
             .collect();
+        let typing = state
+            .typing
+            .iter()
+            .filter(|(_, expiry)| *expiry > Instant::now())
+            .filter_map(|(s, _)| s.split_once('/').map(|(u, _)| u))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join(", ");
         let title = format!(
-            "{}{}",
+            "{}{}{}",
             state
                 .selected
                 .as_deref()
                 .unwrap_or("No channel — /create NAME or /join INVITER"),
-            if state.older { " (older page)" } else { "" }
+            if state.older { " (older page)" } else { "" },
+            if typing.is_empty() {
+                String::new()
+            } else {
+                format!(" — {typing} is typing")
+            }
         );
         let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
         let height = paragraph.line_count(messages.width.saturating_sub(2));
@@ -359,6 +383,61 @@ impl Ui {
         frame.render_widget(Paragraph::new(format!("{}\nTab channels | Up/Down scroll | PgUp older | PgDn latest | /help | Ctrl-C quit", safe_text(&notice))).wrap(Wrap { trim: false }), footer);
     }
 }
+#[derive(Default)]
+struct DraftActivity {
+    draft: String,
+    edited: Option<Instant>,
+    announced: Option<(String, Instant)>,
+}
+impl DraftActivity {
+    fn update(
+        &mut self,
+        draft: &str,
+        selected: Option<&str>,
+        pending: bool,
+        now: Instant,
+    ) -> Vec<Action> {
+        if self.draft != draft {
+            self.draft = draft.into();
+            self.edited = Some(now);
+        }
+        let target = selected.filter(|_| {
+            !pending
+                && !draft.is_empty()
+                && (!draft.starts_with('/') || draft.starts_with("//"))
+                && self
+                    .edited
+                    .is_some_and(|t| now.duration_since(t) < Duration::from_secs(3))
+        });
+        let mut actions = Vec::new();
+        if self
+            .announced
+            .as_ref()
+            .is_some_and(|(name, _)| Some(name.as_str()) != target)
+            && let Some((name, _)) = self.announced.take()
+        {
+            actions.push(Action::Typing {
+                name,
+                active: false,
+                observed: now,
+            });
+        }
+        if let Some(name) = target
+            && self
+                .announced
+                .as_ref()
+                .is_none_or(|(_, last)| now.duration_since(*last) >= Duration::from_secs(2))
+        {
+            actions.push(Action::Typing {
+                name: name.into(),
+                active: true,
+                observed: now,
+            });
+            self.announced = Some((name.into(), now));
+        }
+        actions
+    }
+}
 struct TerminalGuard;
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
@@ -378,6 +457,7 @@ pub fn run(home: PathBuf, server: String) -> Result<()> {
     let mut ui = Ui::default();
     let mut viewed = Vec::new();
     let mut pending: Option<(u64, String)> = None;
+    let mut activity = DraftActivity::default();
     loop {
         let state = worker.updates.borrow().clone();
         if let Some(error) = &state.fatal {
@@ -392,6 +472,14 @@ pub fn run(home: PathBuf, server: String) -> Result<()> {
                 ui.input.clear();
             }
             pending = None;
+        }
+        for action in activity.update(
+            &ui.input,
+            state.selected.as_deref(),
+            pending.is_some(),
+            Instant::now(),
+        ) {
+            let _ = worker.commands.try_send(action);
         }
         terminal.draw(|frame| ui.draw(frame, &state))?;
         let ids: Vec<_> = state.messages.iter().map(|m| m.id).collect();
@@ -462,6 +550,47 @@ pub fn run(home: PathBuf, server: String) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn typing_drafts_refresh_stop_and_ignore_commands() {
+        let mut activity = DraftActivity::default();
+        let now = Instant::now();
+        assert!(matches!(
+            activity.update("hello", Some("g"), false, now).as_slice(),
+            [Action::Typing { active: true, .. }]
+        ));
+        assert!(
+            activity
+                .update("hello", Some("g"), false, now + Duration::from_secs(1))
+                .is_empty()
+        );
+        assert!(matches!(
+            activity
+                .update("hello!", Some("g"), false, now + Duration::from_secs(2))
+                .as_slice(),
+            [Action::Typing { active: true, .. }]
+        ));
+        assert!(matches!(
+            activity
+                .update("hello!", Some("g"), false, now + Duration::from_secs(5))
+                .as_slice(),
+            [Action::Typing { active: false, .. }]
+        ));
+        assert!(
+            activity
+                .update(
+                    "/invite bob",
+                    Some("g"),
+                    false,
+                    now + Duration::from_secs(6)
+                )
+                .is_empty()
+        );
+        assert!(
+            activity
+                .update("queued", Some("g"), true, now + Duration::from_secs(7))
+                .is_empty()
+        );
+    }
     #[test]
     fn commands_unicode_editing_and_channel_navigation() -> Result<()> {
         let mut ui = Ui::default();

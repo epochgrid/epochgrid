@@ -46,6 +46,11 @@ fn revoke_leaf_atomic_remove_restart_and_future_secrecy() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let (alice, bob, desktop, registrations, key) = three(dir.path())?;
     let group = alice.group("engineering")?;
+    let old_event = desktop.seal_ephemeral(
+        "engineering",
+        crate::ephemeral::EphemeralEvent::TypingStarted,
+    )?;
+    assert!(bob.open_ephemeral("engineering", &old_event).is_ok());
     let target = desktop.nkey()?.public_key();
     let forbidden = RevokeRequest::signed("alice", "desktop", &target, &bob.nkey()?)?;
     assert!(forbidden.validate(&registrations, &[]).is_err());
@@ -61,6 +66,15 @@ fn revoke_leaf_atomic_remove_restart_and_future_secrecy() -> Result<()> {
     for local in [&alice, &bob, &desktop] {
         local.accept_revocations(&log, &registrations)?;
     }
+    assert!(bob.open_ephemeral("engineering", &old_event).is_err());
+    assert!(
+        desktop
+            .seal_ephemeral(
+                "engineering",
+                crate::ephemeral::EphemeralEvent::TypingStarted
+            )
+            .is_err()
+    );
     alice.block_revoked_outbox()?;
     let blocked: u64 =
         alice
@@ -93,6 +107,13 @@ fn revoke_leaf_atomic_remove_restart_and_future_secrecy() -> Result<()> {
         assert_eq!(local.process_history("engineering")?.rejected, 0);
     }
     assert!(!desktop.load_group(&group)?.is_active());
+    let fresh_event = alice.seal_ephemeral(
+        "engineering",
+        crate::ephemeral::EphemeralEvent::TypingStarted,
+    )?;
+    assert!(bob.open_ephemeral("engineering", &fresh_event).is_ok());
+    assert!(desktop.open_ephemeral("engineering", &fresh_event).is_err());
+    assert!(bob.open_ephemeral("engineering", &old_event).is_err());
     let secret = b"EPOCHGRID_AFTER_REVOCATION_91F3";
     let ciphertext = alice.encrypt_message("engineering", secret)?;
     assert!(!ciphertext.windows(secret.len()).any(|w| w == secret));

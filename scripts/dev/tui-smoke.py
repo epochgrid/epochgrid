@@ -124,6 +124,25 @@ def wait(predicate, label, timeout=25):
     raise AssertionError((label, [c.screen.text for c in CLIENTS]))
 
 
+def wait_for_typing(sender, receiver, timeout=25):
+    # Core NATS activity is intentionally lossy. Keep making real edits until
+    # one update arrives, rather than expecting a single short burst to survive
+    # worker synchronization. wait() owns a fixed deadline that edits never reset.
+    next_edit = time.monotonic()
+
+    def observed():
+        nonlocal next_edit
+        if 'alice is typing' in receiver.screen.text:
+            return True
+        now = time.monotonic()
+        if now >= next_edit:
+            sender.type('.')
+            next_edit = now + 0.5
+        return False
+
+    wait(observed, 'encrypted live typing indicator', timeout=timeout)
+
+
 def query(root, user, sql, values=(), *, timeout=5):
     # The running client owns a rollback-journal database and briefly takes an
     # exclusive lock while committing MLS state. That is not a failed assertion.
@@ -192,6 +211,16 @@ def run():
             wait(lambda: 'Invitation delivered' in alice.screen.text, 'TUI invite')
             bob.type('/join alice\r')
             wait(lambda: query(root, 'bob', 'SELECT COUNT(*) FROM groups') == 1, 'TUI join')
+            # The SQLite group row precedes completion of Welcome processing.
+            wait(lambda: 'Channel joined' in bob.screen.text
+                 and '> #engineering' in bob.screen.text
+                 and all('Online' in c.screen.text for c in [alice, bob]),
+                 'TUI join ready for live activity')
+            alice.type('draft typing without sending')
+            wait_for_typing(alice, bob)
+            assert query(root, 'bob', 'SELECT COUNT(*) FROM transcript') == 0
+            alice.type('\x1b')
+            wait(lambda: 'alice is typing' not in bob.screen.text, 'typing stop or natural expiry')
             secrets = ['TUI_ALICE_FIRST_91F3', 'TUI_BOB_REPLY_72A1', 'TUI_OFFLINE_QUEUE_5BC7', 'TUI_RECONNECTED_BOB_1D90']
             alice.type(secrets[0] + '\r')
             wait(lambda: has(root, 'bob', secrets[0]) and secrets[0] in bob.screen.text, 'Alice -> Bob render')
@@ -268,7 +297,7 @@ def run():
                 if path.is_file():
                     data = path.read_bytes()
                     assert all(secret.encode() not in data for secret in secrets), 'TUI plaintext in NATS storage'
-            print('EpochGrid three-device TUI enrollment, create/invite/join, membership, asynchronous messages, unread, offline queue, reconnect, history, revocation, encrypted attachments and terminal restoration passed')
+            print('EpochGrid three-device TUI enrollment, create/invite/join, membership, asynchronous messages, unread, offline queue, reconnect, history, revocation, encrypted attachments, ephemeral typing and terminal restoration passed')
         finally:
             for client in CLIENTS:
                 client.cleanup()

@@ -222,3 +222,12 @@ output path. This avoids async-nats 0.50 Object reader panics on consumer errors
 Client permissions add only ATTACHMENTS chunk/metadata publication and stream
 info/raw-read APIs. The shared lab lacks per-object access policy; MLS/AEAD provide
 content protection. See [attachment design and upgrade](attachments.md).
+
+
+## Milestone 17: ephemeral activity
+
+Core NATS carries generic typing events protected with the standard MLS exporter
+and sender leaf signatures. This avoids lossy activity advancing the same application
+ratchet used by durable messages. No new storage or service is introduced. The TUI
+keeps bounded activity state in memory and handles expiry independently of network
+progress. See [the decision and its secrecy tradeoff](ephemeral-events.md).

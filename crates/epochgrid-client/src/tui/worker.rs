@@ -1,6 +1,8 @@
 use super::{Action, ChannelView, MessageView, Snapshot};
 use anyhow::{Context, Result};
+use epochgrid_core::ephemeral::{EphemeralEvent, TypingState};
 use epochgrid_core::{delivery, history, identity::IdentityStore, transport};
+use futures_util::{FutureExt, StreamExt};
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
@@ -58,6 +60,8 @@ struct Session {
     selected: Option<String>,
     before: Option<u64>,
     client: Option<async_nats::Client>,
+    ephemeral: Option<async_nats::Subscriber>,
+    typing: TypingState,
     retry: Instant,
     delay: u64,
     status: String,
@@ -75,6 +79,8 @@ impl Session {
             selected,
             before: None,
             client: None,
+            ephemeral: None,
+            typing: TypingState::default(),
             retry: Instant::now(),
             delay: 1,
             status: "Offline — connecting".into(),
@@ -120,6 +126,12 @@ impl Session {
             channels,
             selected: self.selected.clone(),
             messages,
+            typing: if let Some(name) = &self.selected {
+                self.typing
+                    .active(&self.store.group(name)?.gid, self.store.group_epoch(name)?)
+            } else {
+                Vec::new()
+            },
             members,
             status: self.status.clone(),
             security_warning: self.store.trust_warning()?,
@@ -176,6 +188,10 @@ impl Session {
                 self.client = Some(transport::connect(&self.server, &self.store).await?);
             }
             let client = self.client.as_ref().context("connection missing")?;
+            if self.ephemeral.is_none() {
+                self.ephemeral = Some(client.subscribe("epochgrid.v1.group.*.ephemeral").await?);
+                client.flush().await?;
+            }
             epochgrid_core::transparency::audit(client, &self.store).await?;
             delivery::flush_outbox(&self.store, client).await?;
             if let Some(group) = self.store.groups()?.first() {
@@ -187,6 +203,24 @@ impl Session {
                 delivery::flush_outbox(&self.store, client).await?;
             } else {
                 client.flush().await?;
+            }
+            if let Some(subscriber) = &mut self.ephemeral {
+                let groups = self.store.groups()?;
+                let own = self.store.registration()?.payload;
+                let own = format!("{}/{}", own.user_id, own.device_id);
+                for _ in 0..32 {
+                    let Some(Some(message)) = subscriber.next().now_or_never() else {
+                        break;
+                    };
+                    if let Some(group) = groups
+                        .iter()
+                        .find(|g| g.subject("ephemeral") == message.subject.as_str())
+                        && let Ok(event) = self.store.open_ephemeral(&group.name, &message.payload)
+                        && event.sender != own
+                    {
+                        self.typing.accept(&group.gid, event);
+                    }
+                }
             }
             Ok::<_, anyhow::Error>(())
         })
@@ -202,6 +236,8 @@ impl Session {
                     _ => "Network timeout; durable work will be retried".into(),
                 };
                 self.client = None;
+                self.ephemeral = None;
+                self.typing = TypingState::default();
                 self.status = format!(
                     "Offline — retry in {}s; encrypted sends stay queued",
                     self.delay
@@ -213,6 +249,34 @@ impl Session {
     }
     async fn command(&mut self, action: Action) -> Result<()> {
         match action {
+            Action::Typing {
+                name,
+                active,
+                observed,
+            } => {
+                if observed.elapsed() < Duration::from_secs(1)
+                    && self.status == "Online"
+                    && let Some(client) = self.client.as_ref().filter(|c| {
+                        c.connection_state() == async_nats::connection::State::Connected
+                    })
+                    && let Ok(payload) = self.store.seal_ephemeral(
+                        &name,
+                        if active {
+                            EphemeralEvent::TypingStarted
+                        } else {
+                            EphemeralEvent::TypingStopped
+                        },
+                    )
+                {
+                    let subject = self.store.group(&name)?.subject("ephemeral");
+                    let _ = tokio::time::timeout(Duration::from_millis(500), async {
+                        client.publish(subject, payload.into()).await?;
+                        client.flush().await?;
+                        Ok::<_, anyhow::Error>(())
+                    })
+                    .await;
+                }
+            }
             Action::Select(name) => {
                 self.store.group(&name)?;
                 self.selected = Some(name);
