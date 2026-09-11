@@ -885,6 +885,7 @@ dependencies = [
  "clap",
  "crossterm",
  "epochgrid-core",
+ "futures-util",
  "ratatui",
  "serde_json",
  "tempfile",

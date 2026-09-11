@@ -297,3 +297,28 @@ idempotent; conflicting reuse of an object ID in one group is rejected. Legacy
 text is not backfilled into this new index. Upgrade all clients before sending
 attachment manifests; older text-only renderers are unsupported for binary payloads.
 See [attachment security and retention](attachments.md).
+
+
+## Milestone 17: ephemeral application envelope v1
+
+Only Core NATS subject `epochgrid.v1.group.<gid>.ephemeral` carries this format.
+The entire payload is canonical postcard fields, in order: `version: u16` (1),
+`epoch: u64`, `leaf: u32`, `id: [u8;16]`, `nonce: [u8;12]`, `ciphertext: Vec<u8>`.
+The event ID and nonce are independently generated. Maximum envelope size is 1024
+bytes. Unsupported versions, trailing data, obsolete epochs and authentication
+failures are rejected without advancing MLS state.
+
+Context/AAD is postcard tuple `("epochgrid ephemeral v1", gid, version, epoch,
+leaf, id, nonce)`. The AES-256-GCM key is 32 bytes from the current MLS exporter,
+label `epochgrid ephemeral v1`, context as above. Ciphertext includes the GCM tag.
+Decrypted fields are `issued: u64` (Unix milliseconds), `event` (postcard enum
+TypingStarted=0, TypingStopped=1), `signature: Vec<u8>`. The signature covers
+postcard tuple `("epochgrid ephemeral signature v1", context_bytes, issued, event)`
+and uses the sender leaf's MLS Ed25519 signing key. Receivers verify against the
+current leaf, never a sender-supplied public key. Event type, timestamp and signature
+are encrypted; epoch and leaf index are visible metadata.
+
+This is an MLS-exporter-protected application envelope, not PrivateMessage framing.
+It deliberately avoids advancing the durable application ratchet. It has epoch
+secrecy but no per-event forward secrecy. See [design, freshness and replay limits](ephemeral-events.md).
+No existing wire Body variant or SQLite schema changes.

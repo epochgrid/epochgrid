@@ -30,3 +30,5 @@ mod revocation_tests;
 pub mod recovery;
 
 pub mod attachments;
+
+pub mod ephemeral;

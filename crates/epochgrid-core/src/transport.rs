@@ -399,8 +399,9 @@ allow_responses: {{max: 1, expires: "5s"}}"#
             )
         } else {
             format!(
-                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup", "epochgrid.v1.identity.keypackage", "epochgrid.v1.identity.devices", "epochgrid.v1.identity.audit", "epochgrid.v1.identity.revoke", "epochgrid.v1.identity.revocations", "epochgrid.v1.group.*.handshake", "epochgrid.v1.group.*.message", "epochgrid.v1.user.*.*.inbox", "$O.ATTACHMENTS.C.*", "$O.ATTACHMENTS.M.*", "$JS.API.STREAM.INFO.OBJ_ATTACHMENTS", "$JS.API.STREAM.MSG.GET.OBJ_ATTACHMENTS", "$JS.API.CONSUMER.INFO.MAILBOX.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.MAILBOX.device_{key}", "$JS.ACK.MAILBOX.device_{key}.>", "$JS.API.CONSUMER.INFO.CHAT.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.CHAT.device_{key}", "$JS.ACK.CHAT.device_{key}.>"]
-subscribe: ["{inbox}", "epochgrid.v1.group.*.message"]"#,
+                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup", "epochgrid.v1.identity.keypackage", "epochgrid.v1.identity.devices", "epochgrid.v1.identity.audit", "epochgrid.v1.identity.revoke", "epochgrid.v1.identity.revocations", "epochgrid.v1.group.*.handshake", "epochgrid.v1.group.*.message",
+                    "epochgrid.v1.group.*.ephemeral", "epochgrid.v1.user.*.*.inbox", "$O.ATTACHMENTS.C.*", "$O.ATTACHMENTS.M.*", "$JS.API.STREAM.INFO.OBJ_ATTACHMENTS", "$JS.API.STREAM.MSG.GET.OBJ_ATTACHMENTS", "$JS.API.CONSUMER.INFO.MAILBOX.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.MAILBOX.device_{key}", "$JS.ACK.MAILBOX.device_{key}.>", "$JS.API.CONSUMER.INFO.CHAT.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.CHAT.device_{key}", "$JS.ACK.CHAT.device_{key}.>"]
+subscribe: ["{inbox}", "epochgrid.v1.group.*.message", "epochgrid.v1.group.*.ephemeral"]"#,
                 key = key
             )
         };

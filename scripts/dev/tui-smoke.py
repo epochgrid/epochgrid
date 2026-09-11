@@ -192,6 +192,11 @@ def run():
             wait(lambda: 'Invitation delivered' in alice.screen.text, 'TUI invite')
             bob.type('/join alice\r')
             wait(lambda: query(root, 'bob', 'SELECT COUNT(*) FROM groups') == 1, 'TUI join')
+            alice.type('draft typing without sending')
+            wait(lambda: 'alice is typing' in bob.screen.text, 'encrypted live typing indicator')
+            assert query(root, 'bob', 'SELECT COUNT(*) FROM transcript') == 0
+            alice.type('\x1b')
+            wait(lambda: 'alice is typing' not in bob.screen.text, 'typing stop or natural expiry')
             secrets = ['TUI_ALICE_FIRST_91F3', 'TUI_BOB_REPLY_72A1', 'TUI_OFFLINE_QUEUE_5BC7', 'TUI_RECONNECTED_BOB_1D90']
             alice.type(secrets[0] + '\r')
             wait(lambda: has(root, 'bob', secrets[0]) and secrets[0] in bob.screen.text, 'Alice -> Bob render')
@@ -268,7 +273,7 @@ def run():
                 if path.is_file():
                     data = path.read_bytes()
                     assert all(secret.encode() not in data for secret in secrets), 'TUI plaintext in NATS storage'
-            print('EpochGrid three-device TUI enrollment, create/invite/join, membership, asynchronous messages, unread, offline queue, reconnect, history, revocation, encrypted attachments and terminal restoration passed')
+            print('EpochGrid three-device TUI enrollment, create/invite/join, membership, asynchronous messages, unread, offline queue, reconnect, history, revocation, encrypted attachments, ephemeral typing and terminal restoration passed')
         finally:
             for client in CLIENTS:
                 client.cleanup()

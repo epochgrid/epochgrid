@@ -220,3 +220,13 @@ See [attachment commands, limits and retention](attachments.md). CLI/TUI read
 EPOCHGRID_ATTACHMENT_MAX_BYTES and EPOCHGRID_ATTACHMENT_TTL_SECONDS; the service
 exposes attachment-retention-seconds and attachment-store-max-bytes flags. Reducing
 retention can expire existing objects. The client stores no automatic file cache.
+
+
+## Milestone 17 validation
+
+Rerun bootstrap when upgrading to regenerate ephemeral subject permissions. Typing
+requires no new flags. Run `./scripts/dev/verify.sh nats` for the bounded live Core
+NATS non-durability test and `./scripts/dev/verify.sh tui` for real terminal typing
+and existing messaging workflows. `cargo test --workspace` also tests dropped-event
+ratchet independence, ordering, expiry, tamper, impersonation and revoked leaves.
+See [ephemeral events](ephemeral-events.md) for precise protection and replay limits.
