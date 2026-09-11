@@ -25,7 +25,7 @@ impl IdentityStore {
         )?;
         Ok(message.epoch().as_u64() < epoch)
     }
-    pub(crate) fn process_handshake(&self, name: &str, bytes: &[u8]) -> Result<()> {
+    pub(crate) fn process_handshake(&self, name: &str, bytes: &[u8], sequence: u64) -> Result<()> {
         let descriptor = self.group(name)?;
         let message = MlsMessageIn::tls_deserialize_exact(bytes).map_err(|_| InvalidMessage)?;
         ensure!(
@@ -60,16 +60,19 @@ impl IdentityStore {
                     }
                     _ => InvalidMessage.into(),
                 })?;
-        ensure!(
-            matches!(processed.sender(), Sender::Member(index) if *index == LeafNodeIndex::new(0)),
-            InvalidMessage
-        );
+        let Sender::Member(index) = processed.sender() else {
+            return Err(InvalidMessage.into());
+        };
+        let index = *index;
         let ProcessedMessageContent::StagedCommitMessage(commit) = processed.into_content() else {
             return Err(InvalidMessage.into());
         };
+        self.validate_commit_author(&descriptor, index, &commit, sequence)?;
+        self.block_revoked_outbox()?;
         group
             .merge_staged_commit(&self.provider, *commit)
             .map_err(|e| anyhow!("persist MLS commit: {e:?}"))?;
+        self.refresh_coordinator(&group)?;
         self.connection
             .execute("INSERT INTO received(payload) VALUES(?1)", [bytes])?;
         Ok(())
@@ -152,7 +155,7 @@ mod tests {
         assert_ne!(alice.nkey()?.public_key(), desktop.nkey()?.public_key());
         // Emulate the unversioned M11 schema, then verify an additive checkpoint migration.
         bob.connection
-            .execute_batch("DROP TABLE group_join_epochs; DROP TABLE epochgrid_migrations; DROP TABLE device_trust; DROP TABLE transparency_state; DROP TABLE trust_alert;")?;
+            .execute_batch("DROP TABLE group_join_epochs; DROP TABLE epochgrid_migrations; DROP TABLE device_trust; DROP TABLE transparency_state; DROP TABLE trust_alert; DROP TABLE revoked_devices; DROP TABLE revocation_checkpoint; DROP TABLE blocked_outbox; DROP TABLE group_coordinators;")?;
         let count = bob.history("engineering", 10, None)?.len();
         drop(bob);
         let bob = IdentityStore::open(b.path())?;

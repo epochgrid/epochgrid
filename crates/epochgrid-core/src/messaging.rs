@@ -24,6 +24,7 @@ impl IdentityStore {
         let (signer, _) = self.signer()?;
         self.transaction(|| {
             let mut group = self.load_group(&descriptor)?;
+            self.ensure_can_send(&group)?;
             ensure!(
                 group.members().count() >= 2,
                 "invite a peer before sending messages"

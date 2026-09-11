@@ -1,4 +1,4 @@
-# EpochGrid protocol v1 — through Milestone 12
+# EpochGrid protocol v1 — through Milestone 14
 
 NATS request/reply subject: `epochgrid.v1.identity.register`. Registration uses
 this subject exactly; lookup and KeyPackage requests use the fixed subjects
@@ -136,8 +136,8 @@ device IDs/NKeys. Empty lists are valid. Old services reject the new request; ex
 operation encodings remain unchanged. Public listing grants no enrollment authority.
 
 CHAT consumers now include encrypted Commit traffic. Receivers require MLS
-PrivateMessage/Commit with the correct group and authenticate the sender as creator
-leaf 0 before merging. Applications and Commits advance local state in stream order;
+PrivateMessage/Commit with the correct group and authenticate the sender as the pinned coordinator
+(initially creator leaf 0) before merging; Milestone 14 succession is described below. Applications and Commits advance local state in stream order;
 own/replayed ciphertext is idempotent. Commit failures are quarantined and counted
 with application failures; storage failures roll back and remain pending. A persisted
 join-epoch floor skips earlier framed group traffic without decrypting/authenticating
@@ -183,3 +183,48 @@ v1 and first-contact, split-view, migration and offline-inspection semantics are
 specified in [device verification](device-verification.md). No verification state or
 manually supplied comparison value is sent to NATS; user/device public identities remain
 visible to the fabric.
+
+## Milestone 14: revocation
+
+Existing v1 discriminants and MLS payloads remain unchanged. Added Body variants:
+
+| Tag | Variant | Request/reply subject |
+| --- | --- | --- |
+| 12 | RegistrationAudit | `epochgrid.v1.identity.audit` |
+| 13 | RevocationAudit | `epochgrid.v1.identity.revocations` |
+| 14 | RevocationLog | Response to RevocationAudit |
+| 15 | Revoke(RevokeRequest) | `epochgrid.v1.identity.revoke` |
+| 16 | Revoked | Network-enforcement acknowledgment |
+
+RegistrationAudit returns the existing AuditLog=11. Legacy Audit=10 returns Rejected
+once any revocation exists. Current clients require both journals before accepting
+an online audit. Raw lookup/list/KeyPackage APIs exclude revoked endpoints; immutable
+registration snapshots retain their evidence. This is a coordinated pre-1.0 upgrade.
+
+RevokeRequest field order is `version: u16`, `user: String`, `device: String`,
+`nkey: String`, `author: String`, `signature: Vec<u8>`. Version is 1. The signature
+covers ASCII `EpochGrid device revocation v1` plus NUL, followed by postcard tuple
+`(version, user, device, nkey, author)`. Author must be an active registered NKey for
+the target's user or the pinned directory signer. The exact target binding must
+exist in the registration log. Requests are irreversible and idempotent per NKey.
+
+RevocationLog fields are `checkpoint: Checkpoint`, `entries: Vec<Revocation>`.
+Revocation fields are `request: RevokeRequest`, `chat_cutoff: u64`. The service captures
+CHAT's last sequence before appending. Checkpoint fields match registration checkpoints,
+but signing uses domain `EpochGrid revocation checkpoint v1` plus NUL. Leaf hashes
+are SHA-256 of 0x00 plus postcard Revocation bytes; internal/empty roots and splitting
+match the registration Merkle tree. The log is signed and CAS-published as one v1
+RevocationLog envelope at TRANSPARENCY key `revocations`, with the same 256-entry and
+65,536-byte limits. Clients validate author authority in journal order and retain a
+prefix checkpoint. The registration and revocation roots are not interchangeable.
+
+The stored coordinator signing key authorizes normal MLS Commits. Commit update paths
+must retain the sender's signing key and credential; only Add/Remove proposals are
+supported. Identity rotation needs a future authenticated migration protocol. A revoked sender's
+Commit is accepted only at or before its signed CHAT cutoff. The lowest-index active
+successor may issue a removal Commit for exactly the known revoked leaves, without
+other proposals. Coordinator signing-key persistence prevents vacant leaf-slot reuse from
+transferring authority. Raw encrypted MLS Commit and application framing is unchanged.
+Migration 3 and the network acknowledgment/retry semantics are specified in
+[device revocation](device-revocation.md). No private keys or message plaintext occur
+in the revocation API, KV values, authorization include or NATS subjects.

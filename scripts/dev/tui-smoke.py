@@ -83,7 +83,10 @@ class Client:
 
     def pump(self):
         try:
-            while data := os.read(self.master, 65536):
+            for _ in range(16):
+                data = os.read(self.master, 65536)
+                if not data:
+                    break
                 self.output += data
                 self.screen.feed(data)
         except BlockingIOError:
@@ -104,7 +107,7 @@ class Client:
     def cleanup(self):
         if self.process.poll() is None:
             self.process.kill()
-        self.process.wait()
+        self.process.wait(timeout=5)
         os.close(self.master)
         os.close(self.slave)
 
@@ -185,7 +188,7 @@ def run():
             alice.type('\t')
             wait(lambda: query(root, 'alice', 'SELECT displayed FROM transcript WHERE plaintext=?', (secrets[1].encode(),)) == 1, 'selected history clears local unread')
             broker.kill()
-            broker.wait()
+            broker.wait(timeout=5)
             # Input remains responsive during failed network operations and is persisted once.
             alice.type(secrets[2] + '\r')
             wait(lambda: has(root, 'alice', secrets[2]), 'offline encrypted queue')
@@ -219,25 +222,33 @@ def run():
             for user in ['alice', 'bob']:
                 assert query(root, user, 'SELECT COUNT(*) FROM transcript') == 6
             assert query(root, 'alice-desktop', 'SELECT COUNT(*) FROM transcript') == 2, 'no pre-join history'
+            revoked = cli('service', 'device', 'revoke', 'alice', 'desktop')
+            assert revoked.returncode == 0, revoked.stderr
+            wait(lambda: 'Online' not in desktop.screen.text, 'revoked desktop disconnected')
+            wait(lambda: query(root, 'bob', "SELECT COUNT(*) FROM chat_deliveries WHERE subject LIKE '%.handshake' AND state='processed'") == 3, 'automatic removal Commit')
+            secrets.append('TUI_AFTER_DEVICE_REVOCATION_91F3')
+            bob.type(secrets[-1] + '\r')
+            wait(lambda: has(root, 'alice', secrets[-1]), 'remaining clients continue after revocation')
+            assert not has(root, 'alice-desktop', secrets[-1]), 'revoked device received new plaintext'
             desktop.close()
             alice.close()
             bob.close()
             for process in processes:
                 if process.poll() is None:
                     process.kill()
-                process.wait()
+                process.wait(timeout=5)
             for path in (root / 'jetstream').rglob('*'):
                 if path.is_file():
                     data = path.read_bytes()
                     assert all(secret.encode() not in data for secret in secrets), 'TUI plaintext in NATS storage'
-            print('EpochGrid three-device TUI enrollment, create/invite/join, membership, asynchronous messages, unread, offline queue, reconnect, history and terminal restoration passed')
+            print('EpochGrid three-device TUI enrollment, create/invite/join, membership, asynchronous messages, unread, offline queue, reconnect, history revocation and terminal restoration passed')
         finally:
             for client in CLIENTS:
                 client.cleanup()
             for process in processes:
                 if process.poll() is None:
                     process.kill()
-                process.wait()
+                process.wait(timeout=5)
 
 if __name__ == '__main__':
     run()

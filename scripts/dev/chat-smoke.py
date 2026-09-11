@@ -60,7 +60,7 @@ def exchange(abrupt=False):
         for process in processes.values():
             if process.poll() is None:
                 process.kill()
-            process.wait()
+            process.wait(timeout=5)
 
 
 exchange(abrupt=True)

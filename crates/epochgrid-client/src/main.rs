@@ -69,6 +69,11 @@ enum Transparency {
 }
 #[derive(Subcommand)]
 enum Device {
+    /// Irreversibly revoke another device of this user (or any device as operator).
+    Revoke {
+        user: String,
+        device: String,
+    },
     /// Show your own fingerprint, or discover a specific remote device.
     Fingerprint {
         user: Option<String>,
@@ -216,6 +221,17 @@ async fn main() -> Result<()> {
                             println!("Pinned signer: {key}");
                         }
                     }
+                    if let Some(checkpoint) = store.revocation_checkpoint()? {
+                        println!(
+                            "Revocation checkpoint: {} devices; signer {}",
+                            checkpoint.size, checkpoint.signer
+                        );
+                    }
+                    for group in store.groups()? {
+                        if store.rekey_pending(&group.name)? {
+                            println!("MLS rekey pending: {}", group.name);
+                        }
+                    }
                     if let Some(warning) = store.trust_warning()? {
                         println!("{warning}");
                     }
@@ -225,6 +241,18 @@ async fn main() -> Result<()> {
         Command::Device { command } => {
             let mut store = IdentityStore::open(&args.home)?;
             match command {
+                Device::Revoke { user, device } => {
+                    let client = transport::connect(&args.server, &store).await?;
+                    epochgrid_core::revocation::revoke(&client, &store, &user, &device).await?;
+                    println!(
+                        "EpochGrid NATS access revoked: {user}/{device}. MLS groups rekey as their active coordinators sync."
+                    );
+                    for group in store.groups()? {
+                        if store.rekey_pending(&group.name)? {
+                            println!("Rekey pending: {}", group.name);
+                        }
+                    }
+                }
                 Device::Fingerprint {
                     user,
                     device,
@@ -292,8 +320,13 @@ async fn main() -> Result<()> {
                         let state = store
                             .device_trust(&p.user_id, &p.device_id)?
                             .map_or("unverified".into(), |t| t.state);
+                        let authorization = if store.is_revoked(&p.nats_public_key)? {
+                            "revoked"
+                        } else {
+                            "active"
+                        };
                         println!(
-                            "{}/{} {} [{state}]",
+                            "{}/{} {} [{authorization}] [{state}]",
                             p.user_id, p.device_id, p.nats_public_key
                         );
                     }

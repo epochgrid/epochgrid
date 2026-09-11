@@ -25,6 +25,10 @@ impl IdentityStore {
     }
     pub fn prepare_invitation(&self, name: &str, recipient: &DeviceRegistration) -> Result<()> {
         verify(recipient)?;
+        ensure!(
+            !self.is_revoked(&recipient.payload.nats_public_key)?,
+            "cannot invite a revoked device"
+        );
         let descriptor = self.group(name)?;
         let (signer, _) = self.signer()?;
         let package = KeyPackageIn::tls_deserialize_exact(&recipient.payload.mls_key_package)?
@@ -32,9 +36,10 @@ impl IdentityStore {
             .map_err(|e| anyhow!("invalid recipient KeyPackage: {e:?}"))?;
         self.transaction(|| {
             let mut group = self.load_group(&descriptor)?;
+            self.ensure_can_send(&group)?;
             ensure!(
-                group.own_leaf_index() == LeafNodeIndex::new(0),
-                "only the creator device can add members in this alpha slice"
+                Some(group.own_leaf_index()) == self.coordinator(&group)?,
+                "only the active group coordinator can add members"
             );
             ensure!(
                 recipient.payload.nats_public_key != self.registration()?.payload.nats_public_key,
@@ -64,6 +69,7 @@ impl IdentityStore {
             group
                 .merge_pending_commit(&self.provider)
                 .map_err(|e| anyhow!("merge local commit: {e:?}"))?;
+            self.refresh_coordinator(&group)?;
             Ok(())
         })
     }
@@ -111,20 +117,17 @@ impl IdentityStore {
                     && sender.credential() == package.leaf_node().credential(),
                 "Welcome signer is not the expected inviter"
             );
-            ensure!(
-                staged.members().any(|member| {
-                    member.index == LeafNodeIndex::new(0)
-                        && member.signature_key.as_slice() == sender.signature_key().as_slice()
-                        && &member.credential == sender.credential()
-                }),
-                "Welcome must be signed by the creator device"
-            );
+            let coordinator_key = sender.signature_key().as_slice().to_vec();
             ensure!(
                 staged.members().count() >= 2,
                 "Welcome must include at least two devices"
             );
             let descriptor = Group::from_mls_id(staged.group_context().group_id())?;
             self.insert_group(&descriptor)?;
+            self.connection.execute(
+                "INSERT INTO group_coordinators VALUES(?1,?2)",
+                rusqlite::params![descriptor.gid, coordinator_key],
+            )?;
             self.connection.execute(
                 "UPDATE group_join_epochs SET epoch=?1 WHERE gid=?2",
                 rusqlite::params![staged.group_context().epoch().as_u64(), descriptor.gid],
@@ -141,10 +144,16 @@ impl IdentityStore {
     }
 }
 pub async fn flush_outbox(store: &IdentityStore, client: &async_nats::Client) -> Result<()> {
+    crate::transparency::audit(client, store).await?;
+    ensure!(
+        !store.is_revoked(&store.nkey()?.public_key())?,
+        "this device is revoked"
+    );
+    store.block_revoked_outbox()?;
     let js = async_nats::jetstream::new(client.clone());
     let mut statement = store
         .connection
-        .prepare("SELECT id,subject,payload FROM outbox WHERE sent=0 ORDER BY id")?;
+        .prepare("SELECT id,subject,payload FROM outbox WHERE sent=0 AND id NOT IN (SELECT id FROM blocked_outbox) ORDER BY id")?;
     let rows = statement
         .query_map([], |r| {
             Ok((
@@ -188,8 +197,9 @@ pub async fn invite(
     let members = store.members(name)?;
     if !members.contains(&format!("{user}/{device}")) {
         ensure!(
-            store.load_group(&descriptor)?.own_leaf_index() == LeafNodeIndex::new(0),
-            "only the creator device can invite"
+            Some(store.load_group(&descriptor)?.own_leaf_index())
+                == store.coordinator(&store.load_group(&descriptor)?)?,
+            "only the active group coordinator can invite"
         );
         let expected = crate::transparency::lookup(client, store, user, device).await?;
         let recipient = transport::claim_keypackage(client, user, device, &descriptor.gid).await?;

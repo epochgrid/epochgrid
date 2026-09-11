@@ -11,5 +11,27 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
-      - name: Complete MVP and alpha verification (Cargo, NATS, Compose and TUI)
-        run: ./scripts/dev/verify.sh
+      - name: Timeout harness regression tests
+        timeout-minutes: 1
+        run: ./scripts/dev/verify.sh harness
+      - name: Formatting
+        timeout-minutes: 2
+        run: ./scripts/dev/verify.sh fmt
+      - name: Clippy
+        timeout-minutes: 11
+        run: ./scripts/dev/verify.sh clippy
+      - name: Unit tests
+        timeout-minutes: 4
+        run: ./scripts/dev/verify.sh unit
+      - name: Workspace build
+        timeout-minutes: 6
+        run: ./scripts/dev/verify.sh build
+      - name: NATS integration tests
+        timeout-minutes: 9
+        run: ./scripts/dev/verify.sh nats
+      - name: Compose and CLI smoke
+        timeout-minutes: 4
+        run: ./scripts/dev/verify.sh compose
+      - name: Interactive TUI smoke
+        timeout-minutes: 4
+        run: ./scripts/dev/verify.sh tui

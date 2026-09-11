@@ -1,4 +1,4 @@
-# EpochGrid architecture — through Milestone 13
+# EpochGrid architecture — through Milestone 14
 
 EpochGrid (https://epochgrid.org) uses NATS for
 transport, authentication, authorization, request/reply and persistence. OpenMLS
@@ -171,3 +171,19 @@ history and changed observed identities. Full snapshots replace compact proofs f
 this small alpha. Audited discovery protects invite/join; TUI polling surfaces trust
 failures. See [the design and limits](device-verification.md) for canonical bytes,
 upgrade semantics, first-contact/split-view limitations and the capacity bound.
+
+## Device revocation and coordinator succession
+
+Milestone 14 adds a signed revocation journal alongside registration transparency,
+a single-broker NATS reload actuator and MLS removal reconciliation. An active
+same-user device or operator authorizes an exact device/NKey revocation. Public
+intent is durable before credential exclusion; network acknowledgment is separate
+from eventual rekeying of offline groups. A restricted system identity preserves
+NATS as the authentication/authorization mechanism, with no HTTP control channel.
+
+Migration 3 adds revocation checkpoints, revoked MLS signing-key bindings, blocked
+outbox IDs and persisted group coordinator signing keys. The elected coordinator
+removes known revoked leaves atomically with the encrypted Commit outbox. A CHAT
+cutoff protects historical Commit catch-up while rejecting later revoked-author
+changes. New sends wait for rekeying. Native reload, retry boundaries, trust limits,
+commands and validation are documented in [device revocation](device-revocation.md).

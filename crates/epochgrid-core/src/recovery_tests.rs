@@ -9,17 +9,37 @@ use std::{
 };
 
 struct Process(Child);
+impl Process {
+    fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = self.0.try_wait()? {
+                return Ok(status);
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "child did not exit within 5s",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
 impl Drop for Process {
     fn drop(&mut self) {
         let _ = self.0.kill();
-        let _ = self.0.wait();
+        let _ = self.wait();
     }
 }
 fn pause(root: &Path, mode: &str) -> Result<()> {
     std::fs::write(root.join(format!("ready-{mode}")), b"ready")?;
-    loop {
-        std::thread::park();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline {
+        std::thread::park_timeout(Duration::from_millis(100));
     }
+    anyhow::bail!("crash worker was not killed within 30s: {mode}")
 }
 fn crash(root: &Path, mode: &str, user: &str) -> Result<()> {
     let mut child = Process(
@@ -44,7 +64,7 @@ fn crash(root: &Path, mode: &str, user: &str) -> Result<()> {
         "worker must hold device lock"
     );
     child.0.kill()?;
-    ensure!(!child.0.wait()?.success());
+    ensure!(!child.wait()?.success());
     Ok(())
 }
 fn welcome(alice: &IdentityStore) -> Result<Vec<u8>> {

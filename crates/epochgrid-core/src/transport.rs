@@ -203,7 +203,7 @@ pub fn dev_config_with_enrollment(root: &Path, port: u16, additions: &[String]) 
         wire::validate_id(parts[1])?;
         wire::validate_id(parts[3])?;
         ensure!(
-            parts[1] != "service" && !all.contains_key(endpoint),
+            parts[1] != "service" && parts[1] != "system" && !all.contains_key(endpoint),
             "reserved enrollment endpoint"
         );
         ensure!(key.starts_with('U'), "user NKey required");
@@ -219,27 +219,23 @@ pub fn dev_config_with_enrollment(root: &Path, port: u16, additions: &[String]) 
     );
     let mut enrollment = all.clone();
     enrollment.remove("users.service.devices.laptop");
-    let mut entries = Vec::new();
-    for (endpoint, key) in all {
-        let inbox = format!("_INBOX.{}.>", key);
-        let permissions = if endpoint == "users.service.devices.laptop" {
-            format!(
-                r#"publish: ["$JS.API.>", "$KV.IDENTITIES.>", "$KV.CHANNELS.>", "$KV.TRANSPARENCY.>"]
-subscribe: ["{inbox}", "epochgrid.v1.identity.*"]
-allow_responses: {{max: 1, expires: "5s"}}"#
-            )
-        } else {
-            format!(
-                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup", "epochgrid.v1.identity.keypackage", "epochgrid.v1.identity.devices", "epochgrid.v1.identity.audit", "epochgrid.v1.group.*.handshake", "epochgrid.v1.group.*.message", "epochgrid.v1.user.*.*.inbox", "$JS.API.CONSUMER.INFO.MAILBOX.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.MAILBOX.device_{key}", "$JS.ACK.MAILBOX.device_{key}.>", "$JS.API.CONSUMER.INFO.CHAT.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.CHAT.device_{key}", "$JS.ACK.CHAT.device_{key}.>"]
-subscribe: ["{inbox}", "epochgrid.v1.group.*.message"]"#,
-                key = key
-            )
+    let mut system = IdentityStore::open(&root.join("system"))?;
+    let system_key = match system.registration() {
+        Ok(registration) => registration.payload.nats_public_key,
+        Err(_) => system.init("system", "operator")?.payload.nats_public_key,
+    };
+    let revoked: std::collections::BTreeSet<String> =
+        match std::fs::read(root.join("revoked-nkeys.json")) {
+            Ok(bytes) => serde_json::from_slice(&bytes)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
+            Err(error) => return Err(error.into()),
         };
-        entries.push(format!(
-            "{{nkey: \"{}\", permissions: {{{permissions}}}}}",
-            key
-        ));
-    }
+    std::fs::create_dir_all(root.join("auth"))?;
+    std::fs::write(root.join("auth/users.conf"), render_users(&all, &revoked))?;
+    std::fs::write(
+        root.join("public-enrollment.json"),
+        serde_json::to_vec_pretty(&all)?,
+    )?;
     std::fs::write(path, serde_json::to_vec_pretty(&extra)?)?;
     std::fs::write(
         root.join("enrollment.json"),
@@ -248,9 +244,9 @@ subscribe: ["{inbox}", "epochgrid.v1.group.*.message"]"#,
     std::fs::write(
         root.join("nats.conf"),
         format!(
-            "listen: 127.0.0.1:{port}\nmax_payload: 65536\njetstream {{store_dir: \"{}\"}}\nauthorization {{users: [{}]}}\n",
+            "listen: 127.0.0.1:{port}\nmax_payload: 65536\njetstream {{store_dir: \"{}\"}}\nsystem_account: EG_SYS\naccounts {{ EG_SYS {{ users: [{{nkey: \"{system_key}\", permissions: {{publish: [\"$SYS.REQ.SERVER.*.RELOAD\"], subscribe: [\"_INBOX.{system_key}.>\"]}}}}] }} }}\nauthorization {{ include \"{}\" }}\n",
             root.canonicalize()?.join("jetstream").display(),
-            entries.join(",\n")
+            "auth/users.conf"
         ),
     )?;
     // Container path and listener differ; host port is bound to loopback by Compose.
@@ -375,6 +371,45 @@ pub async fn provision_chat_consumers(
             .await?;
     }
     Ok(())
+}
+
+pub(crate) fn render_users(
+    all: &Enrollment,
+    revoked: &std::collections::BTreeSet<String>,
+) -> String {
+    // Reload clears dynamic response grants. Keep replies restricted to active
+    // enrolled device inbox prefixes so the enforcement acknowledgment survives.
+    let replies = all
+        .values()
+        .filter(|key| !revoked.contains(*key))
+        .map(|key| format!("\"_INBOX.{key}.>\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut entries = Vec::new();
+    for (endpoint, key) in all {
+        if revoked.contains(key) {
+            continue;
+        }
+        let inbox = format!("_INBOX.{}.>", key);
+        let permissions = if endpoint == "users.service.devices.laptop" {
+            format!(
+                r#"publish: [{replies}, "epochgrid.v1.identity.audit", "epochgrid.v1.identity.revocations", "epochgrid.v1.identity.revoke", "$JS.API.>", "$KV.IDENTITIES.>", "$KV.CHANNELS.>", "$KV.TRANSPARENCY.>"]
+subscribe: ["{inbox}", "epochgrid.v1.identity.*"]
+allow_responses: {{max: 1, expires: "5s"}}"#
+            )
+        } else {
+            format!(
+                r#"publish: ["epochgrid.v1.identity.register", "epochgrid.v1.identity.lookup", "epochgrid.v1.identity.keypackage", "epochgrid.v1.identity.devices", "epochgrid.v1.identity.audit", "epochgrid.v1.identity.revoke", "epochgrid.v1.identity.revocations", "epochgrid.v1.group.*.handshake", "epochgrid.v1.group.*.message", "epochgrid.v1.user.*.*.inbox", "$JS.API.CONSUMER.INFO.MAILBOX.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.MAILBOX.device_{key}", "$JS.ACK.MAILBOX.device_{key}.>", "$JS.API.CONSUMER.INFO.CHAT.device_{key}", "$JS.API.CONSUMER.MSG.NEXT.CHAT.device_{key}", "$JS.ACK.CHAT.device_{key}.>"]
+subscribe: ["{inbox}", "epochgrid.v1.group.*.message"]"#,
+                key = key
+            )
+        };
+        entries.push(format!(
+            "{{nkey: \"{}\", permissions: {{{permissions}}}}}",
+            key
+        ));
+    }
+    format!("users: [{}]\n", entries.join(",\n"))
 }
 
 #[cfg(test)]
