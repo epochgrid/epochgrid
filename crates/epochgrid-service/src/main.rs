@@ -13,6 +13,12 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(about = "EpochGrid NATS identity service")]
 struct Args {
+    /// Retention for ciphertext objects, in seconds (60 seconds to one year).
+    #[arg(long, default_value_t = 604800)]
+    attachment_retention_seconds: u64,
+    /// Total ciphertext bucket capacity in bytes.
+    #[arg(long, default_value_t = 536870912)]
+    attachment_store_max_bytes: i64,
     #[arg(long, default_value = ".dev/service")]
     home: PathBuf,
     #[arg(long, default_value = ".dev/enrollment.json")]
@@ -45,6 +51,12 @@ async fn main() -> Result<()> {
     let signing_key = identity.nkey()?;
     drop(identity);
     let store = transport::provision(client.clone()).await?;
+    epochgrid_core::attachments::provision(
+        client.clone(),
+        args.attachment_retention_seconds,
+        args.attachment_store_max_bytes,
+    )
+    .await?;
     transport::provision_mailboxes(client.clone(), &enrollment).await?;
     transport::provision_chat_consumers(client.clone(), &enrollment).await?;
     let log =

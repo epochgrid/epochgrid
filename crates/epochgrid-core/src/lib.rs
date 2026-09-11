@@ -28,3 +28,5 @@ mod rekey;
 mod revocation_tests;
 
 pub mod recovery;
+
+pub mod attachments;

@@ -40,6 +40,15 @@ struct MessageView {
 }
 #[derive(Debug, PartialEq)]
 enum Action {
+    Attach {
+        name: String,
+        path: String,
+    },
+    SaveAttachment {
+        name: String,
+        id: String,
+        path: String,
+    },
     Select(String),
     Create(String),
     Send {
@@ -82,6 +91,25 @@ fn submit(input: &str, selected: Option<&str>) -> Result<Action> {
             text: format!("/{message}"),
         });
     }
+    if let Some(path) = input.strip_prefix("/attach ") {
+        ensure!(!path.trim().is_empty(), "use /attach PATH");
+        return Ok(Action::Attach {
+            name: name()?,
+            path: path.trim().into(),
+        });
+    }
+    if let Some(arguments) = input.strip_prefix("/save ") {
+        let (id, path) = arguments
+            .trim()
+            .split_once(' ')
+            .context("use /save ATTACHMENT_ID OUTPUT_PATH")?;
+        ensure!(!path.trim().is_empty(), "output path required");
+        return Ok(Action::SaveAttachment {
+            name: name()?,
+            id: id.into(),
+            path: path.trim().into(),
+        });
+    }
     if input.starts_with('/') {
         let fields: Vec<_> = input.split_whitespace().collect();
         return match fields.as_slice() {
@@ -105,7 +133,7 @@ fn submit(input: &str, selected: Option<&str>) -> Result<Action> {
                 device: (*device).into(),
             }),
             _ => anyhow::bail!(
-                "Commands: /create NAME, /invite USER [DEVICE], /join INVITER [DEVICE], /members, /help, /quit; // sends a literal slash"
+                "Commands: /create NAME, /invite USER [DEVICE], /join INVITER [DEVICE], /members, /attach PATH, /save ID PATH, /help, /quit; // sends a literal slash"
             ),
         };
     }
@@ -225,7 +253,7 @@ impl Ui {
                     self.notice = Notice::Devices;
                     self.input.clear();
                 } else if self.input == "/help" {
-                    self.notice = "Tab channels | Up/Down scroll | PgUp older / PgDn latest | /create NAME | /invite USER [DEVICE] | /join INVITER [DEVICE] | /members | /devices | /quit | // literal slash".into();
+                    self.notice = "Tab channels | Up/Down scroll | PgUp older / PgDn latest | /create NAME | /invite USER [DEVICE] | /join INVITER [DEVICE] | /members | /devices | /attach PATH | /save ID PATH | /quit | // literal slash".into();
                     self.input.clear();
                 } else {
                     return submit(&self.input, state.selected.as_deref()).map(Some);
@@ -396,6 +424,8 @@ pub fn run(home: PathBuf, server: String) -> Result<()> {
                                     | Action::Create(_)
                                     | Action::Invite { .. }
                                     | Action::Join { .. }
+                                    | Action::Attach { .. }
+                                    | Action::SaveAttachment { .. }
                             );
                             match worker.commands.try_send(action) {
                                 Ok(()) => {
@@ -481,6 +511,29 @@ mod tests {
         assert!(!safe_text("escape\u{1b}[2J").contains('\u{1b}'));
         Ok(())
     }
+    #[test]
+    fn attachment_commands_preserve_paths_with_spaces() -> Result<()> {
+        assert_eq!(
+            submit("/attach /tmp/private file.txt", Some("engineering"))?,
+            Action::Attach {
+                name: "engineering".into(),
+                path: "/tmp/private file.txt".into()
+            }
+        );
+        assert_eq!(
+            submit("/save abc /tmp/saved file.txt", Some("engineering"))?,
+            Action::SaveAttachment {
+                name: "engineering".into(),
+                id: "abc".into(),
+                path: "/tmp/saved file.txt".into()
+            }
+        );
+        assert!(submit("/attach ", Some("engineering")).is_err());
+        assert!(submit("/save abc ", Some("engineering")).is_err());
+        assert!(submit("/attach file", None).is_err());
+        Ok(())
+    }
+
     #[test]
     fn members_collapse_users_and_devices_remain_visible() -> Result<()> {
         let state = Snapshot {

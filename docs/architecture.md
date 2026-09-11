@@ -1,4 +1,4 @@
-# EpochGrid architecture — through Milestone 15
+# EpochGrid architecture — through Milestone 16
 
 EpochGrid (https://epochgrid.org) uses NATS for
 transport, authentication, authorization, request/reply and persistence. OpenMLS
@@ -205,3 +205,20 @@ through ordinary fresh-device enrollment and a new Welcome, preserving irreversi
 revocation and immutable directory history. Secret buffers use zeroize 1.9 (already
 in the lockfile), with its serde support for owned secret fields. See the
 [format, commands, threat model and acceptance coverage](encrypted-recovery.md).
+
+
+## Encrypted Object Store attachments
+
+Milestone 16 enables async-nats's existing `object-store` feature. A fresh AES-256-GCM
+key protects each bounded file; a binary versioned manifest carries its key, nonce,
+content hash and sensitive metadata inside an MLS application message. Standard
+Object Store chunks/metadata contain only ciphertext and random identifiers. Native
+NATS stream max_age/max_bytes provide retention and capacity bounds.
+
+Migration 5 adds an attachment index atomically with MLS transcript/ratchet writes.
+Downloads require a local authenticated manifest, reject object links, read bounded
+standard chunks using JetStream APIs, then verify AEAD/hash before creating an explicit
+output path. This avoids async-nats 0.50 Object reader panics on consumer errors.
+Client permissions add only ATTACHMENTS chunk/metadata publication and stream
+info/raw-read APIs. The shared lab lacks per-object access policy; MLS/AEAD provide
+content protection. See [attachment design and upgrade](attachments.md).

@@ -246,6 +246,17 @@ def run():
             bob.type(secrets[-1] + '\r')
             wait(lambda: has(root, 'alice', secrets[-1]), 'remaining clients continue after revocation')
             assert not has(root, 'alice-desktop', secrets[-1]), 'revoked device received new plaintext'
+            attachment_secret = 'TUI_ATTACHMENT_CIPHERTEXT_ONLY_91F3'
+            secrets.append(attachment_secret)
+            attachment = root / 'private attachment.txt'
+            attachment.write_text(attachment_secret * 4096)
+            alice.type('/attach ' + str(attachment) + '\r')
+            wait(lambda: query(root, 'bob', 'SELECT COUNT(*) FROM attachments') == 1, 'TUI attachment arrival')
+            wait(lambda: 'private attachment.txt' in bob.screen.text, 'safe attachment summary')
+            attachment_id = query(root, 'bob', 'SELECT object_id FROM attachments LIMIT 1')
+            destination = root / 'saved attachment.txt'
+            bob.type('/save ' + attachment_id + ' ' + str(destination) + '\r')
+            wait(lambda: destination.exists() and destination.read_bytes() == attachment.read_bytes(), 'TUI authenticated attachment save')
             desktop.close()
             alice.close()
             bob.close()
@@ -257,7 +268,7 @@ def run():
                 if path.is_file():
                     data = path.read_bytes()
                     assert all(secret.encode() not in data for secret in secrets), 'TUI plaintext in NATS storage'
-            print('EpochGrid three-device TUI enrollment, create/invite/join, membership, asynchronous messages, unread, offline queue, reconnect, history revocation and terminal restoration passed')
+            print('EpochGrid three-device TUI enrollment, create/invite/join, membership, asynchronous messages, unread, offline queue, reconnect, history, revocation, encrypted attachments and terminal restoration passed')
         finally:
             for client in CLIENTS:
                 client.cleanup()

@@ -109,7 +109,7 @@ impl Session {
                     sequence: entry.sequence,
                     text: entry
                         .plaintext
-                        .map(|s| super::safe_text(&String::from_utf8_lossy(&s)))
+                        .map(|s| super::safe_text(&epochgrid_core::attachments::display(&s)))
                         .unwrap_or_else(|| "[plaintext unavailable]".into()),
                     sender: entry.sender.unwrap_or_else(|| "unknown".into()),
                 })
@@ -266,6 +266,38 @@ impl Session {
                 self.before = None;
                 self.notice =
                     "Encrypted message saved locally; pending server acknowledgment".into();
+            }
+            Action::Attach { name, path } => {
+                let client = self
+                    .client
+                    .as_ref()
+                    .context("offline; retry attachment when connected")?;
+                let id = epochgrid_core::attachments::send_file(
+                    &self.store,
+                    client,
+                    &name,
+                    std::path::Path::new(&path),
+                    "application/octet-stream",
+                    epochgrid_core::attachments::Limits::from_env()?,
+                )
+                .await?;
+                self.notice = format!("Encrypted attachment sent: {id}");
+            }
+            Action::SaveAttachment { name, id, path } => {
+                let client = self
+                    .client
+                    .as_ref()
+                    .context("offline; retry download when connected")?;
+                epochgrid_core::attachments::save_file(
+                    &self.store,
+                    client,
+                    &name,
+                    &id,
+                    std::path::Path::new(&path),
+                    epochgrid_core::attachments::Limits::from_env()?,
+                )
+                .await?;
+                self.notice = format!("Authenticated attachment saved: {path}");
             }
             Action::Invite { name, user, device } => {
                 let client = self

@@ -23,6 +23,7 @@ impl IdentityStore {
         let descriptor = self.group(name)?;
         let (signer, _) = self.signer()?;
         self.transaction(|| {
+            self.index_attachment(&descriptor.gid, plaintext)?;
             let mut group = self.load_group(&descriptor)?;
             self.ensure_can_send(&group)?;
             ensure!(
@@ -94,6 +95,7 @@ impl IdentityStore {
         };
         let plaintext = message.into_bytes();
         ensure!(plaintext.len() <= MAX_PLAINTEXT, InvalidMessage);
+        self.index_attachment(&descriptor.gid, &plaintext)?;
         self.connection
             .execute("INSERT INTO received(payload) VALUES(?1)", [bytes])?;
         self.connection.execute(
