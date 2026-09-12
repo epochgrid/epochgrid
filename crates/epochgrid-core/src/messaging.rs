@@ -32,31 +32,46 @@ impl IdentityStore {
         )
     }
     pub(crate) fn encrypt_event(&self, name: &str, event: &ApplicationEvent) -> Result<Vec<u8>> {
+        self.transaction(|| self.encrypt_event_inner(name, event))
+    }
+    /// Caller owns the SQLite transaction, including any application-side effects.
+    pub(crate) fn encrypt_event_inner(
+        &self,
+        name: &str,
+        event: &ApplicationEvent,
+    ) -> Result<Vec<u8>> {
         let application = event.wire()?;
         let plaintext = event.transcript();
         let descriptor = self.group(name)?;
         let (signer, _) = self.signer()?;
-        self.transaction(|| {
-            if event.root() { self.index_attachment(&descriptor.gid, &event.content)?; }
-            let mut group = self.load_group(&descriptor)?;
-            self.ensure_can_send(&group)?;
-            ensure!(
-                group.members().count() >= 2,
-                "invite a peer before sending messages"
-            );
-            let bytes = group
-                .create_message(&self.provider, &signer, &application)
-                .map_err(|e| anyhow!("encrypt MLS application: {e:?}"))?
-                .to_bytes()?;
-            self.queue(&descriptor.subject("message"), &bytes)?;
-            let identity = self.registration()?.payload;
-            self.connection.execute("INSERT INTO transcript(gid,payload,sender,plaintext,outgoing,displayed) VALUES(?1,?2,?3,?4,1,1)",
-                rusqlite::params![descriptor.gid, bytes, format!("{}/{}", identity.user_id, identity.device_id), plaintext])?;
-            let row = self.connection.last_insert_rowid();
-            self.index_receipt(row, &descriptor.gid, &bytes)?;
-            self.index_application(row, &descriptor.gid, &format!("{}/{}", identity.user_id, identity.device_id), &bytes, Some(event), &plaintext)?;
-            Ok(bytes)
-        })
+        if event.root() {
+            self.index_attachment(&descriptor.gid, &event.content)?;
+        }
+        let mut group = self.load_group(&descriptor)?;
+        self.ensure_can_send(&group)?;
+        ensure!(
+            group.members().count() >= 2,
+            "invite a peer before sending messages"
+        );
+        let bytes = group
+            .create_message(&self.provider, &signer, &application)
+            .map_err(|e| anyhow!("encrypt MLS application: {e:?}"))?
+            .to_bytes()?;
+        self.queue(&descriptor.subject("message"), &bytes)?;
+        let identity = self.registration()?.payload;
+        self.connection.execute("INSERT INTO transcript(gid,payload,sender,plaintext,outgoing,displayed) VALUES(?1,?2,?3,?4,1,1)",
+            rusqlite::params![descriptor.gid, bytes, format!("{}/{}", identity.user_id, identity.device_id), plaintext])?;
+        let row = self.connection.last_insert_rowid();
+        self.index_receipt(row, &descriptor.gid, &bytes)?;
+        self.index_application(
+            row,
+            &descriptor.gid,
+            &format!("{}/{}", identity.user_id, identity.device_id),
+            &bytes,
+            Some(event),
+            &plaintext,
+        )?;
+        Ok(bytes)
     }
     /// Persist authenticated plaintext with the receive ratchet, never to NATS.
     pub fn decrypt_message(&self, name: &str, bytes: &[u8]) -> Result<Option<DecryptedMessage>> {
@@ -87,6 +102,7 @@ impl IdentityStore {
             return Ok(None);
         }
         let mut group = self.load_group(&descriptor)?;
+        ensure!(group.is_active(), InvalidMessage);
         let processed =
             group
                 .process_message(&self.provider, protocol)

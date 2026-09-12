@@ -206,7 +206,7 @@ def finish(root, clients, processes, secrets):
             assert all(secret.encode() not in data for secret in secrets), 'TUI plaintext in NATS storage'
 
 
-def run(relationships_only=False):
+def run(relationships_only=False, participants_only=False):
     processes = []
     with tempfile.TemporaryDirectory(prefix='epochgrid-tui-') as directory:
         root = Path(directory)
@@ -228,6 +228,12 @@ def run(relationships_only=False):
         binding = added.stdout.decode().split('Operator enrollment: ')[1].strip()
         subprocess.run([BINARY, 'dev-config', '--root', str(root), '--port', str(port),
                         '--enroll', binding], check=True, capture_output=True)
+        if participants_only:
+            added = cli('status', 'device', 'add', 'status', '--device', 'service')
+            assert added.returncode == 0, added.stderr
+            binding = added.stdout.decode().split('Operator enrollment: ')[1].strip()
+            subprocess.run([BINARY, 'dev-config', '--root', str(root), '--port', str(port),
+                            '--enroll', binding], check=True, capture_output=True, timeout=10)
         try:
             broker = nats()
             with socket.socket() as probe:
@@ -237,6 +243,8 @@ def run(relationships_only=False):
             wait(lambda: register('alice'), 'service startup')
             assert register('bob')
             assert register('alice-desktop')
+            if participants_only:
+                assert register('status')
             alice, bob = Client(root, 'alice', url), Client(root, 'bob', url)
             wait(lambda: all('Online' in c.screen.text for c in [alice, bob]), 'TUI online')
             alice.type('/create engineering\r')
@@ -260,6 +268,37 @@ def run(relationships_only=False):
             assert query(root, 'bob', 'SELECT COUNT(*) FROM transcript') == 0
             alice.type('\x1b')
             wait(lambda: 'alice is typing' not in bob.screen.text, 'typing stop or natural expiry')
+            if participants_only:
+                alice.type('/invite status service\r')
+                # A previous invitation notice can remain visible while this action queues.
+                wait(lambda: query(root, 'alice',
+                     "SELECT COUNT(*) FROM outbox WHERE subject='epochgrid.v1.user.status.service.inbox' AND sent=1") == 1,
+                     'specific service Welcome accepted by JetStream')
+                joined = cli('status', 'channel', 'join', '--from', 'alice')
+                assert joined.returncode == 0, joined.stderr
+                participant = subprocess.Popen([BINARY, '--home', str(root / 'status'), '--server', url,
+                                                'participant', 'run', 'engineering'],
+                                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                processes.append(participant)
+                alice.type('/members\r')
+                wait(lambda: '@status [service]' in alice.screen.text, 'visible service member')
+                alice.type('/status\r')
+                wait(lambda: 'EpochGrid service online' in alice.screen.text, 'TUI encrypted status reply')
+                wait(lambda: 'EpochGrid service online' in bob.screen.text, 'Bob sees explicit service reply')
+                alice.close()
+                removed = cli('alice', 'channel', 'remove', 'engineering', 'status', '--device', 'service')
+                assert removed.returncode == 0, removed.stderr
+                wait(lambda: participant.poll() is not None, 'removed service exits')
+                assert participant.returncode != 0
+                alice = Client(root, 'alice', url)
+                wait(lambda: 'Online' in alice.screen.text, 'Alice resumes after removal')
+                bob.type('TUI_AFTER_SERVICE_REMOVAL_91F3\r')
+                wait(lambda: has(root, 'alice', 'TUI_AFTER_SERVICE_REMOVAL_91F3'), 'remaining members continue')
+                assert not has(root, 'status', 'TUI_AFTER_SERVICE_REMOVAL_91F3')
+                finish(root, [alice, bob], processes,
+                       ['/status', 'EpochGrid service online', 'TUI_AFTER_SERVICE_REMOVAL_91F3'])
+                print('EpochGrid TUI explicit service membership, encrypted status replies and removal passed')
+                return
             if relationships_only:
                 secrets = []
                 exercise_relationships(root, alice, bob, secrets)
@@ -349,5 +388,8 @@ def run(relationships_only=False):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--relationships-only', action='store_true')
-    run(parser.parse_args().relationships_only)
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--relationships-only', action='store_true')
+    modes.add_argument('--participants-only', action='store_true')
+    args = parser.parse_args()
+    run(args.relationships_only, args.participants_only)

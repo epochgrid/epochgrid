@@ -252,3 +252,13 @@ immutable event log beside the original transcript; view-time projection selects
 edits and reactions by authenticated counter/ID, not transport arrival order. No
 JetStream records are mutated. The legacy transcript is migrated additively, and
 receipt references remain ciphertext-specific. See [the design and upgrade notes](message-relations.md).
+
+## Milestone 20: explicit service participants
+
+The reference participant is a regular `status/service` device running the host
+client's `participant run` command. Enrollment, Welcome, group state, transport and
+ciphertext outbox reuse client paths. The metadata backend receives no group secrets.
+An authenticated device-ID convention labels services without changing registration
+serialization. Schema 8 makes command processing and response encryption atomic.
+The existing coordinator can issue a group-specific MLS Remove Commit; account-wide
+revocation remains separate. See [service participant decisions](service-participants.md).

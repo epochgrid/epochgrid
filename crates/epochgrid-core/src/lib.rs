@@ -36,3 +36,5 @@ pub mod ephemeral;
 pub mod receipts;
 
 pub mod relationships;
+
+pub mod participants;

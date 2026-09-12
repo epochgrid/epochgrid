@@ -125,3 +125,11 @@ inconsistent histories. Editing does not erase historical content from recipient
 local plaintext logs or backups. The new local event log is unencrypted, retained
 for replay and excluded from recovery. Upgrade all clients together before using
 the new application envelope.
+
+
+Milestone 20 service participants are intentional plaintext recipients with separate
+NKeys, MLS keys and local databases. The `service` device label is authenticated
+disclosure, not code attestation or proof that other clients are human. Group removal
+advances the MLS epoch and prevents future decryption, but cannot erase retained
+history. It does not disable the device's NATS identity; fabric revocation remains a
+separate operation. The backend has no plaintext bypass. See [service trust boundaries](docs/service-participants.md).

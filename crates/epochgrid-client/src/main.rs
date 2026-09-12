@@ -1,4 +1,5 @@
 mod chat;
+mod participant;
 mod recovery;
 mod tui;
 use anyhow::Result;
@@ -22,6 +23,11 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Run an explicitly invited MLS service participant (separate from the backend).
+    Participant {
+        #[command(subcommand)]
+        command: participant::Command,
+    },
     /// Send, list or explicitly save encrypted attachments.
     Attachment {
         #[command(subcommand)]
@@ -133,6 +139,13 @@ enum Identity {
 }
 #[derive(Subcommand)]
 enum Channel {
+    /// Coordinator removes one device from this channel and advances its MLS epoch.
+    Remove {
+        name: String,
+        user: String,
+        #[arg(long)]
+        device: String,
+    },
     Create {
         name: String,
     },
@@ -296,6 +309,9 @@ async fn main() -> Result<()> {
             }
         }
 
+        Command::Participant { command } => {
+            participant::run(&args.home, &args.server, command).await?
+        }
         Command::Recovery { command } => recovery::run(&args.home, command)?,
         Command::Transparency { command } => {
             let store = IdentityStore::open(&args.home)?;
@@ -546,6 +562,16 @@ async fn main() -> Result<()> {
         Command::Channel { command } => {
             let store = IdentityStore::open(&args.home)?;
             match command {
+                Channel::Remove { name, user, device } => {
+                    let client = transport::connect(&args.server, &store).await?;
+                    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+                        epochgrid_core::history::resume(&store, &client, &name).await?;
+                        store.remove_member(&name, &user, &device)?;
+                        epochgrid_core::delivery::flush_outbox(&store, &client).await
+                    })
+                    .await??;
+                    println!("EpochGrid removed {user}/{device}; channel epoch advanced");
+                }
                 Channel::Create { name } => {
                     let group = store.create_group(&name)?;
                     println!("EpochGrid channel created: {} ({})", group.name, group.gid);
