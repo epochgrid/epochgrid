@@ -262,3 +262,13 @@ An authenticated device-ID convention labels services without changing registrat
 serialization. Schema 8 makes command processing and response encryption atomic.
 The existing coordinator can issue a group-specific MLS Remove Commit; account-wide
 revocation remains separate. See [service participant decisions](service-participants.md).
+
+## Authentication correction for alpha
+
+New canonical users have opaque `egusr-` IDs independent of local handles, NKeys and
+providers. Local enrollment tokens yield an IdentityBinding, which resolves to UserId;
+the device registry then owns admission and authorization generations. Auth Callout
+validates NKey nonce possession and signs short-lived device grants. The old backend
+mode is explicit `--dev-static` and retains BrokerControl only as a development fixture.
+See [migration inventory and schema](architecture/auth-migration.md) and
+[implemented callout contract](operator/auth-callout.md). No release readiness is implied.

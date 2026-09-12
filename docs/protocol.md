@@ -401,3 +401,18 @@ Edits, replies, reactions and service-originated commands do not trigger respons
 Removal uses standard encrypted MLS Remove Commits under existing coordinator
 authorization. Schema 8 retains local group/application processing IDs atomically with
 responses and excludes them from recovery; it does not change the application ABI.
+
+## Milestone 21 enrollment and canonical identity
+
+Envelope v1 appends Body discriminant 17: `Enroll { token: String, registration: DeviceRegistration }`
+on `epochgrid.v1.identity.enroll`. The token has a redacted/zeroizing Rust wrapper but
+serializes as the existing postcard string type. It is control-plane authentication
+material, never an MLS application message or durable NATS payload. TLS protects its
+client transport; NATS and the auth/control trust boundary necessarily handle it.
+Public registration encoding and signatures remain unchanged. New registrations use
+`egusr-` plus lowercase base32 of 128 random bits for the immutable UserId (32 characters).
+Local handles live only in provider bindings. Legacy credentials retain their original
+identity; migration creates fresh canonical devices rather than rewriting MLS state.
+NATS Auth Callout uses its native encrypted request and signed response/user JWTs, not
+the EpochGrid envelope. See [claim validation and configuration](operator/auth-callout.md).
+The independent auth registry starts at migration 1; client schema remains 8.

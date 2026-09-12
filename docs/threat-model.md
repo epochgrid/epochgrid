@@ -209,3 +209,15 @@ Use the separate device-revocation workflow to disable fabric access. Remaining
 members can deliberately forward plaintext. The reference runner processes commands
 only after authenticated catch-up and uses atomic deduplication; infrastructure can
 still deny service by withholding traffic. It exposes no backend plaintext interface.
+
+
+Alpha authentication migration: static device users and BrokerControl reloads are
+development-only (`--dev-static`). Dynamic admission verifies NATS-signed encrypted
+callout requests, device nonce possession, canonical user/device binding, enabled and
+revoked state, and current registry generation. Grants expire within a configured
+2–60 seconds (default 30); revocation is bounded-latency, not immediate. Startup
+reconciles the signed revocation log before allowing devices. Enrollment tokens are
+single-device bearer credentials; interception before enrollment can hijack admission.
+Use TLS and secure token delivery. Callout account/issuer/XKey compromise is highly
+privileged. This does not replace manual MLS identity verification or transparency.
+Dynamic group permissions and the rest of the alpha release gates remain unfinished.

@@ -125,19 +125,28 @@ def wait(predicate, label, timeout=25):
 
 
 def wait_for_typing(sender, receiver, timeout=25):
-    # Core NATS activity is intentionally lossy. Keep making real edits until
-    # one update arrives, rather than expecting a single short burst to survive
-    # worker synchronization. wait() owns a fixed deadline that edits never reset.
+    # Separate bursts reset the TUI's two-second refresh cadence. Continually
+    # appending to one draft can phase-lock every update to a busy sync worker.
+    # Keep pauses deterministic but varied, and never extend the outer deadline.
     next_edit = time.monotonic()
+    clear = True
+    burst = 0
 
     def observed():
-        nonlocal next_edit
+        nonlocal next_edit, clear, burst
         if 'alice is typing' in receiver.screen.text:
             return True
         now = time.monotonic()
         if now >= next_edit:
-            sender.type('.')
-            next_edit = now + 0.5
+            if clear:
+                sender.type('\x1b')
+                # Give the terminal loop time to observe an empty draft and stop.
+                next_edit = now + 0.3
+            else:
+                sender.type('draft typing without sending')
+                next_edit = now + (1.1, 1.7, 2.3)[burst % 3]
+                burst += 1
+            clear = not clear
         return False
 
     wait(observed, 'encrypted live typing indicator', timeout=timeout)
@@ -238,7 +247,7 @@ def run(relationships_only=False, participants_only=False):
             broker = nats()
             with socket.socket() as probe:
                 wait(lambda: probe.connect_ex(('127.0.0.1', port)) == 0, 'NATS startup')
-            service = subprocess.Popen(['./target/debug/epochgrid-service', '--home', str(root / 'service'), '--enrollment', str(root / 'enrollment.json'), '--server', url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            service = subprocess.Popen(['./target/debug/epochgrid-service', '--dev-static', '--home', str(root / 'service'), '--enrollment', str(root / 'enrollment.json'), '--server', url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             processes.append(service)
             wait(lambda: register('alice'), 'service startup')
             assert register('bob')
