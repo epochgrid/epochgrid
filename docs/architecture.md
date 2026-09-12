@@ -241,3 +241,14 @@ reference derived from immutable MLS ciphertext. JetStream acknowledgments remai
 distinct from device delivery and presentation. The TUI marks only visible text
 read and periodically queries recent outgoing messages; it does not create durable
 receipt history. See [the receipt design](receipts.md) for offline and trust limits.
+
+
+## Milestone 19: immutable message relationships
+
+MLS PrivateMessage now protects a versioned application event with a random nonce,
+persistent device counter, content and optional reply/edit/reaction relation. Stable
+IDs bind the canonical event to its authenticated sender and group. SQLite stores an
+immutable event log beside the original transcript; view-time projection selects
+edits and reactions by authenticated counter/ID, not transport arrival order. No
+JetStream records are mutated. The legacy transcript is migrated additively, and
+receipt references remain ciphertext-specific. See [the design and upgrade notes](message-relations.md).

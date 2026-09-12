@@ -270,7 +270,9 @@ are local state and are not sent to NATS. See [recovery semantics](encrypted-rec
 
 ## Milestone 16: attachment application payload v1
 
-Existing raw UTF-8 application messages remain unchanged. Attachments use prefix
+At Milestone 16, raw UTF-8 application messages remained unchanged. Milestone 19
+wraps both text and attachment manifests in the application envelope below.
+Attachment manifests use prefix
 hex `ff 45 47 41 54 54` (0xff plus ASCII EGATT), then one version byte (1), then
 postcard Manifest fields in order: `id: String` (32 lowercase hex digits),
 `filename: String` (1–255 UTF-8 bytes, no separators/control characters), `mime: String`
@@ -345,3 +347,45 @@ SQLite migration 6 backfills `receipt_messages` from retained ciphertext and add
 NATS stream; missing claims are recovered by bounded online queries. See
 [receipt semantics and limits](receipts.md). This delivery reference does not replace
 the future application message identity or alter immutable history.
+
+
+## Milestone 19: immutable application envelope v1
+
+New durable application plaintext, before MLS encryption, has prefix hex
+`ff 45 47 4d 53 47` (0xff plus ASCII EGMSG), version byte 1, then canonical postcard
+fields in order: `nonce: [u8;16]`, `counter: u64`, `content: Vec<u8>`,
+`relation: Option<Relation>`. Relation enum indices are ReplyTo=0 with a `[u8;32]`
+target, Replace=1 with a `[u8;32]` target, and Reaction=2 with fields
+`target: [u8;32], value: String, add: bool`. None means an original message.
+
+Counters range from 1 through i64::MAX and increase per authenticated device/group
+using the highest locally committed counter. Content is 1–16,384 bytes for originals,
+replies and edits; edits must be UTF-8 text. Reactions have empty content and an exact
+UTF-8 value of 1–32 bytes without whitespace/control characters. Maximum encoded
+application size is 16,896 bytes. Invalid versions, malformed/oversized/noncanonical
+envelopes and trailing bytes are rejected. Existing non-EGMSG text/attachment payloads
+are still accepted with their original 16,384-byte bound. Reserved EGMSG prefixes
+are never silently interpreted as legacy text on decode failure.
+
+The application ID is SHA-256 of canonical postcard tuple
+`("epochgrid application id v1", group_routing_id, authenticated_sender, envelope_bytes)`.
+Legacy IDs hash postcard tuple `("epochgrid legacy id v1", group_routing_id, mls_ciphertext)`.
+IDs render as 64 lowercase hexadecimal characters. The random nonce makes repeated
+identical content distinct, while identical envelopes from the same sender/group
+retain their ID across new MLS ciphertext. IDs, counters and targets remain inside
+E2EE payloads or local storage; NATS subjects are unchanged. Receipt references
+continue hashing exact ciphertext and do not become application IDs.
+
+Each original/reply can be edited only by its original device and only if its
+original content is text. The highest (counter, event ID) valid edit wins. Reaction
+state uses the same ordering separately for each (device, value); false removes only
+that device's reaction. Reply expansion is nonrecursive. Unknown targets defer
+interpretation; invalid targets/unauthorized edits have no projection effect. All
+original records remain intact. See [full replay and presentation semantics](message-relations.md).
+
+Migration 7 stores canonical event fields in an immutable `message_events` log,
+indexed by group/ID and target/kind; legacy synthetic entries have counter zero.
+This log commits with the MLS ratchet, transcript and receipt reference. Full event
+retention is needed for local replay after ratchet key erasure. Recovery excludes it.
+This is a coordinated pre-1.0 client upgrade: older clients cannot interpret the new
+application framing, though MLS framing and existing stored ciphertext are unchanged.

@@ -1,4 +1,4 @@
-use super::{Action, ChannelView, MessageView, Snapshot};
+use super::{Action, ChannelView, MessageView, RelationDraft, Snapshot};
 use anyhow::{Context, Result};
 use epochgrid_core::ephemeral::{EphemeralEvent, TypingState};
 use epochgrid_core::{delivery, history, identity::IdentityStore, transport};
@@ -112,10 +112,12 @@ impl Session {
             members = self.store.members(name)?;
             messages = self
                 .store
-                .history(name, 100, self.before)?
+                .conversation(name, 100, self.before)?
                 .into_iter()
-                .map(|entry| {
+                .map(|projected| {
+                    let entry = projected.entry;
                     Ok(MessageView {
+                        message_id: projected.message_id,
                         status: if entry.outgoing {
                             Some(self.store.message_status(entry.id)?.summary())
                         } else {
@@ -344,7 +346,11 @@ impl Session {
                 self.before = None;
                 self.notice = "Channel created; invite a peer before sending".into();
             }
-            Action::Send { name, text } => {
+            Action::Send {
+                name,
+                text,
+                relation,
+            } => {
                 // Catch up membership before encrypting when connected; failures retain the draft.
                 let synced = if let Some(client) = self.client.as_ref().filter(|client| {
                     client.connection_state() == async_nats::connection::State::Connected
@@ -360,8 +366,31 @@ impl Session {
                 } else {
                     Ok(())
                 };
-                let result =
-                    synced.and_then(|()| self.store.encrypt_message(&name, text.as_bytes()));
+                let result = synced.and_then(|()| {
+                    use epochgrid_core::relationships::Relation;
+                    let Some(relation) = relation else {
+                        return self.store.encrypt_message(&name, text.as_bytes());
+                    };
+                    let (relation, content) = match relation {
+                        RelationDraft::Reply(target) => (
+                            Relation::ReplyTo(self.store.resolve_message(&name, &target)?),
+                            text.as_bytes(),
+                        ),
+                        RelationDraft::Edit(target) => (
+                            Relation::Replace(self.store.resolve_message(&name, &target)?),
+                            text.as_bytes(),
+                        ),
+                        RelationDraft::Reaction { target, add } => (
+                            Relation::Reaction {
+                                target: self.store.resolve_message(&name, &target)?,
+                                value: text.clone(),
+                                add,
+                            },
+                            &[][..],
+                        ),
+                    };
+                    self.store.encrypt_related(&name, relation, content)
+                });
                 self.send_count += 1;
                 self.send_error = result.as_ref().err().map(|error| format!("{error:#}"));
                 result?;
@@ -470,6 +499,7 @@ mod tests {
             assert!(
                 session
                     .command(Action::Send {
+                        relation: None,
                         name: "engineering".into(),
                         text: "no peer".into()
                     })

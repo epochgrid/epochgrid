@@ -14,7 +14,7 @@ The service backend has no plaintext role. Existing typing enum indices remain
 unchanged; older clients ignore unsupported event variants.
 
 Requests identify the SHA-256 of the immutable MLS ciphertext, scoped to a group.
-This is a delivery reference, not the application-level message ID planned for
+This is a delivery reference, separate from the application-level message ID introduced in
 Milestone 19. A device answers only from its local authenticated incoming transcript
 and only when the requester is that message's authenticated sender. The response
 identity comes from the current MLS leaf signature. Senders persist only receipts
@@ -83,3 +83,9 @@ One repeated parallel unit run reported a transient device-lock acquisition fail
 in the existing encrypted-recovery restart test. The full suite passed on rerun
 without a recovery or lock-behavior change; the cause was not established. This is
 recorded as a test reliability observation, not claimed fixed by receipt work.
+
+
+Milestone 19 keeps receipt references bound to each immutable MLS ciphertext. Its
+conversation projection does not overwrite receipt history; read remains a client
+presentation claim, not proof of reading every superseded revision. Copies with an
+identical authenticated application ID share their logical presentation marker.

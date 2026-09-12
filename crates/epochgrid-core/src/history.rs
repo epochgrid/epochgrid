@@ -107,7 +107,7 @@ impl IdentityStore {
     }
     pub fn mark_displayed(&self, id: i64) -> Result<()> {
         self.connection.execute(
-            "UPDATE transcript SET displayed=1 WHERE id=?1 AND displayed=0",
+            "UPDATE transcript SET displayed=1 WHERE displayed=0 AND (id=?1 OR id IN (SELECT other.transcript_id FROM message_events original JOIN message_events other ON original.gid=other.gid AND original.message_id=other.message_id WHERE original.transcript_id=?1))",
             [id],
         )?;
         Ok(())

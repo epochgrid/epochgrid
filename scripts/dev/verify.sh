@@ -12,6 +12,7 @@ phase() {
           NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 360 cargo test --locked -p epochgrid-service --test registration -- --ignored --test-threads=1 ;;
     compose) python3 scripts/dev/run-bounded.py 180 ./scripts/dev/smoke.sh ;;
     tui) NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 180 python3 scripts/dev/tui-smoke.py ;;
+    relations-tui) NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 90 python3 scripts/dev/tui-smoke.py --relationships-only ;;
     harness) python3 scripts/dev/run-bounded.py 30 python3 scripts/dev/test-bounded.py
              python3 scripts/dev/run-bounded.py 10 python3 scripts/dev/test-tui-smoke.py ;;
     *) echo "Unknown verification phase: $1" >&2; return 2 ;;
@@ -20,6 +21,6 @@ phase() {
 if [[ $# -gt 0 ]]; then
   phase "$1"
 else
-  for check in harness fmt clippy unit build nats compose tui; do phase "$check"; done
+  for check in harness fmt clippy unit build nats compose tui relations-tui; do phase "$check"; done
   printf 'EpochGrid MVP and identity alpha verification passed\n'
 fi

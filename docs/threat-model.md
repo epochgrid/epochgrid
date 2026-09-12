@@ -182,3 +182,13 @@ cannot create messages. Local compact receipt metadata is unencrypted and exclud
 from recovery. Loss or non-overlapping online sessions can leave state unknown.
 Previously observed receipts survive revocation as historical claims, not evidence
 of current authorization. See [receipt semantics](receipts.md).
+
+
+Milestone 19 stores replies, edits and reactions as new MLS-protected application
+events. Only the original device can edit its text messages. Authenticated counters
+make edit/reaction selection independent of transport ordering for the same event
+set; they do not prevent infrastructure from withholding events or presenting
+inconsistent histories. Editing does not erase historical content from recipients,
+local plaintext logs or backups. The new local event log is unencrypted, retained
+for replay and excluded from recovery. Upgrade all clients together before using
+the new application envelope.

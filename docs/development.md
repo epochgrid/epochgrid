@@ -241,3 +241,22 @@ The NATS suite exercises Alice laptop/desktop and Bob with different delivered/r
 states, restart, encrypted references and unchanged stream sequences. The TUI suite
 checks background delivery, visible-message reads and separate device receipts.
 No additional infrastructure or service configuration is needed.
+
+
+## Milestone 19 validation
+
+Upgrade all participant binaries together; schema 7 and the new protected application
+envelope require updated clients. No NATS configuration changes are needed. The
+NATS integration suite exercises CLI reply/edit/reaction add/remove, offline catch-up,
+restart, unchanged original ciphertext and absence of plaintext. The real TUI suite
+exercises the same commands by short ID in a separate bounded phase:
+`./scripts/dev/verify.sh relations-tui` (90 seconds). The existing
+`./scripts/dev/verify.sh tui` retains its 180-second deadline. Unit tests cover late targets, reversed
+transport ordering, author checks, duplicate IDs, migration rollback and projection
+replay from retained events. Use `message events CHANNEL --offline` for original
+content/full IDs and `message history CHANNEL --offline` for the current projection.
+
+Milestone 19 validation passed: formatting, warnings-denied clippy, workspace build,
+48 unit tests, all 14 live NATS integration tests, isolated Compose/CLI smoke,
+the three-device TUI workflow, the separate relationship TUI workflow, and the
+bounded-runner/terminal helper regression tests.
