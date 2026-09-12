@@ -54,7 +54,7 @@ that command into the next command (replace `U...` with the complete public NKey
 ./scripts/dev/bootstrap-nats.sh
 ```
 
-Restart `./target/debug/epochgrid-service` in its existing terminal. The additional
+Restart `./target/debug/epochgrid-service --dev-static` in its existing terminal. The additional
 public enrollment is retained by bootstrap. Then:
 
 ```bash

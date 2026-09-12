@@ -133,3 +133,15 @@ disclosure, not code attestation or proof that other clients are human. Group re
 advances the MLS epoch and prevents future decryption, but cannot erase retained
 history. It does not disable the device's NATS identity; fabric revocation remains a
 separate operation. The backend has no plaintext bypass. See [service trust boundaries](docs/service-participants.md).
+
+
+Alpha authentication migration: static device users and BrokerControl reloads are
+development-only (`--dev-static`). Dynamic admission verifies NATS-signed encrypted
+callout requests, device nonce possession, canonical user/device binding, enabled and
+revoked state, and current registry generation. Grants expire within a configured
+2–60 seconds (default 30); revocation is bounded-latency, not immediate. Startup
+reconciles the signed revocation log before allowing devices. Enrollment tokens are
+single-device bearer credentials; interception before enrollment can hijack admission.
+Use TLS and secure token delivery. Callout account/issuer/XKey compromise is highly
+privileged. This does not replace manual MLS identity verification or transparency.
+Dynamic group permissions and the rest of the alpha release gates remain unfinished.

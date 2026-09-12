@@ -85,6 +85,7 @@ pub(super) fn daemon(root: &Path, url: &str) -> Result<Process> {
         .open(root.join("service.log"))?;
     Ok(Process(
         Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+            .arg("--dev-static")
             .arg("--home")
             .arg(root.join("service"))
             .arg("--enrollment")

@@ -50,6 +50,15 @@ identity metadata over NATS request/reply and never receives application plainte
 See [architecture](docs/architecture.md), [protocol](docs/protocol.md), and
 [security boundaries](docs/threat-model.md).
 
+## Authentication migration toward alpha
+
+Dynamic NATS Auth Callout admission is being prepared on a provider-neutral identity
+registry. See [the migration inventory](docs/architecture/auth-migration.md) and
+[Auth Callout setup and current limits](docs/operator/auth-callout.md). The existing
+walkthrough below is an explicitly static development fixture, not the supported
+alpha deployment model. No alpha release has been tagged; dynamic group permissions,
+secure local storage and the remaining release gates are still required.
+
 ## Start development infrastructure
 
 Prerequisites: rustup (Rust 1.98.1 is pinned), a C toolchain for bundled SQLite,
@@ -76,7 +85,7 @@ Existing identities and group state are retained.
 Start the host service in a separate terminal:
 
 ```bash
-./target/debug/epochgrid-service
+./target/debug/epochgrid-service --dev-static
 ```
 
 Register both pre-created devices:

@@ -1,5 +1,6 @@
+mod dynamic;
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use epochgrid_core::{
     broker_control::BrokerControl,
     identity::IdentityStore,
@@ -13,6 +14,11 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(about = "EpochGrid NATS identity service")]
 struct Args {
+    /// Explicitly run the legacy owned-broker fixture (never production).
+    #[arg(long)]
+    dev_static: bool,
+    #[command(subcommand)]
+    command: Option<ServiceCommand>,
     /// Retention for ciphertext objects, in seconds (60 seconds to one year).
     #[arg(long, default_value_t = 604800)]
     attachment_retention_seconds: u64,
@@ -30,6 +36,23 @@ struct Args {
     )]
     server: String,
 }
+#[derive(Subcommand)]
+enum ServiceCommand {
+    /// Generate EpochGrid integration keys and a reference snippet, never modify NATS.
+    AuthInit,
+    /// Issue a local provider enrollment token to stdout; protect its delivery.
+    UserInvite {
+        #[arg(long)]
+        handle: String,
+        #[arg(long, default_value_t = 600)]
+        ttl: u64,
+    },
+    /// Dynamic admission/control path. Does not read or modify NATS server config.
+    Serve {
+        #[arg(long)]
+        auth_config: PathBuf,
+    },
+}
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -45,6 +68,25 @@ async fn main() -> Result<()> {
         return result.map_err(Into::into);
     }
     let args = Args::parse();
+    if let Some(command) = args.command {
+        return match command {
+            ServiceCommand::AuthInit => dynamic::init(&args.home),
+            ServiceCommand::UserInvite { handle, ttl } => {
+                let token = epochgrid_core::identity_model::AuthRegistry::open(&args.home)?
+                    .invite(&handle, ttl)?;
+                println!("{}", token.as_str());
+                Ok(())
+            }
+            ServiceCommand::Serve { auth_config } => {
+                dynamic::serve(&args.home, &args.server, &auth_config).await
+            }
+        };
+    }
+    anyhow::ensure!(
+        args.dev_static,
+        "choose serve --auth-config FILE; legacy fixtures require explicit --dev-static"
+    );
+    tracing::warn!("DEVELOPMENT ONLY: static users and broker reload actuator enabled");
     let enrollment: Enrollment = serde_json::from_slice(&std::fs::read(&args.enrollment)?)?;
     let identity = IdentityStore::open(&args.home)?;
     let client = transport::connect(&args.server, &identity).await?;
