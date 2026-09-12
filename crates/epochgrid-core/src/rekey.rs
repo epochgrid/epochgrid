@@ -92,11 +92,12 @@ impl IdentityStore {
             Ok(true)
         })
     }
-    /// Never publish queued application ciphertext under a known revoked epoch.
+    /// Never publish queued application ciphertext under a known revoked epoch
+    /// or after this installation has been removed from a group.
     pub(crate) fn block_revoked_outbox(&self) -> Result<()> {
         for descriptor in self.groups()? {
             let group = self.load_group(&descriptor)?;
-            if self.revoked_leaves(&group)?.is_empty() {
+            if group.is_active() && self.revoked_leaves(&group)?.is_empty() {
                 continue;
             }
             self.connection.execute("INSERT OR IGNORE INTO blocked_outbox(id) SELECT id FROM outbox WHERE sent=0 AND subject=?1", [descriptor.subject("message")])?;

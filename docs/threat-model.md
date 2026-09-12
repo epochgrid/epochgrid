@@ -192,3 +192,20 @@ inconsistent histories. Editing does not erase historical content from recipient
 local plaintext logs or backups. The new local event log is unencrypted, retained
 for replay and excluded from recovery. Upgrade all clients together before using
 the new application envelope.
+
+## Service participants
+
+An explicitly invited service is trusted with plaintext exactly like any other MLS
+leaf. Compromise of its host exposes local history, retained secrets and attachments
+metadata. Its operator can copy received content. A signed `USER/service` identity
+provides visible disclosure but does not attest the running software. Arbitrary
+automation can still run under ordinary identities.
+
+The coordinator removes one service/device through an MLS Commit; correctly applied
+removal excludes its keys from subsequent epochs. Already decrypted content and
+delayed old-epoch ciphertext cannot be recalled. NATS group ACL limitations remain:
+the identity can still authenticate and may receive ciphertext after channel removal.
+Use the separate device-revocation workflow to disable fabric access. Remaining
+members can deliberately forward plaintext. The reference runner processes commands
+only after authenticated catch-up and uses atomic deduplication; infrastructure can
+still deny service by withholding traffic. It exposes no backend plaintext interface.

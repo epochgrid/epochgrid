@@ -389,3 +389,15 @@ This log commits with the MLS ratchet, transcript and receipt reference. Full ev
 retention is needed for local replay after ratchet key erasure. Recovery excludes it.
 This is a coordinated pre-1.0 client upgrade: older clients cannot interpret the new
 application framing, though MLS framing and existing stored ciphertext are unchanged.
+
+## Milestone 20 service participants
+
+No wire version or infrastructure subject changes. The existing signed registration
+and MLS credential `USER/service` disclose a service device; updated membership views
+render `@USER [service]`. This convention confers no extra permissions. Exact original
+UTF-8 `/status` content is the reference command. Replies use the Milestone 19 envelope
+with `ReplyTo(request_id)`, ordinary MLS PrivateMessage encryption and CHAT persistence.
+Edits, replies, reactions and service-originated commands do not trigger responses.
+Removal uses standard encrypted MLS Remove Commits under existing coordinator
+authorization. Schema 8 retains local group/application processing IDs atomically with
+responses and excludes them from recovery; it does not change the application ABI.

@@ -4,7 +4,7 @@ EpochGrid combines NATS infrastructure with MLS end-to-end group encryption.
 Project: https://epochgrid.org.
 Organization: https://github.com/epochgrid.
 
-**Current status: Milestones 0–19 are complete.** EpochGrid has a working secure
+**Current status: Milestones 0–20 are complete.** EpochGrid has a working secure
 messaging alpha with a persistent terminal client and independent devices per user.
 JetStream stores MLS protocol bytes; readable transcripts stay on each device.
 This is unaudited development software, not a production-ready security product.
@@ -21,7 +21,11 @@ This is unaudited development software, not a production-ready security product.
 | 17 | Complete | Signed MLS-exporter typing events over Core NATS, bounded expiry and no durable storage |
 | 18 | Complete | Encrypted device delivery/read receipts, distinct server acceptance and visible-message read tracking |
 | 19 | Complete | Stable application IDs, append-only replies/edits/reactions, authenticated ordering and replay |
-| 20 | Next | Secure service participants |
+| 20 | Complete | Explicit MLS service participants, encrypted status replies, restart-safe processing and coordinator removal |
+
+Invite the reference `@status [service]` participant and send `/status` in the TUI.
+See [service setup, trust and removal](docs/service-participants.md). The metadata
+backend remains separate and has no group plaintext access.
 
 Use `/reply ID TEXT`, `/edit ID TEXT`, `/react ID VALUE` and `/unreact ID VALUE`
 in the TUI. See [message relationships](docs/message-relations.md) for CLI commands,
@@ -41,7 +45,7 @@ See [device revocation](docs/device-revocation.md) for upgrade instructions,
 `device revoke USER DEVICE`, network enforcement and offline rekeying semantics.
 
 NATS supplies transport, authentication, authorization and persistence. OpenMLS
-supplies group encryption and cryptographic membership. The service handles public
+supplies group encryption and cryptographic membership. The metadata backend handles public
 identity metadata over NATS request/reply and never receives application plaintext.
 See [architecture](docs/architecture.md), [protocol](docs/protocol.md), and
 [security boundaries](docs/threat-model.md).

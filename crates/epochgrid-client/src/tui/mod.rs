@@ -175,6 +175,11 @@ fn submit(input: &str, selected: Option<&str>) -> Result<Action> {
     if input.starts_with('/') {
         let fields: Vec<_> = input.split_whitespace().collect();
         return match fields.as_slice() {
+            ["/status"] => Ok(Action::Send {
+                name: name()?,
+                text: "/status".into(),
+                relation: None,
+            }),
             ["/create", channel] => Ok(Action::Create((*channel).into())),
             ["/invite", user] => Ok(Action::Invite {
                 name: name()?,
@@ -195,7 +200,7 @@ fn submit(input: &str, selected: Option<&str>) -> Result<Action> {
                 device: (*device).into(),
             }),
             _ => anyhow::bail!(
-                "Commands: /create NAME, /invite USER [DEVICE], /join INVITER [DEVICE], /members, /reply ID TEXT, /edit ID TEXT, /react ID VALUE, /unreact ID VALUE, /attach PATH, /save ID PATH, /help, /quit; // sends a literal slash"
+                "Commands: /status, /create NAME, /invite USER [DEVICE], /join INVITER [DEVICE], /members, /reply ID TEXT, /edit ID TEXT, /react ID VALUE, /unreact ID VALUE, /attach PATH, /save ID PATH, /help, /quit; // sends a literal slash"
             ),
         };
     }
@@ -244,7 +249,7 @@ impl Notice {
                 state
                     .members
                     .iter()
-                    .filter_map(|m| m.split_once('/').map(|(user, _)| user))
+                    .map(|m| epochgrid_core::participants::member_label(m))
                     .collect::<std::collections::BTreeSet<_>>()
                     .into_iter()
                     .collect::<Vec<_>>()
@@ -316,7 +321,7 @@ impl Ui {
                     self.notice = Notice::Devices;
                     self.input.clear();
                 } else if self.input == "/help" {
-                    self.notice = "Tab channels | Up/Down scroll | PgUp older / PgDn latest | /create NAME | /invite USER [DEVICE] | /join INVITER [DEVICE] | /members | /devices | /reply ID TEXT | /edit ID TEXT | /react ID VALUE | /unreact ID VALUE | /attach PATH | /save ID PATH | /quit | // literal slash".into();
+                    self.notice = "Tab channels | Up/Down scroll | PgUp older / PgDn latest | /create NAME | /invite USER [DEVICE] | /join INVITER [DEVICE] | /members | /devices | /status | /reply ID TEXT | /edit ID TEXT | /react ID VALUE | /unreact ID VALUE | /attach PATH | /save ID PATH | /quit | // literal slash".into();
                     self.input.clear();
                 } else {
                     return submit(&self.input, state.selected.as_deref()).map(Some);
@@ -646,6 +651,32 @@ pub fn run(home: PathBuf, server: String) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn service_command_and_visible_membership() -> Result<()> {
+        assert_eq!(
+            submit("/status", Some("engineering"))?,
+            Action::Send {
+                name: "engineering".into(),
+                text: "/status".into(),
+                relation: None,
+            }
+        );
+        assert!(submit("/status", None).is_err());
+        let state = Snapshot {
+            members: vec![
+                "alice/laptop".into(),
+                "alice/desktop".into(),
+                "status/service".into(),
+            ],
+            ..Snapshot::default()
+        };
+        assert_eq!(
+            Notice::Members.text(&state),
+            "Members: @status [service], alice"
+        );
+        assert!(Notice::Devices.text(&state).contains("status/service"));
+        Ok(())
+    }
     #[test]
     fn relationship_commands_preserve_text_and_target() -> Result<()> {
         assert_eq!(

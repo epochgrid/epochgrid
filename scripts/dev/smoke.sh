@@ -28,6 +28,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 ./target/debug/epochgrid dev-config
 docker compose up --build --force-recreate -d
+python3 scripts/dev/wait-nats.py
 ./target/debug/epochgrid-service >.dev/smoke-service.log 2>&1 &
 service_pid=$!
 ready=false

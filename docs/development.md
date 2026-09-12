@@ -260,3 +260,19 @@ Milestone 19 validation passed: formatting, warnings-denied clippy, workspace bu
 48 unit tests, all 14 live NATS integration tests, isolated Compose/CLI smoke,
 the three-device TUI workflow, the separate relationship TUI workflow, and the
 bounded-runner/terminal helper regression tests.
+
+## Milestone 20 validation and upgrade
+
+Existing databases migrate to schema 8 without reset. Regenerate operator enrollment
+and restart the backend only when adding the service's public device binding; no new
+NATS bucket, stream, subject or backend flag is needed. See [setup and commands](service-participants.md).
+The NATS suite includes a bounded participant CLI/daemon test. Use
+`./scripts/dev/verify.sh participants-tui` for the separate 120-second terminal test.
+The original TUI and relationship tests keep their existing deadlines.
+
+Milestone 20 validation passed: formatting, warnings-denied clippy, workspace build,
+51 unit tests, all 15 live NATS integration tests, all three terminal workflows,
+isolated Compose/CLI smoke, and eight verification-helper tests. The new service
+terminal test waits for its specific acknowledged Welcome rather than a stale UI
+notice. Compose smoke now waits at most ten seconds for a complete NATS INFO greeting
+before launching the backend; an open Docker port alone did not establish readiness.

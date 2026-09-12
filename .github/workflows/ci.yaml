@@ -38,3 +38,6 @@ jobs:
       - name: Message relationship TUI smoke
         timeout-minutes: 2
         run: ./scripts/dev/verify.sh relations-tui
+      - name: Service participant TUI smoke
+        timeout-minutes: 3
+        run: ./scripts/dev/verify.sh participants-tui

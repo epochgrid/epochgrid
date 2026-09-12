@@ -111,7 +111,9 @@ impl IdentityStore {
                 let (user, device) = member.split_once('/').context("invalid member identity")?;
                 validate_id(user)?;
                 validate_id(device)?;
-                Ok(user.to_owned())
+                Ok(crate::participants::member_label(&format!(
+                    "{user}/{device}"
+                )))
             })
             .collect::<Result<std::collections::BTreeSet<_>>>()
             .map(|users| users.into_iter().collect())
