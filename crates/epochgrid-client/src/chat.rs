@@ -63,8 +63,8 @@ pub async fn history(
         let client = transport::connect(server, &store).await?;
         report(&history::resume(&store, &client, name).await?);
     }
-    for entry in store.history(name, limit, before)? {
-        display(&entry, true);
+    for projected in store.conversation(name, limit, before)? {
+        display(&projected.entry, true);
     }
     let rejected = store.rejected_history(name)?;
     if rejected > 0 {
@@ -143,5 +143,62 @@ pub async fn interactive(home: &Path, server: &str, name: &str) -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+/// Inspect immutable event content and full application IDs without marking read.
+pub async fn events(home: &Path, server: &str, name: &str, offline: bool) -> Result<()> {
+    let store = IdentityStore::open(home)?;
+    if !offline {
+        let client = transport::connect(server, &store).await?;
+        report(&history::resume(&store, &client, name).await?);
+    }
+    for entry in store.history(name, 100, None)? {
+        println!(
+            "id: {}",
+            store
+                .application_id(entry.id)?
+                .as_deref()
+                .unwrap_or("unavailable")
+        );
+        display(&entry, true);
+    }
+    Ok(())
+}
+pub async fn relate(
+    home: &Path,
+    server: &str,
+    name: &str,
+    target: &str,
+    text: &str,
+    operation: &str,
+) -> Result<()> {
+    use epochgrid_core::relationships::Relation;
+    let store = IdentityStore::open(home)?;
+    let client = transport::connect(server, &store).await?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        epochgrid_core::transparency::audit(&client, &store).await?;
+        history::resume(&store, &client, name).await?;
+        let id = store.resolve_message(name, target)?;
+        let (relation, content) = match operation {
+            "reply" => (Relation::ReplyTo(id), text.as_bytes()),
+            "edit" => (Relation::Replace(id), text.as_bytes()),
+            "react" | "unreact" => (
+                Relation::Reaction {
+                    target: id,
+                    value: text.into(),
+                    add: operation == "react",
+                },
+                &[][..],
+            ),
+            _ => anyhow::bail!("unknown relationship operation"),
+        };
+        store.encrypt_related(name, relation, content)?;
+        epochgrid_core::delivery::flush_outbox(&store, &client).await?;
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("relationship operation timed out; sync to resume any queued event")??;
+    println!("EpochGrid encrypted relationship accepted by server");
     Ok(())
 }

@@ -38,6 +38,7 @@ struct ChannelView {
 }
 #[derive(Clone)]
 struct MessageView {
+    message_id: Option<String>,
     status: Option<String>,
     id: i64,
     sequence: Option<u64>,
@@ -49,9 +50,13 @@ fn message_lines(message: &MessageView) -> Vec<Line<'static>> {
         .sequence
         .map_or_else(|| "pending".into(), |s| s.to_string());
     let mut lines = vec![Line::from(format!(
-        "{} [{}]",
+        "{} [{}]{}",
         safe_text(&message.sender),
-        sequence
+        sequence,
+        message
+            .message_id
+            .as_ref()
+            .map_or_else(String::new, |id| format!(" #{}", &id[..12]))
     ))];
     lines.extend(message.text.lines().map(|l| Line::from(l.to_owned())));
     if let Some(status) = &message.status {
@@ -59,6 +64,12 @@ fn message_lines(message: &MessageView) -> Vec<Line<'static>> {
     }
     lines.push(Line::default());
     lines
+}
+#[derive(Debug, PartialEq)]
+enum RelationDraft {
+    Reply(String),
+    Edit(String),
+    Reaction { target: String, add: bool },
 }
 #[derive(Debug, PartialEq)]
 enum Action {
@@ -81,6 +92,7 @@ enum Action {
     Send {
         name: String,
         text: String,
+        relation: Option<RelationDraft>,
     },
     Invite {
         name: String,
@@ -114,9 +126,32 @@ fn submit(input: &str, selected: Option<&str>) -> Result<Action> {
     };
     if let Some(message) = input.strip_prefix("//") {
         return Ok(Action::Send {
+            relation: None,
             name: name()?,
             text: format!("/{message}"),
         });
+    }
+    for prefix in ["/reply ", "/edit ", "/react ", "/unreact "] {
+        if let Some(arguments) = input.strip_prefix(prefix) {
+            let (target, text) = arguments
+                .trim()
+                .split_once(' ')
+                .context("use COMMAND MESSAGE_ID TEXT_OR_REACTION")?;
+            ensure!(!text.trim().is_empty(), "text or reaction is required");
+            let relation = match prefix {
+                "/reply " => RelationDraft::Reply(target.into()),
+                "/edit " => RelationDraft::Edit(target.into()),
+                _ => RelationDraft::Reaction {
+                    target: target.into(),
+                    add: prefix == "/react ",
+                },
+            };
+            return Ok(Action::Send {
+                name: name()?,
+                text: text.into(),
+                relation: Some(relation),
+            });
+        }
     }
     if let Some(path) = input.strip_prefix("/attach ") {
         ensure!(!path.trim().is_empty(), "use /attach PATH");
@@ -160,7 +195,7 @@ fn submit(input: &str, selected: Option<&str>) -> Result<Action> {
                 device: (*device).into(),
             }),
             _ => anyhow::bail!(
-                "Commands: /create NAME, /invite USER [DEVICE], /join INVITER [DEVICE], /members, /attach PATH, /save ID PATH, /help, /quit; // sends a literal slash"
+                "Commands: /create NAME, /invite USER [DEVICE], /join INVITER [DEVICE], /members, /reply ID TEXT, /edit ID TEXT, /react ID VALUE, /unreact ID VALUE, /attach PATH, /save ID PATH, /help, /quit; // sends a literal slash"
             ),
         };
     }
@@ -169,6 +204,7 @@ fn submit(input: &str, selected: Option<&str>) -> Result<Action> {
         "message must contain 1–16384 bytes"
     );
     Ok(Action::Send {
+        relation: None,
         name: name()?,
         text: input.into(),
     })
@@ -280,7 +316,7 @@ impl Ui {
                     self.notice = Notice::Devices;
                     self.input.clear();
                 } else if self.input == "/help" {
-                    self.notice = "Tab channels | Up/Down scroll | PgUp older / PgDn latest | /create NAME | /invite USER [DEVICE] | /join INVITER [DEVICE] | /members | /devices | /attach PATH | /save ID PATH | /quit | // literal slash".into();
+                    self.notice = "Tab channels | Up/Down scroll | PgUp older / PgDn latest | /create NAME | /invite USER [DEVICE] | /join INVITER [DEVICE] | /members | /devices | /reply ID TEXT | /edit ID TEXT | /react ID VALUE | /unreact ID VALUE | /attach PATH | /save ID PATH | /quit | // literal slash".into();
                     self.input.clear();
                 } else {
                     return submit(&self.input, state.selected.as_deref()).map(Some);
@@ -611,10 +647,46 @@ pub fn run(home: PathBuf, server: String) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
+    fn relationship_commands_preserve_text_and_target() -> Result<()> {
+        assert_eq!(
+            submit("/reply abcdef12 hello world", Some("engineering"))?,
+            Action::Send {
+                name: "engineering".into(),
+                text: "hello world".into(),
+                relation: Some(RelationDraft::Reply("abcdef12".into()))
+            }
+        );
+        assert_eq!(
+            submit("/edit abcdef12 revised text", Some("engineering"))?,
+            Action::Send {
+                name: "engineering".into(),
+                text: "revised text".into(),
+                relation: Some(RelationDraft::Edit("abcdef12".into()))
+            }
+        );
+        for (command, add) in [("react", true), ("unreact", false)] {
+            assert_eq!(
+                submit(&format!("/{command} abcdef12 👍"), Some("engineering"))?,
+                Action::Send {
+                    name: "engineering".into(),
+                    text: "👍".into(),
+                    relation: Some(RelationDraft::Reaction {
+                        target: "abcdef12".into(),
+                        add
+                    })
+                }
+            );
+        }
+        assert!(submit("/edit abcdef12", Some("engineering")).is_err());
+        assert!(submit("/reply abcdef12 hello", None).is_err());
+        Ok(())
+    }
+    #[test]
     fn only_visible_message_text_is_marked_read() {
         let state = Snapshot {
             messages: (0..20)
                 .map(|id| MessageView {
+                    message_id: None,
                     id,
                     status: None,
                     sequence: Some(id as u64),
@@ -724,6 +796,7 @@ mod tests {
         assert_eq!(
             submit("//literal", Some("engineering"))?,
             Action::Send {
+                relation: None,
                 name: "engineering".into(),
                 text: "/literal".into()
             }
@@ -798,6 +871,7 @@ mod tests {
                 unread: 2,
             }],
             messages: vec![MessageView {
+                message_id: None,
                 status: None,
                 id: 1,
                 sequence: None,

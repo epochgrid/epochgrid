@@ -174,7 +174,39 @@ def receipt_is(root, owner, plaintext, device, state):
                  (plaintext.encode(), device, state)) == 1
 
 
-def run():
+def exercise_relationships(root, alice, bob, secrets):
+    relation_original = 'TUI_RELATION_ORIGINAL_91F3'
+    relation_edited = 'TUI_RELATION_EDITED_728B'
+    relation_reply = 'TUI_RELATION_REPLY_62F0'
+    secrets.extend([relation_original, relation_edited, relation_reply])
+    alice.type(relation_original + '\r')
+    wait(lambda: has(root, 'bob', relation_original), 'relationship original arrives')
+    relation_id = query(root, 'alice', 'SELECT e.message_id FROM message_events e JOIN transcript t ON t.id=e.transcript_id WHERE t.plaintext=?', (relation_original.encode(),))
+    alice.type('/edit ' + relation_id[:12] + ' ' + relation_edited + '\r')
+    wait(lambda: relation_edited in bob.screen.text and relation_original not in bob.screen.text, 'TUI current edited content')
+    bob.type('/reply ' + relation_id[:12] + ' ' + relation_reply + '\r')
+    wait(lambda: relation_reply in alice.screen.text and 'reply to alice/laptop' in alice.screen.text, 'TUI reply relationship')
+    bob.type('/react ' + relation_id[:12] + ' +\r')
+    wait(lambda: 'reaction +: bob' in alice.screen.text, 'TUI reaction summary')
+    bob.type('/unreact ' + relation_id[:12] + ' +\r')
+    wait(lambda: '[reaction remove' in alice.screen.text and 'reaction +: bob' not in alice.screen.text, 'TUI reaction removal')
+    assert has(root, 'alice', relation_original), 'edit must preserve original plaintext locally'
+
+
+def finish(root, clients, processes, secrets):
+    for client in clients:
+        client.close()
+    for process in processes:
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=5)
+    for path in (root / 'jetstream').rglob('*'):
+        if path.is_file():
+            data = path.read_bytes()
+            assert all(secret.encode() not in data for secret in secrets), 'TUI plaintext in NATS storage'
+
+
+def run(relationships_only=False):
     processes = []
     with tempfile.TemporaryDirectory(prefix='epochgrid-tui-') as directory:
         root = Path(directory)
@@ -228,6 +260,12 @@ def run():
             assert query(root, 'bob', 'SELECT COUNT(*) FROM transcript') == 0
             alice.type('\x1b')
             wait(lambda: 'alice is typing' not in bob.screen.text, 'typing stop or natural expiry')
+            if relationships_only:
+                secrets = []
+                exercise_relationships(root, alice, bob, secrets)
+                finish(root, [alice, bob], processes, secrets)
+                print('EpochGrid TUI stable IDs, replies, edits, reactions, immutable originals and ciphertext-only storage passed')
+                return
             secrets = ['TUI_ALICE_FIRST_91F3', 'TUI_BOB_REPLY_72A1', 'TUI_OFFLINE_QUEUE_5BC7', 'TUI_RECONNECTED_BOB_1D90']
             alice.type(secrets[0] + '\r')
             wait(lambda: has(root, 'bob', secrets[0]) and secrets[0] in bob.screen.text, 'Alice -> Bob render')
@@ -298,17 +336,7 @@ def run():
             destination = root / 'saved attachment.txt'
             bob.type('/save ' + attachment_id + ' ' + str(destination) + '\r')
             wait(lambda: destination.exists() and destination.read_bytes() == attachment.read_bytes(), 'TUI authenticated attachment save')
-            desktop.close()
-            alice.close()
-            bob.close()
-            for process in processes:
-                if process.poll() is None:
-                    process.kill()
-                process.wait(timeout=5)
-            for path in (root / 'jetstream').rglob('*'):
-                if path.is_file():
-                    data = path.read_bytes()
-                    assert all(secret.encode() not in data for secret in secrets), 'TUI plaintext in NATS storage'
+            finish(root, [desktop, alice, bob], processes, secrets)
             print('EpochGrid three-device TUI enrollment, create/invite/join, membership, asynchronous messages, unread, offline queue, reconnect, history, revocation, encrypted attachments, ephemeral typing, device receipts and terminal restoration passed')
         finally:
             for client in CLIENTS:
@@ -319,4 +347,7 @@ def run():
                 process.wait(timeout=5)
 
 if __name__ == '__main__':
-    run()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--relationships-only', action='store_true')
+    run(parser.parse_args().relationships_only)

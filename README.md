@@ -4,7 +4,7 @@ EpochGrid combines NATS infrastructure with MLS end-to-end group encryption.
 Project: https://epochgrid.org.
 Organization: https://github.com/epochgrid.
 
-**Current status: Milestones 0–18 are complete.** EpochGrid has a working secure
+**Current status: Milestones 0–19 are complete.** EpochGrid has a working secure
 messaging alpha with a persistent terminal client and independent devices per user.
 JetStream stores MLS protocol bytes; readable transcripts stay on each device.
 This is unaudited development software, not a production-ready security product.
@@ -20,8 +20,12 @@ This is unaudited development software, not a production-ready security product.
 | 16 | Complete | Client-encrypted attachments via NATS Object Store, protected metadata, explicit save, retention and tamper tests |
 | 17 | Complete | Signed MLS-exporter typing events over Core NATS, bounded expiry and no durable storage |
 | 18 | Complete | Encrypted device delivery/read receipts, distinct server acceptance and visible-message read tracking |
-| 19 | Next | Message relationships |
-| 20 | Planned | Secure service participants |
+| 19 | Complete | Stable application IDs, append-only replies/edits/reactions, authenticated ordering and replay |
+| 20 | Next | Secure service participants |
+
+Use `/reply ID TEXT`, `/edit ID TEXT`, `/react ID VALUE` and `/unreact ID VALUE`
+in the TUI. See [message relationships](docs/message-relations.md) for CLI commands,
+stable IDs, upgrade requirements and edit history. Upgrade all clients together.
 
 See [delivery and read receipts](docs/receipts.md) for device status, offline limits
 and `message receipts CHANNEL [--offline]`.

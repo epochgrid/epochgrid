@@ -1,3 +1,4 @@
+use crate::relationships::{ApplicationEvent, MAX_APPLICATION, Relation};
 use crate::{delivery::flush_outbox, identity::IdentityStore, wire};
 use anyhow::{Result, anyhow, ensure};
 use openmls::prelude::tls_codec::Deserialize as _;
@@ -16,14 +17,27 @@ pub struct DecryptedMessage {
 impl IdentityStore {
     /// Persist the advanced sending ratchet and ciphertext together before network I/O.
     pub fn encrypt_message(&self, name: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
-        ensure!(
-            !plaintext.is_empty() && plaintext.len() <= MAX_PLAINTEXT,
-            "message must contain 1–16384 bytes"
-        );
+        self.encrypt_event(name, &ApplicationEvent::new(self, name, plaintext, None)?)
+    }
+    pub fn encrypt_related(
+        &self,
+        name: &str,
+        relation: Relation,
+        content: &[u8],
+    ) -> Result<Vec<u8>> {
+        self.validate_relation(name, &relation)?;
+        self.encrypt_event(
+            name,
+            &ApplicationEvent::new(self, name, content, Some(relation))?,
+        )
+    }
+    pub(crate) fn encrypt_event(&self, name: &str, event: &ApplicationEvent) -> Result<Vec<u8>> {
+        let application = event.wire()?;
+        let plaintext = event.transcript();
         let descriptor = self.group(name)?;
         let (signer, _) = self.signer()?;
         self.transaction(|| {
-            self.index_attachment(&descriptor.gid, plaintext)?;
+            if event.root() { self.index_attachment(&descriptor.gid, &event.content)?; }
             let mut group = self.load_group(&descriptor)?;
             self.ensure_can_send(&group)?;
             ensure!(
@@ -31,14 +45,16 @@ impl IdentityStore {
                 "invite a peer before sending messages"
             );
             let bytes = group
-                .create_message(&self.provider, &signer, plaintext)
+                .create_message(&self.provider, &signer, &application)
                 .map_err(|e| anyhow!("encrypt MLS application: {e:?}"))?
                 .to_bytes()?;
             self.queue(&descriptor.subject("message"), &bytes)?;
             let identity = self.registration()?.payload;
             self.connection.execute("INSERT INTO transcript(gid,payload,sender,plaintext,outgoing,displayed) VALUES(?1,?2,?3,?4,1,1)",
                 rusqlite::params![descriptor.gid, bytes, format!("{}/{}", identity.user_id, identity.device_id), plaintext])?;
-            self.index_receipt(self.connection.last_insert_rowid(), &descriptor.gid, &bytes)?;
+            let row = self.connection.last_insert_rowid();
+            self.index_receipt(row, &descriptor.gid, &bytes)?;
+            self.index_application(row, &descriptor.gid, &format!("{}/{}", identity.user_id, identity.device_id), &bytes, Some(event), &plaintext)?;
             Ok(bytes)
         })
     }
@@ -95,15 +111,33 @@ impl IdentityStore {
             return Err(InvalidMessage.into());
         };
         let plaintext = message.into_bytes();
-        ensure!(plaintext.len() <= MAX_PLAINTEXT, InvalidMessage);
-        self.index_attachment(&descriptor.gid, &plaintext)?;
+        ensure!(plaintext.len() <= MAX_APPLICATION, InvalidMessage);
+        let event = ApplicationEvent::decode(&plaintext).map_err(|_| InvalidMessage)?;
+        if event.as_ref().is_none_or(|e| e.root()) {
+            self.index_attachment(
+                &descriptor.gid,
+                event
+                    .as_ref()
+                    .map_or(plaintext.as_slice(), |e| e.content.as_slice()),
+            )?;
+        }
+        let plaintext = event.as_ref().map_or(plaintext.clone(), |e| e.transcript());
         self.connection
             .execute("INSERT INTO received(payload) VALUES(?1)", [bytes])?;
         self.connection.execute(
             "INSERT INTO transcript(gid,payload,sender,plaintext,outgoing) VALUES(?1,?2,?3,?4,0)",
             rusqlite::params![descriptor.gid, bytes, sender, plaintext],
         )?;
-        self.index_receipt(self.connection.last_insert_rowid(), &descriptor.gid, bytes)?;
+        let row = self.connection.last_insert_rowid();
+        self.index_receipt(row, &descriptor.gid, bytes)?;
+        self.index_application(
+            row,
+            &descriptor.gid,
+            &sender,
+            bytes,
+            event.as_ref(),
+            &plaintext,
+        )?;
         Ok(Some(DecryptedMessage { sender, plaintext }))
     }
 }

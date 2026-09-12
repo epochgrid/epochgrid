@@ -181,6 +181,32 @@ enum Attachment {
 }
 #[derive(Subcommand)]
 enum Message {
+    /// Inspect immutable event content and full stable IDs.
+    Events {
+        name: String,
+        #[arg(long)]
+        offline: bool,
+    },
+    /// Reply to a message ID (an unambiguous prefix is accepted).
+    Reply {
+        name: String,
+        target: String,
+        text: String,
+    },
+    /// Append a replacement for a text message sent by this device.
+    Edit {
+        name: String,
+        target: String,
+        text: String,
+    },
+    /// Add a reaction, or remove this device's reaction with --remove.
+    React {
+        name: String,
+        target: String,
+        value: String,
+        #[arg(long)]
+        remove: bool,
+    },
     /// Exchange encrypted device receipts, or show locally retained status.
     Receipts {
         name: String,
@@ -428,6 +454,31 @@ async fn main() -> Result<()> {
             chat::interactive(&args.home, &args.server, &name).await?;
         }
         Command::Message { command } => match command {
+            Message::Events { name, offline } => {
+                chat::events(&args.home, &args.server, &name, offline).await?
+            }
+            Message::Reply { name, target, text } => {
+                chat::relate(&args.home, &args.server, &name, &target, &text, "reply").await?
+            }
+            Message::Edit { name, target, text } => {
+                chat::relate(&args.home, &args.server, &name, &target, &text, "edit").await?
+            }
+            Message::React {
+                name,
+                target,
+                value,
+                remove,
+            } => {
+                chat::relate(
+                    &args.home,
+                    &args.server,
+                    &name,
+                    &target,
+                    &value,
+                    if remove { "unreact" } else { "react" },
+                )
+                .await?
+            }
             Message::Receipts {
                 name,
                 wait,
