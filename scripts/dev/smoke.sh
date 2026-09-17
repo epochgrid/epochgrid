@@ -29,7 +29,7 @@ trap 'exit 143' TERM
 ./target/debug/epochgrid dev-config
 docker compose up --build --force-recreate -d
 python3 scripts/dev/wait-nats.py
-./target/debug/epochgrid-service >.dev/smoke-service.log 2>&1 &
+./target/debug/epochgrid-service --dev-static >.dev/smoke-service.log 2>&1 &
 service_pid=$!
 ready=false
 for attempt in {1..50}; do
@@ -53,7 +53,7 @@ cat .dev/smoke-alice.log
 # Each command is a new client process loading the persisted identity.
 ./scripts/dev/create-alice.sh
 stop_service
-./target/debug/epochgrid-service >>.dev/smoke-service.log 2>&1 &
+./target/debug/epochgrid-service --dev-static >>.dev/smoke-service.log 2>&1 &
 service_pid=$!
 ready=false
 for attempt in {1..50}; do

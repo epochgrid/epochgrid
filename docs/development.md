@@ -226,8 +226,9 @@ retention can expire existing objects. The client stores no automatic file cache
 
 Rerun bootstrap when upgrading to regenerate ephemeral subject permissions. Typing
 requires no new flags. Run `./scripts/dev/verify.sh nats` for the bounded live Core
-NATS non-durability test and `./scripts/dev/verify.sh tui` for real terminal typing
-and existing messaging workflows. `cargo test --workspace` also tests dropped-event
+NATS non-durability test and `./scripts/dev/verify.sh tui` for existing messaging
+workflows. Live typing assertions are disabled by default in every TUI smoke mode
+(see [TD-001](technical-debt.md)); a passing smoke run does not validate typing UI. `cargo test --workspace` also tests dropped-event
 ratchet independence, ordering, expiry, tamper, impersonation and revoked leaves.
 See [ephemeral events](ephemeral-events.md) for precise protection and replay limits.
 
@@ -276,3 +277,21 @@ isolated Compose/CLI smoke, and eight verification-helper tests. The new service
 terminal test waits for its specific acknowledged Welcome rather than a stale UI
 notice. Compose smoke now waits at most ten seconds for a complete NATS INFO greeting
 before launching the backend; an open Docker port alone did not establish readiness.
+
+## Dynamic authentication migration
+
+Legacy fixture service invocations require `--dev-static`; the scripts and existing
+acceptance helpers pass it explicitly. No production path falls back to this mode.
+The NATS suite adds a separately bounded (90-second) Auth Callout case using only one
+static auth-service identity, dynamic Alice/Bob enrollment, inbox denial, claim expiry,
+revocation and backend restart without NATS file mutation/reload. Dynamic test transport
+is explicitly development plaintext; the callout exchange is still XKey-encrypted.
+See [operator/auth-callout.md](operator/auth-callout.md) for the current boundary.
+
+Milestone 21 validation: formatting, warnings-denied workspace Clippy, all 55 unit
+checks, workspace build, the bounded harness tests and all 16 live NATS integration
+cases passed. The Compose CLI smoke test and the messaging, relationship and service
+participant TUI smoke tests also passed. The dynamic admission case exercises
+single-use enrollment, inbox isolation, lease expiration, revocation and backend
+restart against an unchanged NATS configuration. This does not yet qualify dynamic
+group messaging or clustered production deployment.

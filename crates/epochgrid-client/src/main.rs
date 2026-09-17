@@ -117,6 +117,11 @@ enum Device {
 }
 #[derive(Subcommand)]
 enum Identity {
+    /// Enroll a canonical device using a one-time token read from stdin.
+    Enroll {
+        #[arg(long, default_value = "laptop")]
+        device: String,
+    },
     Verify {
         user: String,
         #[arg(long, default_value = "laptop")]
@@ -627,6 +632,54 @@ async fn main() -> Result<()> {
                     fingerprint,
                 } => {
                     verify_device(&store, &args.server, &user, &device, &fingerprint).await?;
+                }
+                Identity::Enroll { device } => {
+                    use std::io::Read;
+                    let mut input = zeroize::Zeroizing::new(String::new());
+                    std::io::stdin().take(257).read_to_string(&mut input)?;
+                    let token = input.trim();
+                    let user = epochgrid_core::identity_model::token_user(token)?;
+                    let registration = match store.registration() {
+                        Ok(r) => {
+                            anyhow::ensure!(
+                                r.payload.user_id == user.as_str() && r.payload.device_id == device,
+                                "existing device differs from enrollment; use a fresh home"
+                            );
+                            r
+                        }
+                        Err(_) => store.init(user.as_str(), &device)?,
+                    };
+                    let key = store.nkey()?;
+                    let connect = async_nats::ConnectOptions::with_nkey(key.seed()?)
+                        .token(token.to_owned())
+                        .custom_inbox_prefix(format!("_INBOX.{}", key.public_key()))
+                        .request_timeout(Some(std::time::Duration::from_secs(5)))
+                        .connection_timeout(std::time::Duration::from_secs(5))
+                        .connect(&args.server)
+                        .await;
+                    // A completed enrollment with a lost response can reconnect normally.
+                    let client = match connect {
+                        Ok(c) => c,
+                        Err(_) => epochgrid_core::transport::connect(&args.server, &store).await?,
+                    };
+                    let response = client
+                        .request(
+                            epochgrid_core::auth_callout::ENROLL,
+                            epochgrid_core::wire::encode(epochgrid_core::wire::Body::Enroll {
+                                token: epochgrid_core::wire::EnrollmentToken::new(token),
+                                registration,
+                            })?
+                            .into(),
+                        )
+                        .await?;
+                    anyhow::ensure!(
+                        matches!(
+                            epochgrid_core::wire::decode(&response.payload)?,
+                            epochgrid_core::wire::Body::Registered
+                        ),
+                        "enrollment rejected"
+                    );
+                    println!("EpochGrid device enrolled: {}/{}", user.as_str(), device);
                 }
                 Identity::Init { user, device } => {
                     let r = store.init(&user, &device)?;

@@ -15,7 +15,10 @@ anyhow = "1"
 async-nats = { version = "0.50", default-features = false, features = ["ring", "nkeys", "kv", "object-store", "server_2_10"] }
 clap = { version = "4", features = ["derive", "env"] }
 futures-util = "0.3"
-nkeys = "0.4.5"
+nkeys = { version = "0.4.5", features = ["xkeys"] }
+nats-jwt-rs = "0.1.1"
+data-encoding = "2.6"
+base64 = "0.22"
 openmls = "0.9"
 openmls_basic_credential = "0.6"
 openmls_rust_crypto = "0.6"

@@ -49,6 +49,7 @@ fn server(root: &std::path::Path) -> Result<Process> {
 async fn service(root: &std::path::Path, url: &str) -> Result<Process> {
     let child = Process(
         Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+            .arg("--dev-static")
             .arg("--home")
             .arg(root.join("service"))
             .arg("--enrollment")
@@ -629,3 +630,5 @@ mod receipts;
 mod relationships;
 
 mod participants;
+
+mod auth_callout;

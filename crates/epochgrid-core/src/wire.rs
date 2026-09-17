@@ -90,6 +90,10 @@ pub enum Body {
     RevocationLog(crate::revocation::RevocationLog),
     Revoke(crate::revocation::RevokeRequest),
     Revoked,
+    Enroll {
+        token: EnrollmentToken,
+        registration: DeviceRegistration,
+    },
 }
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Envelope {
@@ -149,5 +153,23 @@ mod tests {
         let mut bytes = encode(Body::Registered).unwrap();
         bytes.push(0);
         assert!(decode(&bytes).is_err());
+    }
+}
+
+/// Enrollment secrets serialize only inside the protected enrollment exchange.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct EnrollmentToken(zeroize::Zeroizing<String>);
+impl EnrollmentToken {
+    pub fn new(value: &str) -> Self {
+        Self(zeroize::Zeroizing::new(value.to_owned()))
+    }
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+impl std::fmt::Debug for EnrollmentToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[REDACTED]")
     }
 }
