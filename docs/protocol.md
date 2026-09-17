@@ -416,3 +416,24 @@ identity; migration creates fresh canonical devices rather than rewriting MLS st
 NATS Auth Callout uses its native encrypted request and signed response/user JWTs, not
 the EpochGrid envelope. See [claim validation and configuration](operator/auth-callout.md).
 The independent auth registry starts at migration 1; client schema remains 8.
+
+### Milestone 22 policy projection (in progress)
+
+Wire version 1 appends discriminants 18 (`GroupPolicy(SignedPolicy)`) and 19
+(`PolicyApplied { generation: u64 }`); existing discriminants remain unchanged.
+The request subject is `epochgrid.v1.channel.policy`. Old services reject it;
+clients must not fall back to broad static permissions on rejection.
+
+The signed bytes are ASCII `epochgrid/group-authorization/v1` followed by NUL and
+Postcard `PolicyUpdate` in declared field order: version (u16, currently 1), gid
+(string, 32 lowercase hex characters), expected_generation (u64), epoch (u64),
+signer (device NKey string), members (vector of device NKey string / leaf u32).
+Members are strictly ordered by leaf index; duplicate devices or leaves are rejected.
+The signature is the device NKey signature over these domain-separated bytes.
+The envelope contains only public authorization metadata, never MLS key material.
+
+Auth registry migration 2 adds authorization_groups and authorization_members;
+client SQLite schema is unchanged. Policy replay, coordinator authority and device
+revocation are checked in the registry transaction. This API currently supports
+policy projection and exact Core NATS group grants; CLI/TUI policy synchronization,
+scoped durable consumers and opaque Welcome relay remain under implementation.

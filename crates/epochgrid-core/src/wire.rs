@@ -94,6 +94,10 @@ pub enum Body {
         token: EnrollmentToken,
         registration: DeviceRegistration,
     },
+    GroupPolicy(crate::authorization::SignedPolicy),
+    PolicyApplied {
+        generation: u64,
+    },
 }
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Envelope {

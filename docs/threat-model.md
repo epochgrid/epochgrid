@@ -221,3 +221,12 @@ single-device bearer credentials; interception before enrollment can hijack admi
 Use TLS and secure token delivery. Callout account/issuer/XKey compromise is highly
 privileged. This does not replace manual MLS identity verification or transparency.
 Dynamic group permissions and the rest of the alpha release gates remain unfinished.
+
+Milestone 22 policy projection: an active coordinator can sign public transport
+membership updates. The service checks admission, policy generation and MLS epoch
+monotonicity, but cannot validate private MLS group state from this metadata alone.
+Transport membership is therefore defense in depth, not proof of MLS membership.
+Revocation atomically removes projected access and selects the lowest remaining
+leaf as coordinator. Existing NATS claims expire before changed permissions take
+effect; MLS rekeying remains a separate required client operation. Durable consumer
+and normal-client integration are not yet complete.

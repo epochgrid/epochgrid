@@ -113,7 +113,7 @@ impl AuthRegistry {
             [],
             |r| r.get(0),
         )?;
-        ensure!(version <= 1, "auth registry is newer than this service");
+        ensure!(version <= 2, "auth registry is newer than this service");
         if version == 0 {
             db.execute_batch("BEGIN IMMEDIATE;
 CREATE TABLE users(id TEXT PRIMARY KEY, enabled INTEGER NOT NULL CHECK(enabled IN (0,1)));
@@ -121,6 +121,12 @@ CREATE TABLE identity_bindings(provider TEXT NOT NULL,subject TEXT NOT NULL,user
 CREATE TABLE enrollment_tokens(digest BLOB PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),expires INTEGER NOT NULL,used_key TEXT);
 CREATE TABLE devices(nkey TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),device_id TEXT NOT NULL,registration BLOB NOT NULL,ready INTEGER NOT NULL DEFAULT 0,revoked INTEGER NOT NULL DEFAULT 0,authorization_generation INTEGER NOT NULL DEFAULT 1,UNIQUE(user_id,device_id));
 INSERT INTO auth_migrations VALUES(1); COMMIT;")?;
+        }
+        if version < 2 {
+            db.execute_batch("BEGIN IMMEDIATE;
+CREATE TABLE authorization_groups(gid TEXT PRIMARY KEY,generation INTEGER NOT NULL,epoch INTEGER NOT NULL,coordinator TEXT NOT NULL,last_update BLOB NOT NULL);
+CREATE TABLE authorization_members(gid TEXT NOT NULL REFERENCES authorization_groups(gid),nkey TEXT NOT NULL REFERENCES devices(nkey),leaf INTEGER NOT NULL,PRIMARY KEY(gid,nkey),UNIQUE(gid,leaf));
+INSERT INTO auth_migrations VALUES(2); COMMIT;")?;
         }
         Ok(Self { db })
     }
@@ -268,9 +274,16 @@ INSERT INTO auth_migrations VALUES(1); COMMIT;")?;
         })
     }
     pub fn revoke(&self, key: &str) -> Result<()> {
-        self.db.execute("UPDATE devices SET revoked=1,authorization_generation=authorization_generation+1 WHERE nkey=?1 AND revoked=0",[key])?;
+        let tx = self.db.unchecked_transaction()?;
+        tx.execute("UPDATE devices SET authorization_generation=authorization_generation+1 WHERE nkey IN (SELECT m.nkey FROM authorization_members m WHERE m.gid IN (SELECT gid FROM authorization_members WHERE nkey=?1))",[key])?;
+        tx.execute("UPDATE authorization_groups SET generation=generation+1,last_update=X'' WHERE gid IN (SELECT gid FROM authorization_members WHERE nkey=?1)",[key])?;
+        tx.execute("DELETE FROM authorization_members WHERE nkey=?1", [key])?;
+        tx.execute("UPDATE authorization_groups SET coordinator=COALESCE((SELECT nkey FROM authorization_members m WHERE m.gid=authorization_groups.gid ORDER BY leaf LIMIT 1),'') WHERE coordinator=?1",[key])?;
+        tx.execute("UPDATE devices SET revoked=1,authorization_generation=authorization_generation+1 WHERE nkey=?1 AND revoked=0",[key])?;
+        tx.commit()?;
         Ok(())
     }
+
     pub fn enrollment(&self) -> Result<Enrollment> {
         self.enrollment_records(false)
     }

@@ -160,3 +160,46 @@ fn enrollment_grants_only_enrollment_and_tampering_fails() -> Result<()> {
     assert!(!format!("{:?}", wire::EnrollmentToken::new(&token)).contains(token.as_str()));
     Ok(())
 }
+
+#[test]
+fn group_claims_are_exact_and_revocation_invalidates_reconnect() -> Result<()> {
+    use crate::authorization::{Member, PolicyUpdate};
+    let mut f = Fixture::new()?;
+    let gid = "a".repeat(32);
+    let policy = PolicyUpdate {
+        version: 1,
+        gid: gid.clone(),
+        expected_generation: 0,
+        epoch: 0,
+        signer: f.device.public_key(),
+        members: vec![Member {
+            nkey: f.device.public_key(),
+            leaf: 0,
+        }],
+    }
+    .sign(&f.device)?;
+    f.registry.apply_policy(&policy)?;
+    let response = f.send(&f.request()?, true)?;
+    let user = Claims::<User>::decode(&response.nats.jwt)?;
+    let permissions = user.nats.permissions.permissions;
+    let expected: Vec<_> = ["message", "handshake", "ephemeral"]
+        .into_iter()
+        .map(|kind| format!("epochgrid.v1.group.{gid}.{kind}"))
+        .collect();
+    for subjects in [&permissions.publish.allow, &permissions.subscribe.allow] {
+        let groups: Vec<_> = subjects
+            .iter()
+            .filter(|s| s.starts_with("epochgrid.v1.group."))
+            .cloned()
+            .collect();
+        assert_eq!(groups, expected);
+        assert!(
+            !subjects
+                .iter()
+                .any(|s| s.starts_with("$JS.API.CONSUMER.CREATE"))
+        );
+    }
+    f.registry.revoke(&f.device.public_key())?;
+    assert!(!f.send(&f.request()?, true)?.nats.error.is_empty());
+    Ok(())
+}

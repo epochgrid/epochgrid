@@ -126,3 +126,11 @@ user key, the binding NATS itself enforces, rather than assuming a JWT ID is the
 connection identity. Denials reveal no enrollment tokens. The protected auth account
 and server-enforced request-subject publication deny are required trust boundaries;
 a self-signed server JWT alone does not establish membership of a trusted fabric.
+
+Milestone 22 work in progress: admitted devices may send signed coordinator updates
+on `epochgrid.v1.channel.policy`. Validated registry membership now grants exact
+`.message`, `.handshake` and `.ephemeral` subjects for each authorized group.
+There is still no blanket group wildcard, cross-device inbox publish permission or
+client consumer-management permission. Normal CLI/TUI dynamic messaging remains
+unavailable pending policy/outbox synchronization, filtered durable consumers and
+Welcome relay. See [the implementation plan](../architecture/dynamic-authorization.md).

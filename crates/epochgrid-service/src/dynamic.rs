@@ -146,7 +146,12 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
         transparency::register(&log, &directory, &enrollment, &key, registration.clone()).await?;
         registry.activate(&registration.payload.nats_public_key)?;
     }
-    let mut controls = client.subscribe("epochgrid.v1.identity.*").await?;
+    let mut controls = futures_util::stream::select(
+        client.subscribe("epochgrid.v1.identity.*").await?,
+        client
+            .subscribe(epochgrid_core::authorization::SUBJECT)
+            .await?,
+    );
     client.flush().await?;
     admission.store(true, std::sync::atomic::Ordering::Release);
     tracing::info!("EpochGrid dynamic identity and Auth Callout service ready");
@@ -164,6 +169,9 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
                     for key in revocations.keys() {registry.revoke(&key)?;}
                     let active=registry.enrollment()?;
                     Ok::<Body,anyhow::Error>(match (message.subject.as_str(),wire::decode(&message.payload)?) {
+                        (epochgrid_core::authorization::SUBJECT, Body::GroupPolicy(policy)) => {
+                            Body::PolicyApplied { generation: registry.apply_policy(&policy)? }
+                        },
                         (auth_callout::ENROLL,Body::Enroll{token,registration})=>{
 
                             registry.enroll(token.as_str(),&registration)?;
