@@ -1,5 +1,16 @@
 # Device revocation — Milestone 14
 
+Current deployment and milestone status: [status index](milestones.md). Local
+plaintext examples require `EPOCHGRID_PROFILE=development`; the complete messaging
+walkthrough still uses development fixtures. See [production TLS](operator/tls.md)
+for secure transport and the remaining dynamic-deployment limits.
+
+The broker-config mutation described below is retained only in the explicit
+`--dev-static` fixture. Production admission/reconnect denial uses Auth Callout
+(Milestone 21); exact grants and policy revocation are implemented in Milestone 22,
+whose client/consumer/Welcome and MLS convergence work is still incomplete.
+
+
 Revocation is an irreversible signed request by an active installation of the same
 user, or by the directory operator. It names the exact registered user, device and
 NKey. It cannot replace keys, restore authorization or erase historical plaintext.

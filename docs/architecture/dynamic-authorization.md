@@ -3,6 +3,8 @@
 Status: policy registry, signed request/reply updates, exact group grants and
 transactional revocation are implemented and tested. Client/consumer/Welcome
 integration remains in progress; dynamic CLI/TUI messaging is not yet supported.
+[Milestone 23 TLS](../operator/tls.md) is implemented independently; it does not
+complete these remaining integration steps. See [current status](../milestones.md).
 
 ## Policy authority and migration
 

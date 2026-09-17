@@ -1,5 +1,10 @@
 # Encrypted attachments — Milestone 16
 
+Current deployment and milestone status: [status index](milestones.md). Local
+plaintext examples require `EPOCHGRID_PROFILE=development`; the complete messaging
+walkthrough still uses development fixtures. See [production TLS](operator/tls.md)
+for secure transport and the remaining dynamic-deployment limits.
+
 Clients encrypt each file with a fresh random AES-256-GCM key and nonce before
 uploading to NATS Object Store `ATTACHMENTS` (`OBJ_ATTACHMENTS`). Object names are
 random 128-bit IDs; descriptions, filenames, MIME types and keys never enter public

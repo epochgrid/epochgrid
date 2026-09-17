@@ -1,4 +1,9 @@
-# EpochGrid architecture — through Milestone 16
+# EpochGrid architecture
+
+Current scope and deployment qualification: [milestone status](milestones.md).
+Milestone 23 provides the shared [TLS profile](operator/tls.md); Milestone 22
+normal-client and durable-consumer integration remains incomplete. The full
+messaging flows described below currently run in explicit development fixtures.
 
 EpochGrid (https://epochgrid.org) uses NATS for
 transport, authentication, authorization, request/reply and persistence. OpenMLS
@@ -272,3 +277,15 @@ validates NKey nonce possession and signs short-lived device grants. The old bac
 mode is explicit `--dev-static` and retains BrokerControl only as a development fixture.
 See [migration inventory and schema](architecture/auth-migration.md) and
 [implemented callout contract](operator/auth-callout.md). No release readiness is implied.
+
+
+## Shared production TLS (Milestone 23)
+
+`epochgrid-core::tls` configures all shipped connection paths, including token
+enrollment and the separate Auth Callout listener. Production requires explicit
+TLS endpoints and sets NATS's required-TLS option across reconnect/discovery.
+Rustls verifies chains and endpoint SANs against OS roots or an explicit PEM bundle;
+there is no insecure verifier. TLS 1.3 is the default minimum; explicit TLS 1.2
+compatibility and TLS-first handshakes are available. Certificate and CA rotation
+remain operator-controlled. Trust bundles are loaded when constructing a connection;
+root rotation requires process restart. Local storage is unchanged and unencrypted.

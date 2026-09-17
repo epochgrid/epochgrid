@@ -1,5 +1,10 @@
 # Delivery and read receipts — Milestone 18
 
+Current deployment and milestone status: [status index](milestones.md). Local
+plaintext examples require `EPOCHGRID_PROFILE=development`; the complete messaging
+walkthrough still uses development fixtures. See [production TLS](operator/tls.md)
+for secure transport and the remaining dynamic-deployment limits.
+
 Submitted means ciphertext and sending state committed locally. Server accepted
 means JetStream acknowledged the original ciphertext. Delivered means a peer device
 has authenticated and persisted the message. Read means that device marked the
@@ -66,14 +71,16 @@ observed; obtaining missing older receipts is not implemented in this alpha.
 Upgrade clients together before using receipt exchange. Existing text/attachment
 and durable MLS formats are unchanged, but older clients cannot reopen a database
 migrated to schema 6. No NATS stream, consumer, bucket, permission, backend flag or
-environment-variable change is needed beyond Milestone 17 ephemeral permissions.
+feature-specific environment-variable change is needed beyond Milestone 17
+ephemeral permissions; the shared Milestone 23 transport profile still applies.
 A device that was not a historical recipient must not infer message delivery from
 its mere current membership. Receipt claims reflect client assertions and cannot
 prove that an honest decryption occurred on a malicious member's endpoint.
 
 ## Validation notes
 
-The baseline quality gates, 39 unit tests, 12 NATS tests and TUI flow passed before
+Historical Milestone 18 evidence: the baseline quality gates, 39 unit tests,
+12 NATS tests and TUI flow passed before
 implementation. Milestone 18 adds migration/receipt and viewport coverage: 42 unit
 tests and 13 live NATS tests pass, together with formatting, warnings-denied clippy,
 workspace build, bounded harness and isolated Compose checks. The old unversioned

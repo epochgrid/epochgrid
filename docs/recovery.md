@@ -1,5 +1,10 @@
 # Restart and recovery — Milestone 9
 
+Current deployment and milestone status: [status index](milestones.md). Local
+plaintext examples require `EPOCHGRID_PROFILE=development`; the complete messaging
+walkthrough still uses development fixtures. See [production TLS](operator/tls.md)
+for secure transport and the remaining dynamic-deployment limits.
+
 This records the original MVP milestone. For current alpha capabilities and limits,
 see [the README](../README.md), [multi-device membership](multi-device.md) and
 [device verification/transparency](device-verification.md).

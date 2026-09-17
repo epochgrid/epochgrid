@@ -1,5 +1,10 @@
 # Multi-device identity — Milestone 12
 
+Current deployment and milestone status: [status index](milestones.md). Local
+plaintext examples require `EPOCHGRID_PROFILE=development`; the complete messaging
+walkthrough still uses development fixtures. See [production TLS](operator/tls.md)
+for secure transport and the remaining dynamic-deployment limits.
+
 A user groups independently enrolled devices. Every installation has its own NKey,
 MLS signing/HPKE keys, MLS leaf, inbox, consumer, SQLite file and ratchets. Operator
 managed enrollment remains authoritative. Adding a device initializes only that

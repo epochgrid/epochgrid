@@ -1,5 +1,11 @@
 # Development notes
 
+See the [current milestone status](milestones.md). Production transport is the
+default. For all local plaintext commands in this document, set
+`export EPOCHGRID_PROFILE=development` in each terminal. Development smoke runners
+select this explicitly; production TLS tests override it per subprocess and require
+OpenSSL for temporary test certificates. See [TLS configuration](operator/tls.md).
+
 Follow README for setup. Bootstrap preserves keys and groups, regenerates public
 configuration/enrollment, verifies a pinned GitHub NATS binary, and builds a
 scratch image with its license. Close device clients before bootstrap and restart
@@ -106,8 +112,8 @@ Alice/desktop and Bob/laptop, including consumer progress migration and restart.
 Run `cargo build --workspace` first, then:
 
 ```bash
-NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service --test registration -- --ignored --test-threads=1
-NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/tui-smoke.py
+EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service --test registration -- --ignored --test-threads=1
+EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/tui-smoke.py
 ```
 
 These isolated tests leave active development clients and the Compose volume alone.
@@ -179,7 +185,7 @@ The shared verification script and CI automatically include the tenth NATS case:
 
 ```bash
 cargo build --workspace
-NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 150 \
+EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 150 \
   cargo test --locked -p epochgrid-service --test registration encrypted_recovery \
   -- --ignored --test-threads=1
 ```
@@ -211,7 +217,7 @@ smoke also sends/saves an attachment with a path containing spaces, then scans s
 NATS storage for the plaintext marker. Run just the new NATS case after building:
 
 ```bash
-NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 150 \
+EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 150 \
   cargo test --locked -p epochgrid-service --test registration attachments \
   -- --ignored --test-threads=1
 ```
@@ -295,3 +301,18 @@ participant TUI smoke tests also passed. The dynamic admission case exercises
 single-use enrollment, inbox isolation, lease expiration, revocation and backend
 restart against an unchanged NATS configuration. This does not yet qualify dynamic
 group messaging or clustered production deployment.
+
+
+## Milestone 23 validation
+
+The existing `./scripts/dev/verify.sh nats` phase includes the production TLS case.
+It uses temporary CAs and real NATS/Auth Callout/client/service binaries: valid
+custom trust, native-root loading through a subprocess-local Linux trust override,
+wrong CA, hostname mismatch, plaintext refusal, TLS version negotiation, retained
+connection certificate rotation, and TLS-first restart. It changes no host trust
+store and uses finite process/outer deadlines. The remaining NATS fixtures explicitly
+use the development profile. No live typing checks have been re-enabled.
+
+The final local Milestone 23 run passed all workspace gates, 60 unit tests, 17 live
+NATS cases, the bounded harness, isolated Compose smoke and all three TUI modes.
+See the [status index](milestones.md) for remaining milestones and CI qualification.

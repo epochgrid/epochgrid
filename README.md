@@ -6,8 +6,9 @@ Organization: https://github.com/epochgrid.
 
 **Current status: MVP and initial alpha features implemented; production-shaped alpha
 preparation is in progress.** Milestone 21 admission works, Milestone 22 dynamic
-authorization is in progress, and live typing UI is deferred (TD-001). EpochGrid has
-a persistent terminal client and independent devices per user.
+authorization is in progress, Milestone 23 provides verified production TLS, and live
+typing UI is deferred (TD-001). See the [current milestone status](docs/milestones.md).
+EpochGrid has a persistent terminal client and independent devices per user.
 JetStream stores MLS protocol bytes; readable transcripts stay on each device.
 This is unaudited development software, not a production-ready security product.
 
@@ -17,13 +18,17 @@ This is unaudited development software, not a production-ready security product.
 | 11 | Complete | Persistent TUI with history, asynchronous messaging, unread indicators and reconnect |
 | 12 | Complete | Independent devices per user, operator enrollment, device discovery, ordered MLS membership catch-up and logical user membership |
 | 13 | Complete | Manual device verification, persistent key-change warnings and a signed Merkle registration log |
-| 14 | Complete | Signed device revocation, native NATS credential exclusion, MLS removal/rekeying and offline reconciliation |
+| 14 | Legacy/dev-only | Signed device revocation, native NATS credential exclusion, MLS removal/rekeying and offline reconciliation |
 | 15 | Complete | Client-encrypted control-credential/trust recovery; fresh device enrollment and re-invitation for messaging |
 | 16 | Complete | Client-encrypted attachments via NATS Object Store, protected metadata, explicit save, retention and tamper tests |
 | 17 | Partial — UI deferred | Encrypted ephemeral transport implemented; live typing indicators are unreliable and their TUI checks are disabled pending [post-alpha review](docs/technical-debt.md) |
 | 18 | Complete | Encrypted device delivery/read receipts, distinct server acceptance and visible-message read tracking |
 | 19 | Complete | Stable application IDs, append-only replies/edits/reactions, authenticated ordering and replay |
 | 20 | Complete | Explicit MLS service participants, encrypted status replies, restart-safe processing and coordinator removal |
+| 21 | Complete admission slice | Canonical identity enrollment and encrypted NATS Auth Callout |
+| 22 | In progress | Signed group policies and scoped grants; client/consumer/Welcome integration remains |
+| 23 | Complete transport milestone | Production TLS, system/custom trust, hostname verification, minimum version and certificate rotation |
+| 24–38 | Not started | Secret storage, deployment qualification, operations and release preparation |
 
 Invite the reference `@status [service]` participant and send `/status` in the TUI.
 See [service setup, trust and removal](docs/service-participants.md). The metadata
@@ -66,11 +71,16 @@ secure local storage and the remaining release gates are still required.
 ## Start development infrastructure
 
 Prerequisites: rustup (Rust 1.98.1 is pinned), a C toolchain for bundled SQLite,
-Docker Engine with Compose v2, Bash, Python 3, curl, tar and sha256sum.
+Docker Engine with Compose v2, Bash, Python 3, OpenSSL (for TLS integration tests),
+curl, tar and sha256sum.
 The development image supports Linux amd64/arm64, including Linux Docker on macOS.
 Host integration tests require Linux or a native NATS server via `NATS_SERVER`.
 
+Production is the default transport profile. In **every terminal** used for the
+local plaintext walkthrough below, explicitly select development:
+
 ```bash
+export EPOCHGRID_PROFILE=development
 ./scripts/dev/bootstrap-nats.sh
 ```
 
@@ -89,6 +99,7 @@ Existing identities and group state are retained.
 Start the host service in a separate terminal:
 
 ```bash
+export EPOCHGRID_PROFILE=development
 ./target/debug/epochgrid-service --dev-static
 ```
 
@@ -329,9 +340,9 @@ cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo build --workspace
-NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service --test registration -- --ignored --test-threads=1
+EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service --test registration -- --ignored --test-threads=1
 ./scripts/dev/smoke.sh
-NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/tui-smoke.py
+EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/tui-smoke.py
 ```
 
 The isolated NATS integration suite covers registration, discovery, authorization,
@@ -385,11 +396,14 @@ revocation remains effective, and resumes two-way messaging with a fresh leaf.
 - The transparency log is bounded to 65,536 encoded bytes and 256 registrations.
   First-contact trust, isolated split views, freshness and account ownership remain
   explicit limits; there is no automatic identity-replacement workflow.
-- Revocation currently manages one NATS broker and service. The service needs the
-  restricted system NKey and access to its public authorization include.
+- The legacy development revocation fixture manages one broker and needs a restricted
+  reload key. Dynamic Auth Callout revocation does not edit NATS configuration;
+  remaining MLS/consumer convergence work is tracked under Milestone 22.
 - Static development group permissions span the Alice/Bob lab namespace. Exact
-  per-group NATS authorization is pending; inbox reads remain device-specific.
-- Loopback development without TLS; SQLite and journals contain unencrypted local
+  grants exist in the dynamic policy path, but normal-client/durable-consumer
+  integration is pending; inbox reads remain device-specific.
+- The explicit loopback development profile permits plaintext. Production connections
+  require [verified TLS](docs/operator/tls.md). SQLite and journals contain unencrypted local
   private state. Use trusted private directories, not production secrets.
 - Recovery restores identity administration only; no old MLS state or transcript is
   backed up. Messaging needs operator enrollment and a surviving group coordinator.

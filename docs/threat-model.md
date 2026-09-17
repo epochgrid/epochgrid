@@ -24,12 +24,16 @@ below; first contact and cross-client split views remain significant limitations
 
 Not hidden: subjects, timing, sizes, connection metadata, usernames, group names
 inside MLS group IDs, public credentials/KeyPackages, or traffic analysis.
-The local Compose setup has no TLS and binds loopback. NKeys do not encrypt
-transport. Configure TLS and trust roots before any remote deployment.
+The explicitly selected development Compose profile has no TLS and binds loopback.
+NKeys do not encrypt transport. Milestone 23 requires verified TLS by default for
+all shipped network paths; [TLS configuration](operator/tls.md) explains trust,
+minimum version and rotation. Production-shaped messaging remains blocked by
+unfinished Milestone 22 integration and later release gates.
 
 Development group permissions use namespace wildcards, so enrolled devices can
 observe unrelated lab ciphertext or inject invalid traffic. MLS rejects invalid
-content; transport authorization does not yet enforce exact membership. Clients
+content. Dynamic policy grants enforce exact group subjects, but normal-client
+and durable-consumer integration is not yet complete. Clients
 can publish to peer inboxes but cannot read them. A malicious enrolled client can
 reserve a peer's initial KeyPackage or block its mailbox with unwanted traffic.
 Availability and request flooding are not protected in this slice.
@@ -230,3 +234,14 @@ Revocation atomically removes projected access and selects the lowest remaining
 leaf as coordinator. Existing NATS claims expire before changed permissions take
 effect; MLS rekeying remains a separate required client operation. Durable consumer
 and normal-client integration are not yet complete.
+
+
+TLS authenticates a server name under the configured CA trust, not the EpochGrid
+user or MLS participant. A compromised trusted CA or fabric endpoint can still
+observe metadata and public control-plane data; MLS protects application content.
+Enrollment tokens must be delivered securely and are exposed to their authorized
+control endpoint. INFO metadata is cleartext with the standard NATS handshake;
+TLS-first protects it too. Reconnect keeps certificate verification enabled, but
+changing a trust bundle requires a new process/connection configuration. The alpha
+has no custom certificate pinning, CRL distribution or mandatory mTLS. TLS does not
+fix unencrypted local state or complete the broader [release gates](milestones.md).
