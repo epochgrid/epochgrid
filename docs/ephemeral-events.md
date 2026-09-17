@@ -1,5 +1,9 @@
 # Ephemeral encrypted events — Milestone 17
 
+Known limitation: live TUI typing indicators are unreliable. Their end-to-end
+assertions are disabled by default pending post-alpha review; see
+[TD-001](technical-debt.md). The transport security tests remain enabled.
+
 Core NATS carries generic versioned `EphemeralEvent` values on
 `epochgrid.v1.group.<gid>.ephemeral`. Initial events are TypingStarted and
 TypingStopped. The event type, timestamp and signature are encrypted. No event

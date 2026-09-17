@@ -18,7 +18,7 @@ This is unaudited development software, not a production-ready security product.
 | 14 | Complete | Signed device revocation, native NATS credential exclusion, MLS removal/rekeying and offline reconciliation |
 | 15 | Complete | Client-encrypted control-credential/trust recovery; fresh device enrollment and re-invitation for messaging |
 | 16 | Complete | Client-encrypted attachments via NATS Object Store, protected metadata, explicit save, retention and tamper tests |
-| 17 | Complete | Signed MLS-exporter typing events over Core NATS, bounded expiry and no durable storage |
+| 17 | Partial — UI deferred | Encrypted ephemeral transport implemented; live typing indicators are unreliable and their TUI checks are disabled pending [post-alpha review](docs/technical-debt.md) |
 | 18 | Complete | Encrypted device delivery/read receipts, distinct server acceptance and visible-message read tracking |
 | 19 | Complete | Stable application IDs, append-only replies/edits/reactions, authenticated ordering and replay |
 | 20 | Complete | Explicit MLS service participants, encrypted status replies, restart-safe processing and coordinator removal |

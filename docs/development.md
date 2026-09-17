@@ -226,8 +226,9 @@ retention can expire existing objects. The client stores no automatic file cache
 
 Rerun bootstrap when upgrading to regenerate ephemeral subject permissions. Typing
 requires no new flags. Run `./scripts/dev/verify.sh nats` for the bounded live Core
-NATS non-durability test and `./scripts/dev/verify.sh tui` for real terminal typing
-and existing messaging workflows. `cargo test --workspace` also tests dropped-event
+NATS non-durability test and `./scripts/dev/verify.sh tui` for existing messaging
+workflows. Live typing assertions are disabled by default in every TUI smoke mode
+(see [TD-001](technical-debt.md)); a passing smoke run does not validate typing UI. `cargo test --workspace` also tests dropped-event
 ratchet independence, ordering, expiry, tamper, impersonation and revoked leaves.
 See [ephemeral events](ephemeral-events.md) for precise protection and replay limits.
 
