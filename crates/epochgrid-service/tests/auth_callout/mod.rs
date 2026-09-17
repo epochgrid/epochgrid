@@ -158,6 +158,135 @@ async fn workflow() -> Result<()> {
         transport::connect(&url, &unknown).await.is_err(),
         "unregistered device admitted"
     );
+    // Exercise the signed policy endpoint: devices never obtain policy-write authority
+    // merely by being admitted to the NATS account.
+    use epochgrid_core::{
+        authorization::{Member, PolicyUpdate, SUBJECT},
+        wire::{self, Body},
+    };
+    use futures_util::StreamExt;
+    let gid = "a".repeat(32);
+    let policy = PolicyUpdate {
+        version: 1,
+        gid: gid.clone(),
+        expected_generation: 0,
+        epoch: 0,
+        signer: a.nats_public_key.clone(),
+        members: vec![Member {
+            nkey: a.nats_public_key.clone(),
+            leaf: 0,
+        }],
+    }
+    .sign(&alice.nkey()?)?;
+    let reply = client
+        .request(
+            SUBJECT,
+            wire::encode(Body::GroupPolicy(policy.clone()))?.into(),
+        )
+        .await?;
+    ensure!(matches!(
+        wire::decode(&reply.payload)?,
+        Body::PolicyApplied { generation: 1 }
+    ));
+    let bob_client = transport::connect(&url, &bob).await?;
+    let mut takeover = policy.update.clone();
+    takeover.signer = b.nats_public_key.clone();
+    takeover.expected_generation = 1;
+    takeover.epoch = 1;
+    takeover.members.push(Member {
+        nkey: b.nats_public_key.clone(),
+        leaf: 1,
+    });
+    let reply = bob_client
+        .request(
+            SUBJECT,
+            wire::encode(Body::GroupPolicy(takeover.sign(&bob.nkey()?)?))?.into(),
+        )
+        .await?;
+    ensure!(matches!(wire::decode(&reply.payload)?, Body::Rejected));
+    let group_client = transport::connect(&url, &alice).await?;
+    let allowed = format!("epochgrid.v1.group.{gid}.ephemeral");
+    let mut events = group_client.subscribe(allowed.clone()).await?;
+    group_client.flush().await?;
+    group_client.publish(allowed, vec![0_u8; 32].into()).await?;
+    ensure!(
+        tokio::time::timeout(Duration::from_secs(2), events.next())
+            .await?
+            .is_some(),
+        "authorized group traffic missing"
+    );
+    // Issue Bob a group grant, then remove it without revoking his whole device.
+    let mut shared = policy.update.clone();
+    shared.expected_generation = 1;
+    shared.epoch = 1;
+    shared.members.push(Member {
+        nkey: b.nats_public_key.clone(),
+        leaf: 1,
+    });
+    let response = client
+        .request(
+            SUBJECT,
+            wire::encode(Body::GroupPolicy(shared.clone().sign(&alice.nkey()?)?))?.into(),
+        )
+        .await?;
+    ensure!(matches!(
+        wire::decode(&response.payload)?,
+        Body::PolicyApplied { generation: 2 }
+    ));
+    let removed_errors = Arc::new(AtomicUsize::new(0));
+    let observed_removal = removed_errors.clone();
+    let member_client = async_nats::ConnectOptions::with_nkey(bob.nkey()?.seed()?)
+        .custom_inbox_prefix(format!("_INBOX.{}", b.nats_public_key))
+        .event_callback(move |event| {
+            let errors = observed_removal.clone();
+            async move {
+                if matches!(event, async_nats::Event::ServerError(async_nats::ServerError::Other(ref message)) if message.to_ascii_lowercase().contains("permissions violation")) {
+                    errors.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        })
+        .connect(&url)
+        .await?;
+    let subject = format!("epochgrid.v1.group.{gid}.ephemeral");
+    let mut membership = member_client.subscribe(subject.clone()).await?;
+    member_client.flush().await?;
+    member_client
+        .publish(subject.clone(), vec![0_u8; 32].into())
+        .await?;
+    ensure!(
+        tokio::time::timeout(Duration::from_secs(2), membership.next())
+            .await?
+            .is_some()
+    );
+    shared.expected_generation = 2;
+    shared.epoch = 2;
+    shared.members.pop();
+    let response = client
+        .request(
+            SUBJECT,
+            wire::encode(Body::GroupPolicy(shared.sign(&alice.nkey()?)?))?.into(),
+        )
+        .await?;
+    ensure!(matches!(
+        wire::decode(&response.payload)?,
+        Body::PolicyApplied { generation: 3 }
+    ));
+    // Lease expiry causes a fresh callout and the existing subscription is denied.
+    tokio::time::timeout(Duration::from_secs(6), async {
+        while removed_errors.load(Ordering::SeqCst) < 1 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .context("removed group subscription survived lease renewal")?;
+    member_client
+        .publish(subject, vec![0_u8; 32].into())
+        .await?;
+    member_client.flush().await?;
+    errors_at_least(&removed_errors, 2).await?;
+    let removed = transport::connect(&url, &bob).await?;
+    ensure!(registry.authorized_groups(&b.nats_public_key)?.is_empty());
+    drop(removed);
     let errors = Arc::new(AtomicUsize::new(0));
     let observed = errors.clone();
     let scoped = async_nats::ConnectOptions::with_nkey(alice.nkey()?.seed()?)
@@ -181,6 +310,14 @@ async fn workflow() -> Result<()> {
         .await?;
     scoped.flush().await?;
     errors_at_least(&errors, 2).await?;
+    let unrelated = format!("epochgrid.v1.group.{}.message", "b".repeat(32));
+    let _other = scoped.subscribe(unrelated.clone()).await?;
+    scoped.flush().await?;
+    errors_at_least(&errors, 3).await?;
+    scoped.publish(unrelated, vec![0_u8; 32].into()).await?;
+    scoped.flush().await?;
+    errors_at_least(&errors, 4).await?;
+
     let disconnected = Arc::new(AtomicUsize::new(0));
     let watch = disconnected.clone();
     let bob_live = async_nats::ConnectOptions::with_nkey(bob.nkey()?.seed()?)

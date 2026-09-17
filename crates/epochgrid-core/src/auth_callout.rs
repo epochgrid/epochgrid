@@ -237,6 +237,12 @@ impl Callout {
                     .subscribe
                     .allow
                     .push("epochgrid.v1.identity.*".into());
+                user.nats
+                    .permissions
+                    .permissions
+                    .subscribe
+                    .allow
+                    .push(crate::authorization::SUBJECT.into());
             } else {
                 let authorization = registry.authorize(&connect.nkey)?;
                 user.nats
@@ -257,6 +263,7 @@ impl Callout {
                 ));
                 user.nats.permissions.permissions.publish.allow = [
                     ENROLL,
+                    crate::authorization::SUBJECT,
                     wire::REGISTER,
                     wire::LOOKUP,
                     wire::DEVICES,
@@ -267,8 +274,26 @@ impl Callout {
                 .into_iter()
                 .map(str::to_owned)
                 .collect();
-                // Group grants and consumers require explicit membership policy (M22).
-                // No default group/attachment/other-device mailbox access.
+                for gid in registry.authorized_groups(&connect.nkey)? {
+                    crate::authorization::validate_gid(&gid)?;
+                    for kind in ["message", "handshake", "ephemeral"] {
+                        let subject = format!("epochgrid.v1.group.{gid}.{kind}");
+                        user.nats
+                            .permissions
+                            .permissions
+                            .publish
+                            .allow
+                            .push(subject.clone());
+                        user.nats
+                            .permissions
+                            .permissions
+                            .subscribe
+                            .allow
+                            .push(subject);
+                    }
+                }
+                // Consumer and Welcome relay permissions are separate integration steps.
+                // Never grant broad stream reads or cross-device mailbox publication.
             }
             if let Some(limits) = &mut user.nats.permissions.limits
                 && let Some(nats) = &mut limits.nats_limits

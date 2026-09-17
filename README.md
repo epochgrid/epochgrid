@@ -4,8 +4,10 @@ EpochGrid combines NATS infrastructure with MLS end-to-end group encryption.
 Project: https://epochgrid.org.
 Organization: https://github.com/epochgrid.
 
-**Current status: Milestones 0–20 are complete.** EpochGrid has a working secure
-messaging alpha with a persistent terminal client and independent devices per user.
+**Current status: MVP and initial alpha features implemented; production-shaped alpha
+preparation is in progress.** Milestone 21 admission works, Milestone 22 dynamic
+authorization is in progress, and live typing UI is deferred (TD-001). EpochGrid has
+a persistent terminal client and independent devices per user.
 JetStream stores MLS protocol bytes; readable transcripts stay on each device.
 This is unaudited development software, not a production-ready security product.
 
@@ -52,8 +54,10 @@ See [architecture](docs/architecture.md), [protocol](docs/protocol.md), and
 
 ## Authentication migration toward alpha
 
-Dynamic NATS Auth Callout admission is being prepared on a provider-neutral identity
-registry. See [the migration inventory](docs/architecture/auth-migration.md) and
+Dynamic NATS Auth Callout admission uses a provider-neutral identity registry.
+Milestone 22 now has signed coordinator policies, exact group subject grants and
+transactional membership revocation. Normal dynamic CLI/TUI messaging still needs
+policy/outbox synchronization, filtered durable consumers and Welcome relay. See [the migration inventory](docs/architecture/auth-migration.md) and
 [Auth Callout setup and current limits](docs/operator/auth-callout.md). The existing
 walkthrough below is an explicitly static development fixture, not the supported
 alpha deployment model. No alpha release has been tagged; dynamic group permissions,
