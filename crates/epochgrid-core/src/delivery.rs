@@ -223,10 +223,7 @@ pub async fn join_next(
     device: &str,
 ) -> Result<Group> {
     let inviter = crate::transparency::lookup(client, store, inviter, device).await?;
-    let js = async_nats::jetstream::new(client.clone());
-    let consumer: async_nats::jetstream::consumer::PullConsumer = js
-        .get_consumer_from_stream(format!("device_{}", store.nkey()?.public_key()), "MAILBOX")
-        .await?;
+    let consumer = transport::device_consumer(store, client, "MAILBOX").await?;
     let mut batch = consumer
         .fetch()
         .max_messages(1)

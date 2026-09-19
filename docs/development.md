@@ -332,3 +332,24 @@ only dynamically enrolled device keys. It creates/invites/joins through the TUI,
 exchanges messages asynchronously and reopens Bob to catch up offline history.
 Every subprocess and phase has a deadline. CI runs this separately from the retained
 static development tests. Live typing assertions remain deferred as TD-001.
+
+### PR #13 lease-expiry CI regression
+
+Push run `35457276144` failed in the dynamic admission test with a bare `timed out`
+after approximately 24 seconds; the PR run on the same commit passed. The harness
+watchdog did not fire. Three local repetitions also passed. The error text and
+absence of later negative-test logs point to the initial MAILBOX consumer INFO
+lookup, but the original run had no backtrace to establish the exact call site.
+
+Consumer INFO reads previously had no retry when an authorization lease expired
+while awaiting a response. CHAT and MAILBOX lookup now renew admission and retry
+once on the typed timeout error only, within an overall 15-second deadline.
+Authorization/configuration errors fail immediately; neither this change nor the
+tests relax permissions, lease-expiry assertions or CI deadlines. Fault-injection
+unit tests cover a lost response, persistent timeouts, other errors and failed
+readmission. CI enables Rust backtraces, and lookup errors identify the stream.
+
+Fix validation passed: formatting, warnings-denied workspace Clippy, 65 unit tests,
+workspace build, all 17 live NATS integration cases, and the dynamic Alice/Bob TUI
+create/invite/join, bidirectional chat, restart/offline catch-up and ciphertext-only
+storage smoke test.

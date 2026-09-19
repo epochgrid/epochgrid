@@ -2,7 +2,7 @@ use crate::{
     identity::{IdentityStore, verify},
     wire::{self, Body, DeviceRegistration},
 };
-use anyhow::{Result, anyhow, ensure};
+use anyhow::{Context, Result, anyhow, ensure};
 use std::{collections::BTreeMap, path::Path, time::Duration};
 
 pub type Enrollment = BTreeMap<String, String>;
@@ -463,6 +463,115 @@ pub async fn request_idempotent(
             Ok(client.request(subject.to_owned(), payload.into()).await?)
         }
         Err(error) => Err(error.into()),
+    }
+}
+
+/// Consumer INFO is read-only. A lease expiry may discard its response; renew
+/// admission and retry once, without retrying authorization/configuration errors.
+pub(crate) async fn device_consumer(
+    store: &IdentityStore,
+    client: &async_nats::Client,
+    stream: &str,
+) -> Result<async_nats::jetstream::consumer::PullConsumer> {
+    let js = async_nats::jetstream::new(client.clone());
+    let name = format!("device_{}", store.nkey()?.public_key());
+    tokio::time::timeout(
+        Duration::from_secs(15),
+        consumer_read_retry(
+            || js.get_consumer_from_stream(name.clone(), stream),
+            || refresh_authorization(client),
+        ),
+    )
+    .await
+    .context("device consumer lookup deadline exceeded")?
+    .with_context(|| format!("{stream} device consumer lookup failed"))
+}
+
+async fn consumer_read_retry<T, F, Fut, R, Renew>(mut read: F, renew: R) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<
+            Output = std::result::Result<T, async_nats::jetstream::stream::ConsumerError>,
+        >,
+    R: FnOnce() -> Renew,
+    Renew: std::future::Future<Output = Result<()>>,
+{
+    use async_nats::jetstream::stream::ConsumerErrorKind;
+    match read().await {
+        Ok(value) => Ok(value),
+        Err(error) if error.kind() == ConsumerErrorKind::TimedOut => {
+            renew()
+                .await
+                .context("renew authorization for consumer lookup")?;
+            Ok(read().await?)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+#[cfg(test)]
+mod consumer_retry_tests {
+    use super::*;
+    use async_nats::jetstream::stream::{ConsumerError, ConsumerErrorKind};
+    use std::cell::Cell;
+
+    #[tokio::test]
+    async fn lost_consumer_response_recovers_once() -> Result<()> {
+        let calls = Cell::new(0);
+        let renewals = Cell::new(0);
+        let value = consumer_read_retry(
+            || {
+                calls.set(calls.get() + 1);
+                std::future::ready(if calls.get() == 1 {
+                    Err(ConsumerError::from(ConsumerErrorKind::TimedOut))
+                } else {
+                    Ok(42)
+                })
+            },
+            || {
+                renewals.set(renewals.get() + 1);
+                std::future::ready(Ok(()))
+            },
+        )
+        .await?;
+        assert_eq!((value, calls.get(), renewals.get()), (42, 2, 1));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn persistent_timeout_is_bounded_and_other_errors_are_not_retried() {
+        for (kind, expected_calls) in [
+            (ConsumerErrorKind::TimedOut, 2),
+            (ConsumerErrorKind::Request, 1),
+            (ConsumerErrorKind::InvalidConsumerType, 1),
+        ] {
+            let calls = Cell::new(0);
+            let result: Result<()> = consumer_read_retry(
+                || {
+                    calls.set(calls.get() + 1);
+                    std::future::ready(Err(ConsumerError::from(kind.clone())))
+                },
+                || std::future::ready(Ok(())),
+            )
+            .await;
+            assert!(result.is_err());
+            assert_eq!(calls.get(), expected_calls);
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_readmission_does_not_retry_consumer_read() {
+        let calls = Cell::new(0);
+        let result: Result<()> = consumer_read_retry(
+            || {
+                calls.set(calls.get() + 1);
+                std::future::ready(Err(ConsumerError::from(ConsumerErrorKind::TimedOut)))
+            },
+            || std::future::ready(Err(anyhow::anyhow!("admission denied"))),
+        )
+        .await;
+        assert!(format!("{:#}", result.unwrap_err()).contains("admission denied"));
+        assert_eq!(calls.get(), 1);
     }
 }
 

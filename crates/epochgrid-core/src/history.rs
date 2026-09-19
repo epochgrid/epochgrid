@@ -137,11 +137,7 @@ pub async fn consumer(
     store: &IdentityStore,
     client: &async_nats::Client,
 ) -> Result<async_nats::jetstream::consumer::PullConsumer> {
-    let consumer: async_nats::jetstream::consumer::PullConsumer =
-        async_nats::jetstream::new(client.clone())
-            .get_consumer_from_stream(format!("device_{}", store.nkey()?.public_key()), "CHAT")
-            .await
-            .context("CHAT consumer unavailable; re-run bootstrap and restart the service")?;
+    let consumer = crate::transport::device_consumer(store, client, "CHAT").await?;
     let info = consumer.cached_info();
     let valid_filters = if store.dynamic_authorization()? {
         info.config.filter_subject.is_empty()
