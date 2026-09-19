@@ -1,5 +1,10 @@
 # Secure service participants — Milestone 20
 
+Current deployment and milestone status: [status index](milestones.md). Local
+plaintext examples require `EPOCHGRID_PROFILE=development`; the complete messaging
+walkthrough still uses development fixtures. See [production TLS](operator/tls.md)
+for secure transport and the remaining dynamic-deployment limits.
+
 The reference `status/service` installation is an ordinary enrolled device with its
 own NKey, independent MLS signing material, mailbox, SQLite database and group leaf.
 It is separate from `epochgrid-service`, the metadata backend. It receives no backend

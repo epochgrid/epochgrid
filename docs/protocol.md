@@ -1,4 +1,7 @@
-# EpochGrid protocol v1 — through Milestone 14
+# EpochGrid protocol v1 — current implementation
+
+See [milestone status](milestones.md) for implemented versus unfinished deployment
+paths. This pre-release protocol is not yet frozen (Milestone 36 remains pending).
 
 NATS request/reply subject: `epochgrid.v1.identity.register`. Registration uses
 this subject exactly; lookup and KeyPackage requests use the fixed subjects
@@ -437,3 +440,12 @@ client SQLite schema is unchanged. Policy replay, coordinator authority and devi
 revocation are checked in the registry transaction. This API currently supports
 policy projection and exact Core NATS group grants; CLI/TUI policy synchronization,
 scoped durable consumers and opaque Welcome relay remain under implementation.
+
+
+## Milestone 23: transport profile
+
+No wire discriminants, MLS formats, recovery/attachment formats or SQLite schemas
+change. Existing plaintext development endpoints now require explicit
+`EPOCHGRID_PROFILE=development`; production requires verified `tls://` transport.
+The standard NATS INFO-then-TLS and optional TLS-first handshakes both keep CONNECT
+credentials and protocol traffic inside TLS. See [TLS options and rotation](operator/tls.md).

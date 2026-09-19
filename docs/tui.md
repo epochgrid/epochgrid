@@ -1,5 +1,10 @@
 # Interactive client — Milestone 11 design
 
+Current deployment and milestone status: [status index](milestones.md). Local
+plaintext examples require `EPOCHGRID_PROFILE=development`; the complete messaging
+walkthrough still uses development fixtures. See [production TLS](operator/tls.md)
+for secure transport and the remaining dynamic-deployment limits.
+
 Baseline: the unchanged `scripts/dev/verify.sh` passed before implementation,
 including four live NATS cases and the two-client Compose workflow.
 
@@ -18,8 +23,8 @@ ciphertext. Storage/crypto errors are surfaced without pretending a send succeed
 The TUI reads existing transcripts and local displayed flags. Active history clears
 local unread flags after rendering; these are not network read receipts. Pages use
 existing stream sequence cursors. No timestamps are invented for old messages.
-No schema or wire changes are needed. Two-device groups and one initial package
-per device remain the MVP limits until Milestone 12.
+Milestone 11 needed no schema or wire changes. Its original two-device limit was
+removed by Milestone 12; one initial KeyPackage per device remains a limitation.
 
 Implemented controls: Tab/BackTab select channels, Enter submits, PgUp/PgDn page history,
 Ctrl-C quits. Slash commands create channels, invite/join with an explicit inviter,

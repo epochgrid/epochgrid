@@ -49,7 +49,7 @@ existing MLS leaf. TUI audit failures are prominent; local transcripts remain
 readable. The service still cannot read application plaintext. See [verification security boundaries](docs/device-verification.md).
 
 
-Milestone 14 records signed revocation intent before native NATS credential removal
+The **development-only static Milestone 14 fixture** records signed revocation intent before native NATS credential removal
 and durable-consumer deletion. A successful response confirms network enforcement;
 offline MLS groups advance when their coordinator returns. Updated clients block new
 encryption with known revoked leaves and block queued old-epoch application ciphertext.
@@ -57,7 +57,7 @@ A revoked coordinator is replaced deterministically, with signing-key authority 
 across leaf-slot reuse. Remaining members process MLS removal Commits and advance epochs.
 Neither removal nor network exclusion erases historical plaintext or endpoint backups.
 
-The service now holds a restricted system-account reload NKey and controls one broker's
+That development fixture holds a restricted system-account reload NKey and controls one broker's
 public authorization include. It remains unable to derive group secrets. An administrator
 can defeat NATS exclusion; post-removal confidentiality relies on MLS. An active same-user
 device or directory operator can authorize revocation. Signed revocation checkpoints
@@ -145,3 +145,20 @@ single-device bearer credentials; interception before enrollment can hijack admi
 Use TLS and secure token delivery. Callout account/issuer/XKey compromise is highly
 privileged. This does not replace manual MLS identity verification or transparency.
 Dynamic group permissions and the rest of the alpha release gates remain unfinished.
+
+
+Milestone 23 makes production TLS mandatory for every shipped NATS connection,
+including enrollment and Auth Callout. Rustls verifies endpoint names and trust
+chains; system roots or an explicit CA bundle are supported. The default minimum
+is TLS 1.3, with an explicit TLS 1.2 compatibility option. No certificate-verification
+bypass exists. Plaintext requires the loudly labeled development profile; TLS
+endpoints still verify certificates in that profile. Leaf rotation is verified on
+reconnect; trust-store rotation requires process restart. TLS authenticates the
+fabric, not the human, and does not protect against a compromised trusted service.
+
+Milestone 22 policy grants are implemented, but normal-client policy synchronization,
+filtered consumers, Welcome relay and complete MLS/NATS convergence remain unfinished.
+Local private state and transcripts remain unencrypted pending Milestones 24–25.
+Typing UI is unreliable and deferred as TD-001. See [current status](docs/milestones.md)
+and [TLS operational requirements](docs/operator/tls.md); no alpha release gate
+should be inferred from historical milestone validation paragraphs alone.

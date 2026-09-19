@@ -1,5 +1,10 @@
 # Message relationships — Milestone 19
 
+Current deployment and milestone status: [status index](milestones.md). Local
+plaintext examples require `EPOCHGRID_PROFILE=development`; the complete messaging
+walkthrough still uses development fixtures. See [production TLS](operator/tls.md)
+for secure transport and the remaining dynamic-deployment limits.
+
 Each new application event has a random nonce, persistent per-device/group counter, content bytes and an optional typed
 relation: ReplyTo, Replace, or Reaction { target, value, add }. The versioned binary
 envelope is inside MLS PrivateMessage. Stable IDs are SHA-256 commitments to a

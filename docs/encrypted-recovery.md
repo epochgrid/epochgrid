@@ -1,5 +1,10 @@
 # Encrypted recovery — Milestone 15
 
+Current deployment and milestone status: [status index](milestones.md). Local
+plaintext examples require `EPOCHGRID_PROFILE=development`; the complete messaging
+walkthrough still uses development fixtures. See [production TLS](operator/tls.md)
+for secure transport and the remaining dynamic-deployment limits.
+
 Recovery exports a device's NATS control credential and public identity/trust
 metadata to a client-encrypted file. It deliberately excludes every MLS private
 key, KeyPackage private bundle, group epoch, ratchet, pending delivery and message

@@ -68,6 +68,12 @@ async fn main() -> Result<()> {
         return result.map_err(Into::into);
     }
     let args = Args::parse();
+    let tls = epochgrid_core::tls::TlsConfig::from_env()?;
+    tls.warn_development();
+    anyhow::ensure!(
+        !args.dev_static || tls.profile == epochgrid_core::tls::Profile::Development,
+        "--dev-static requires EPOCHGRID_PROFILE=development"
+    );
     if let Some(command) = args.command {
         return match command {
             ServiceCommand::AuthInit => dynamic::init(&args.home),

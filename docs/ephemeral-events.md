@@ -1,5 +1,10 @@
 # Ephemeral encrypted events — Milestone 17
 
+Current deployment and milestone status: [status index](milestones.md). Local
+plaintext examples require `EPOCHGRID_PROFILE=development`; the complete messaging
+walkthrough still uses development fixtures. See [production TLS](operator/tls.md)
+for secure transport and the remaining dynamic-deployment limits.
+
 Known limitation: live TUI typing indicators are unreliable. Their end-to-end
 assertions are disabled by default pending post-alpha review; see
 [TD-001](technical-debt.md). The transport security tests remain enabled.
@@ -78,21 +83,20 @@ lack indicators; durable protocol compatibility is unchanged.
 Unit coverage checks encryption, tamper, sender impersonation, freshness, ordering,
 capacity, revocation and restart after 1,100 lost events. The bounded NATS test checks
 live delivery with unchanged CHAT/MAILBOX sequence numbers and no late-subscriber
-replay. The real terminal test exercises typing without inserting a transcript row.
+replay. The optional `--check-typing` terminal test exercises typing without inserting a
+transcript row; it is disabled by default under TD-001.
 
-Validation on this branch: formatting, warnings-denied workspace clippy, 39 unit
+Historical Milestone 17 validation (not current test totals or typing UI qualification): formatting, warnings-denied workspace clippy, 39 unit
 tests, workspace build, all 12 live NATS tests, the three-device PTY workflow and
 isolated Compose chat/restart/history smoke test passed. The Compose check used a
 free host port because an existing local fabric owned 4222; no existing fabric was
 stopped or reset. All subprocess workflows retain the existing watchdog deadlines.
 
-The TUI smoke probe waits for the completed join UI state, then continues editing
-an unsent draft every 500 ms until activity is observed, under the original fixed
-25-second deadline. This models continued typing over a lossy transport instead of
-requiring one short burst to arrive during worker synchronization. Harness regression
-tests simulate six seconds of initial loss and verify that a missing indicator still
-fails at its deadline. Production event freshness, idle expiry and CI timeouts are
-unchanged.
+The diagnostic TUI probe uses separated typing bursts with varied pauses under a
+fixed 25-second deadline. Its simulated timing/loss tests remain enabled, but this
+does not establish that the real typing UI is reliable. Default CI explicitly skips
+the live typing assertions; see [TD-001](technical-debt.md). All messaging and
+cryptographic ephemeral-event assertions remain enabled.
 
 
 Milestone 18 reuses this protected transport for receipt queries and responses.

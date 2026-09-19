@@ -255,6 +255,7 @@ enum Message {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    epochgrid_core::tls::TlsConfig::from_env()?.warn_development();
     tracing_subscriber::fmt()
         .with_env_filter(if matches!(args.command, Command::Tui) {
             tracing_subscriber::EnvFilter::new("off")
@@ -650,11 +651,8 @@ async fn main() -> Result<()> {
                         Err(_) => store.init(user.as_str(), &device)?,
                     };
                     let key = store.nkey()?;
-                    let connect = async_nats::ConnectOptions::with_nkey(key.seed()?)
+                    let connect = transport::connection_options(&args.server, &key)?
                         .token(token.to_owned())
-                        .custom_inbox_prefix(format!("_INBOX.{}", key.public_key()))
-                        .request_timeout(Some(std::time::Duration::from_secs(5)))
-                        .connection_timeout(std::time::Duration::from_secs(5))
                         .connect(&args.server)
                         .await;
                     // A completed enrollment with a lost response can reconnect normally.

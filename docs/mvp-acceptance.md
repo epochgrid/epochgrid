@@ -1,5 +1,10 @@
 # MVP acceptance — Milestone 10
 
+Current deployment and milestone status: [status index](milestones.md). Local
+plaintext examples require `EPOCHGRID_PROFILE=development`; the complete messaging
+walkthrough still uses development fixtures. See [production TLS](operator/tls.md)
+for secure transport and the remaining dynamic-deployment limits.
+
 This records the original MVP milestone. For current alpha capabilities and limits,
 see [the README](../README.md), [multi-device membership](multi-device.md) and
 [device verification/transparency](device-verification.md).
@@ -25,11 +30,11 @@ The acceptance case can also be run separately after building the workspace and
 running `scripts/dev/download-nats.sh`:
 
 ```bash
-NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service --test registration mvp::cli_mvp_ciphertext_only_and_restart -- --ignored
+EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service --test registration mvp::cli_mvp_ciphertext_only_and_restart -- --ignored
 ```
 
-Ordinary `cargo test --workspace` explicitly ignores the four NATS integration
-cases. The verification script and CI run them with `--ignored`; a passing ordinary
+Ordinary `cargo test --workspace` explicitly ignores the live NATS integration
+cases (originally four at Milestone 10; expanded by later milestones). The verification script and CI run them with `--ignored`; a passing ordinary
 test run alone is not the complete MVP gate. Test-only OpenMLS dependencies use
 the same workspace versions as the client implementation.
 
@@ -95,10 +100,12 @@ It inspects stored data and service logs, not every network frame or process mem
 Passing MLS framing checks alone would not establish confidentiality; successful
 peer decryption and the existing tampering/replay tests provide additional evidence.
 
-Production TLS, exact per-group NATS authorization, member removal/key-update
-lifecycle, forward-secrecy/post-compromise-security validation, KeyPackage
+The original MVP did not qualify production TLS, per-group authorization or a full
+identity lifecycle. Subsequent milestones add removal, scoped recovery, dynamic
+admission/policy grants and verified TLS; see [current status](milestones.md).
+Full dynamic messaging convergence, comprehensive post-compromise testing, KeyPackage
 replenishment/expiry, encrypted local key storage, hardware power-loss tolerance
-and safe backup restore remain unimplemented or unvalidated. Local transcripts
+and rollback-safe full-state restore remain unimplemented or unvalidated. Local transcripts
 are intentionally plaintext development storage. Public metadata and traffic
 analysis remain visible. See [the threat model](threat-model.md) and
 [security policy](../SECURITY.md).

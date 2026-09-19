@@ -62,6 +62,12 @@ impl Config {
         Ok(config)
     }
     pub fn check_transport(&self, url: &str) -> Result<()> {
+        let tls = crate::tls::TlsConfig::from_env()?;
+        tls.validate_endpoint(url)?;
+        ensure!(
+            !self.development_plaintext || tls.profile == crate::tls::Profile::Development,
+            "development_plaintext requires EPOCHGRID_PROFILE=development"
+        );
         ensure!(
             self.development_plaintext || url.starts_with("tls://"),
             "TLS required; development_plaintext is a development-only bypass"
@@ -71,9 +77,13 @@ impl Config {
     pub async fn connect(&self, url: &str) -> Result<async_nats::Client> {
         self.check_transport(url)?;
         let seed = read_seed(&self.connection_seed)?;
-        Ok(async_nats::ConnectOptions::with_nkey(seed.to_string())
-            .connection_timeout(Duration::from_secs(5))
-            .request_timeout(Some(Duration::from_secs(2)))
+        Ok(crate::tls::TlsConfig::from_env()?
+            .apply(
+                url,
+                async_nats::ConnectOptions::with_nkey(seed.to_string())
+                    .connection_timeout(Duration::from_secs(5))
+                    .request_timeout(Some(Duration::from_secs(2))),
+            )?
             .connect(url)
             .await?)
     }

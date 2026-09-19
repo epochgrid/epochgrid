@@ -1008,6 +1008,8 @@ dependencies = [
  "openmls_traits",
  "postcard",
  "rusqlite",
+ "rustls",
+ "rustls-native-certs",
  "serde",
  "serde_json",
  "tempfile",

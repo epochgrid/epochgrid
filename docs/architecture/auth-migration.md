@@ -66,6 +66,6 @@ switching admission to callout fixes the previous shared CHAT consumer exposure.
 No normal enrollment/revocation action may edit a NATS file, reload a server, regenerate
 operator JWTs, or restart a broker. Integration config is operator-owned. Account
 isolation and `allowed_accounts` preserve unrelated workloads; operator/JWT mode needs
-its own tested profile before being claimed supported. TLS, protected local secrets,
-full BYO cluster validation and release artifacts remain later gates, not completed
-features of this migration.
+its own tested profile before being claimed supported. [Milestone 23 TLS](../operator/tls.md)
+is implemented. Protected local secrets, full BYO cluster validation and release
+artifacts remain later gates; see the [current status](../milestones.md).

@@ -9,7 +9,7 @@ phase() {
     unit) python3 scripts/dev/run-bounded.py 180 cargo test --locked --workspace ;;
     build) python3 scripts/dev/run-bounded.py 300 cargo build --locked --workspace ;;
     nats) python3 scripts/dev/run-bounded.py 120 ./scripts/dev/download-nats.sh
-          NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 360 cargo test --locked -p epochgrid-service --test registration -- --ignored --test-threads=1 ;;
+          env -u EPOCHGRID_TLS_CA_PATH -u EPOCHGRID_TLS_FIRST -u EPOCHGRID_TLS_MIN_VERSION EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 360 cargo test --locked -p epochgrid-service --test registration -- --ignored --test-threads=1 ;;
     compose) python3 scripts/dev/run-bounded.py 180 ./scripts/dev/smoke.sh ;;
     tui) NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 180 python3 scripts/dev/tui-smoke.py ;;
     relations-tui) NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 90 python3 scripts/dev/tui-smoke.py --relationships-only ;;

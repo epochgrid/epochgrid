@@ -65,8 +65,12 @@ keeps its directory-signing NKey in `HOME/control`, independently of the issuer.
 connections on this deadline; reconnect requires a new signed, current-state grant.
 The backend connection currently uses the same TTL. `development_plaintext` defaults
 to false. Setting it true is an explicit, logged development-only exception; it is
-never a supported alpha transport profile. Without it, the service requires a TLS
-URL and callout evidence that the requesting client used TLS.
+never a supported alpha transport profile and also requires
+`EPOCHGRID_PROFILE=development`. Production rejects this setting. The shared
+[Milestone 23 TLS profile](tls.md) configures trust roots, minimum TLS version and
+TLS-first for both service connections and clients. With `development_plaintext`
+disabled, the service also requires callout evidence that the requesting client
+used TLS. See the [current milestone status](../milestones.md) for deployment limits.
 
 ```bash
 epochgrid-service --home ./epochgrid-state --server tls://nats.example.org:4222 \

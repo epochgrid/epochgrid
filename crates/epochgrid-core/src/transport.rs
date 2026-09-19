@@ -8,13 +8,19 @@ use std::{collections::BTreeMap, path::Path, time::Duration};
 pub type Enrollment = BTreeMap<String, String>;
 pub async fn connect(url: &str, store: &IdentityStore) -> Result<async_nats::Client> {
     let key = store.nkey()?;
-    Ok(async_nats::ConnectOptions::with_nkey(key.seed()?)
-        .custom_inbox_prefix(format!("_INBOX.{}", key.public_key()))
-        .request_timeout(Some(Duration::from_secs(5)))
-        .connection_timeout(Duration::from_secs(5))
-        .connect(url)
-        .await?)
+    Ok(connection_options(url, &key)?.connect(url).await?)
 }
+/// Includes shared TLS policy, request isolation, and finite connection deadlines.
+pub fn connection_options(url: &str, key: &nkeys::KeyPair) -> Result<async_nats::ConnectOptions> {
+    crate::tls::TlsConfig::from_env()?.apply(
+        url,
+        async_nats::ConnectOptions::with_nkey(key.seed()?)
+            .custom_inbox_prefix(format!("_INBOX.{}", key.public_key()))
+            .request_timeout(Some(Duration::from_secs(5)))
+            .connection_timeout(Duration::from_secs(5)),
+    )
+}
+
 pub async fn register(client: &async_nats::Client, registration: DeviceRegistration) -> Result<()> {
     let response = client
         .request(

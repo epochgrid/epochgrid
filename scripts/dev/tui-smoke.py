@@ -18,6 +18,10 @@ import time
 BINARY = str(Path('target/debug/epochgrid').resolve())
 SERVER = os.environ.get('NATS_SERVER', str(Path('.dev/nats-image/nats-server').resolve()))
 CLIENTS = []
+# This runner owns only isolated, explicitly plaintext development fixtures.
+os.environ['EPOCHGRID_PROFILE'] = 'development'
+for tls_option in ('EPOCHGRID_TLS_CA_PATH', 'EPOCHGRID_TLS_FIRST', 'EPOCHGRID_TLS_MIN_VERSION'):
+    os.environ.pop(tls_option, None)
 
 class Screen:
     """The cursor/erase subset emitted by Crossterm; assertions use rendered cells."""

@@ -1,5 +1,10 @@
 # Device verification and transparency — Milestone 13
 
+Current deployment and milestone status: [status index](milestones.md). Local
+plaintext examples require `EPOCHGRID_PROFILE=development`; the complete messaging
+walkthrough still uses development fixtures. See [production TLS](operator/tls.md)
+for secure transport and the remaining dynamic-deployment limits.
+
 Each installation retains observed device fingerprints, manual verification state,
 and a signed Merkle checkpoint for the registration directory. These controls detect
 changes within that installation's observed history. They do not prove ownership of
