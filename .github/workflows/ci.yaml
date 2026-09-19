@@ -35,6 +35,9 @@ jobs:
       - name: Interactive TUI smoke
         timeout-minutes: 4
         run: ./scripts/dev/verify.sh tui
+      - name: Dynamic Auth Callout TUI smoke
+        timeout-minutes: 4
+        run: ./scripts/dev/verify.sh dynamic-tui
       - name: Message relationship TUI smoke
         timeout-minutes: 2
         run: ./scripts/dev/verify.sh relations-tui

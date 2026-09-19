@@ -71,13 +71,43 @@ async fn errors_at_least(errors: &AtomicUsize, count: usize) -> Result<()> {
 #[tokio::test]
 #[ignore = "requires built workspace binaries and nats-server; run explicitly in CI"]
 async fn dynamic_enrollment_inbox_isolation_revocation_without_reload() -> Result<()> {
-    tokio::time::timeout(Duration::from_secs(90), workflow())
-        .await
-        .context("dynamic auth test exceeded 90s")?
-}
-async fn workflow() -> Result<()> {
     let temp = tempfile::tempdir()?;
-    let root = temp.path();
+    let result = tokio::time::timeout(Duration::from_secs(180), workflow(temp.path()))
+        .await
+        .context("dynamic auth test exceeded 180s")?;
+    if result.is_err() {
+        for file in ["backend.log", "nats.log"] {
+            eprintln!(
+                "{file}: {}",
+                std::fs::read_to_string(temp.path().join(file)).unwrap_or_default()
+            );
+        }
+    }
+    result
+}
+// A three-second lease intentionally races request/reply. Resume is durable and
+// idempotent; exercise the same finite retry behavior as the persistent client.
+async fn resume(
+    store: &IdentityStore,
+    client: &async_nats::Client,
+    name: &str,
+) -> Result<epochgrid_core::history::SyncReport> {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        let mut last = None;
+        for _ in 0..3 {
+            match epochgrid_core::history::resume(store, client, name).await {
+                Ok(report) => return Ok(report),
+                Err(error) => last = Some(error),
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        Err(last.context("resume had no attempts")?)
+    })
+    .await
+    .context("dynamic resume exceeded 20s")?
+}
+
+async fn workflow(root: &Path) -> Result<()> {
     init(root).await?;
     let path = root.join("backend/auth.json");
     let mut config: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
@@ -152,6 +182,76 @@ async fn workflow() -> Result<()> {
     let found =
         epochgrid_core::transparency::lookup(&client, &alice, &b.user_id, &b.device_id).await?;
     ensure!(found.payload.nats_public_key == b.nats_public_key);
+    // The same normal client functions used by CLI/TUI must work with no static users.
+    use epochgrid_core::{delivery, history};
+    let token = registry.invite("alice", 60)?;
+    cli(
+        root,
+        &url,
+        "desktop",
+        &["identity", "enroll", "--device", "desktop"],
+        Some(token.as_bytes()),
+    )
+    .await?;
+    let desktop = IdentityStore::open(&root.join("desktop"))?;
+    let d = desktop.registration()?.payload;
+    let desktop_client = transport::connect(&url, &desktop).await?;
+    let bob_chat = transport::connect(&url, &bob).await?;
+    alice.create_group("engineering")?;
+    delivery::invite(&alice, &client, "engineering", &b.user_id, &b.device_id).await?;
+    delivery::join_next(&bob, &bob_chat, &a.user_id, &a.device_id).await?;
+    delivery::invite(&alice, &client, "engineering", &d.user_id, &d.device_id).await?;
+    delivery::join_next(&desktop, &desktop_client, &a.user_id, &a.device_id).await?;
+    resume(&bob, &bob_chat, "engineering").await?;
+    let secret = b"EPOCHGRID_DYNAMIC_SECRET_91F3";
+    let encrypted = alice.encrypt_message("engineering", secret)?;
+    delivery::flush_outbox(&alice, &client).await?;
+    for (store, connection) in [(&bob, &bob_chat), (&desktop, &desktop_client)] {
+        resume(store, connection, "engineering").await?;
+        ensure!(
+            store
+                .history("engineering", 20, None)?
+                .iter()
+                .any(|m| m.plaintext.as_deref() == Some(secret))
+        );
+    }
+    ensure!(!encrypted.windows(secret.len()).any(|w| w == secret));
+    bob.encrypt_message("engineering", b"dynamic reply")?;
+    delivery::flush_outbox(&bob, &bob_chat).await?;
+    resume(&alice, &client, "engineering").await?;
+    ensure!(
+        alice
+            .history("engineering", 20, None)?
+            .iter()
+            .any(|m| m.plaintext.as_deref() == Some(b"dynamic reply"))
+    );
+    // A device remains admitted while losing access to a single group.
+    alice.remove_member("engineering", &d.user_id, &d.device_id)?;
+    delivery::flush_outbox(&alice, &client).await?;
+    resume(&bob, &bob_chat, "engineering").await?;
+    ensure!(registry.authorized_groups(&d.nats_public_key)?.is_empty());
+    let future = alice.encrypt_message("engineering", b"after member removal")?;
+    ensure!(desktop.decrypt_message("engineering", &future).is_err());
+    delivery::flush_outbox(&alice, &client).await?;
+    resume(&bob, &bob_chat, "engineering").await?;
+    let consumer = history::consumer(&desktop, &desktop_client).await?;
+    ensure!(consumer.cached_info().config.filter_subjects == ["epochgrid.v1.group._none_.message"]);
+    // Keep two active leaves after revocation so post-rekey messaging is exercised.
+    let token = registry.invite("alice", 60)?;
+    cli(
+        root,
+        &url,
+        "phone",
+        &["identity", "enroll", "--device", "phone"],
+        Some(token.as_bytes()),
+    )
+    .await?;
+    let phone = IdentityStore::open(&root.join("phone"))?;
+    let p = phone.registration()?.payload;
+    let phone_client = transport::connect(&url, &phone).await?;
+    delivery::invite(&alice, &client, "engineering", &p.user_id, &p.device_id).await?;
+    delivery::join_next(&phone, &phone_client, &a.user_id, &a.device_id).await?;
+    resume(&bob, &bob_chat, "engineering").await?;
     let mut unknown = IdentityStore::open(&root.join("unknown"))?;
     unknown.init(&a.user_id, "unknown")?;
     ensure!(
@@ -285,7 +385,11 @@ async fn workflow() -> Result<()> {
     member_client.flush().await?;
     errors_at_least(&removed_errors, 2).await?;
     let removed = transport::connect(&url, &bob).await?;
-    ensure!(registry.authorized_groups(&b.nats_public_key)?.is_empty());
+    ensure!(
+        !registry
+            .authorized_groups(&b.nats_public_key)?
+            .contains(&gid)
+    );
     drop(removed);
     let errors = Arc::new(AtomicUsize::new(0));
     let observed = errors.clone();
@@ -294,7 +398,7 @@ async fn workflow() -> Result<()> {
         .event_callback(move |event| {
             let errors = observed.clone();
             async move {
-                if matches!(event, async_nats::Event::ServerError(_)) {
+                if matches!(event, async_nats::Event::ServerError(async_nats::ServerError::Other(ref message)) if message.to_ascii_lowercase().contains("permissions violation")) {
                     errors.fetch_add(1, Ordering::SeqCst);
                 }
             }
@@ -317,6 +421,26 @@ async fn workflow() -> Result<()> {
     scoped.publish(unrelated, vec![0_u8; 32].into()).await?;
     scoped.flush().await?;
     errors_at_least(&errors, 4).await?;
+
+    for (index, subject) in [
+        format!(
+            "$JS.API.CONSUMER.MSG.NEXT.CHAT.device_{}",
+            b.nats_public_key
+        ),
+        format!(
+            "$JS.API.CONSUMER.MSG.NEXT.MAILBOX.device_{}",
+            b.nats_public_key
+        ),
+        "$JS.API.STREAM.MSG.GET.CHAT".into(),
+        "$JS.API.CONSUMER.CREATE.CHAT.forbidden".into(),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        scoped.publish(subject, "{}".into()).await?;
+        scoped.flush().await?;
+        errors_at_least(&errors, index + 5).await?;
+    }
 
     let disconnected = Arc::new(AtomicUsize::new(0));
     let watch = disconnected.clone();
@@ -348,6 +472,49 @@ async fn workflow() -> Result<()> {
     })
     .await
     .context("existing revoked connection did not expire")?;
+    let before = alice.group_epoch("engineering")?;
+    resume(&alice, &client, "engineering").await?;
+    ensure!(
+        alice.group_epoch("engineering")? == before + 1,
+        "revocation did not advance MLS epoch"
+    );
+    ensure!(alice.members("engineering")?.len() == 2);
+    let revoked_future = alice.encrypt_message("engineering", b"after device revocation")?;
+    ensure!(bob.decrypt_message("engineering", &revoked_future).is_err());
+    delivery::flush_outbox(&alice, &client).await?;
+    let policy = registry
+        .policy_state(&alice.group("engineering")?.gid)?
+        .context("missing converged policy")?;
+    ensure!(policy.epoch == alice.group_epoch("engineering")? && policy.members.len() == 2);
+    resume(&phone, &phone_client, "engineering").await?;
+    ensure!(
+        phone
+            .history("engineering", 20, None)?
+            .iter()
+            .any(|m| m.plaintext.as_deref() == Some(b"after device revocation"))
+    );
+    drop(phone);
+    drop(phone_client);
+    let phone = IdentityStore::open(&root.join("phone"))?;
+    let phone_client = transport::connect(&url, &phone).await?;
+    phone.encrypt_message("engineering", b"restart after revocation")?;
+    delivery::flush_outbox(&phone, &phone_client).await?;
+    resume(&alice, &client, "engineering").await?;
+    ensure!(
+        alice
+            .history("engineering", 20, None)?
+            .iter()
+            .any(|m| m.plaintext.as_deref() == Some(b"restart after revocation"))
+    );
+    // Inspect the actual stream representation, not only local encryption output.
+    let mut stream = async_nats::jetstream::new(admin.clone())
+        .get_stream("CHAT")
+        .await?;
+    let last = stream.info().await?.state.last_sequence;
+    for sequence in 1..=last {
+        let stored = stream.get_raw_message(sequence).await?;
+        ensure!(!stored.payload.windows(secret.len()).any(|w| w == secret));
+    }
     ensure!(std::fs::read_to_string(root.join("nats.conf"))? == config);
     ensure!(
         !root.join("backend/auth/users.conf").exists()

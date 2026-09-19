@@ -420,7 +420,7 @@ NATS Auth Callout uses its native encrypted request and signed response/user JWT
 the EpochGrid envelope. See [claim validation and configuration](operator/auth-callout.md).
 The independent auth registry starts at migration 1; client schema remains 8.
 
-### Milestone 22 policy projection (in progress)
+### Milestone 22 dynamic policy and delivery
 
 Wire version 1 appends discriminants 18 (`GroupPolicy(SignedPolicy)`) and 19
 (`PolicyApplied { generation: u64 }`); existing discriminants remain unchanged.
@@ -437,9 +437,37 @@ The envelope contains only public authorization metadata, never MLS key material
 
 Auth registry migration 2 adds authorization_groups and authorization_members;
 client SQLite schema is unchanged. Policy replay, coordinator authority and device
-revocation are checked in the registry transaction. This API currently supports
-policy projection and exact Core NATS group grants; CLI/TUI policy synchronization,
-scoped durable consumers and opaque Welcome relay remain under implementation.
+revocation are checked in the registry transaction. Normal CLI/TUI creation and
+membership changes persist a version-1 authorization intent in the existing outbox
+transaction alongside MLS state. Public leaf signature keys and serialized credentials
+resolve to exactly one authenticated directory registration. No private MLS state
+is sent. Policy is applied before the corresponding Commit/Welcome, with bounded
+reconnect to acquire fresh grants; retries compare current epoch and membership.
+
+Version 1 additionally appends discriminants 20 (`PolicyQuery { gid }`), 21
+(`PolicyState(Option<PolicyState>)`), 22 (`RelayWelcome(WelcomeRelay)`) and 23
+(`WelcomeRelayed`). Policy queries use `epochgrid.v1.channel.policy`; these return
+non-secret generation/epoch/coordinator/member metadata for a known group ID.
+Relay requests use `epochgrid.v1.channel.welcome`. Old services reject the new
+variants; upgrade the service before clients. No existing discriminant changes.
+
+`WelcomeRelay` is version (u16, 1), gid (string), epoch (u64), recipient (device NKey),
+sender (coordinator NKey), id (positive local outbox i64), payload (opaque encoded
+Welcome envelope), signature (bytes). Sign ASCII `epochgrid/welcome-relay/v1`, NUL,
+then Postcard of all fields except signature in the listed order. The service checks
+both devices' admission, the current coordinator, membership, epoch, signature and
+MLS Welcome framing. It derives the recipient inbox from the registry and waits
+for MAILBOX persistence before replying. `Nats-Msg-Id` is `welcome:SENDER:ID`;
+beyond JetStream's deduplication window, the client's Welcome deduplication remains
+authoritative. Replay cannot restore revoked or removed membership.
+
+CHAT/MAILBOX still store MLS ciphertext/Welcome envelopes, not policy intents.
+The service alone manages durable consumer filters. Devices get only their own
+consumer INFO/NEXT/ACK permissions. Filter changes replace the consumer to discard
+removed-subject redelivery, replaying available matching history safely through
+local sequence deduplication. No groups maps to `epochgrid.v1.group._none_.message`;
+`_none_` is not a valid group ID. Existing application wire, attachment/recovery
+formats and SQLite schema versions are unchanged.
 
 
 ## Milestone 23: transport profile

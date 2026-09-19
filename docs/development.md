@@ -316,3 +316,19 @@ use the development profile. No live typing checks have been re-enabled.
 The final local Milestone 23 run passed all workspace gates, 60 unit tests, 17 live
 NATS cases, the bounded harness, isolated Compose smoke and all three TUI modes.
 See the [status index](milestones.md) for remaining milestones and CI qualification.
+
+
+## Milestone 22 dynamic messaging validation
+
+The Auth Callout NATS case now exercises real MLS chat across independent enrolled
+devices, group removal, generation changes, unauthorized inbox/group/consumer access,
+revoked active-connection expiry, reconnect denial, coordinator rekeying and messages
+after restart. It checks actual CHAT payloads for a recognizable plaintext marker
+and proves the NATS configuration is unchanged with no reload. Three-second claims
+intentionally exercise expiry; catch-up retries are bounded and idempotent.
+
+Run `./scripts/dev/verify.sh dynamic-tui` for actual Alice/Bob pseudo-terminals using
+only dynamically enrolled device keys. It creates/invites/joins through the TUI,
+exchanges messages asynchronously and reopens Bob to catch up offline history.
+Every subprocess and phase has a deadline. CI runs this separately from the retained
+static development tests. Live typing assertions remain deferred as TD-001.

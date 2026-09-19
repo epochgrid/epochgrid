@@ -1,14 +1,16 @@
 # Device revocation — Milestone 14
 
 Current deployment and milestone status: [status index](milestones.md). Local
-plaintext examples require `EPOCHGRID_PROFILE=development`; the complete messaging
-walkthrough still uses development fixtures. See [production TLS](operator/tls.md)
-for secure transport and the remaining dynamic-deployment limits.
+plaintext examples require `EPOCHGRID_PROFILE=development`; this historical
+walkthrough uses development fixtures. Dynamic CLI/TUI messaging and revocation
+are documented under [Auth Callout](operator/auth-callout.md).
 
 The broker-config mutation described below is retained only in the explicit
 `--dev-static` fixture. Production admission/reconnect denial uses Auth Callout
-(Milestone 21); exact grants and policy revocation are implemented in Milestone 22,
-whose client/consumer/Welcome and MLS convergence work is still incomplete.
+(Milestone 21). Milestone 22 connects exact grants, filtered consumers and signed
+Welcome relay to normal clients. A revoked device cannot reconnect; existing
+connections expire within their configured lease. Remaining coordinators remove
+revoked MLS leaves and publish the next epoch without a NATS reload.
 
 
 Revocation is an irreversible signed request by an active installation of the same

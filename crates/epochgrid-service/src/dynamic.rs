@@ -75,6 +75,26 @@ authorization {{
     );
     Ok(())
 }
+/// Repair durable lifecycle state before opening admission after a partial operation.
+async fn repair_state(
+    registry: &AuthRegistry,
+    client: &async_nats::Client,
+    log: &async_nats::jetstream::kv::Store,
+    directory: &async_nats::jetstream::kv::Store,
+    key: &nkeys::KeyPair,
+) -> Result<()> {
+    let registrations = transparency::read(log).await?;
+    for revoked in revocation::read(log, &registrations).await?.keys() {
+        registry.revoke(&revoked)?;
+    }
+    let enrollment = registry.historical_enrollment()?;
+    for registration in registry.registrations()? {
+        transparency::register(log, directory, &enrollment, key, registration.clone()).await?;
+        registry.activate(&registration.payload.nats_public_key)?;
+    }
+    epochgrid_core::authorization::reconcile_consumers(registry, client).await
+}
+
 struct AuthTask(tokio::task::JoinHandle<Result<()>>);
 impl Drop for AuthTask {
     fn drop(&mut self) {
@@ -146,17 +166,23 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
         transparency::register(&log, &directory, &enrollment, &key, registration.clone()).await?;
         registry.activate(&registration.payload.nats_public_key)?;
     }
+    epochgrid_core::authorization::reconcile_consumers(&registry, &client).await?;
     let mut controls = futures_util::stream::select(
         client.subscribe("epochgrid.v1.identity.*").await?,
-        client
-            .subscribe(epochgrid_core::authorization::SUBJECT)
-            .await?,
+        client.subscribe("epochgrid.v1.channel.*").await?,
     );
     client.flush().await?;
     admission.store(true, std::sync::atomic::Ordering::Release);
     tracing::info!("EpochGrid dynamic identity and Auth Callout service ready");
+    let mut repair = tokio::time::interval(Duration::from_secs(1));
+    repair.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
+            _=repair.tick(), if !admission.load(std::sync::atomic::Ordering::Acquire)=> {
+                if matches!(tokio::time::timeout(Duration::from_secs(5),repair_state(&registry, &client, &log, &directory, &key)).await, Ok(Ok(()))) {
+                    admission.store(true, std::sync::atomic::Ordering::Release);
+                }
+            },
             signal=tokio::signal::ctrl_c()=>{signal?;break},
             result=&mut auth_task.0=>{result??;anyhow::bail!("auth handler stopped")},
             message=controls.next()=>{
@@ -164,11 +190,23 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
                 let Some(reply)=message.reply else {continue};
                 if !reply.as_str().starts_with("_INBOX.") {continue}
                 let response=tokio::time::timeout(Duration::from_secs(5),async {
+                    let request = wire::decode(&message.payload)?;
+                    let mutating = matches!(&request, Body::GroupPolicy(_) | Body::Enroll {..} | Body::Revoke(_) | Body::Register(_));
+                    if mutating {admission.store(false, std::sync::atomic::Ordering::Release);}
                     let registrations=transparency::read(&log).await?;
                     let revocations=revocation::read(&log,&registrations).await?;
                     for key in revocations.keys() {registry.revoke(&key)?;}
                     let active=registry.enrollment()?;
-                    Ok::<Body,anyhow::Error>(match (message.subject.as_str(),wire::decode(&message.payload)?) {
+                    let body = match (message.subject.as_str(),request) {
+                        (epochgrid_core::authorization::SUBJECT, Body::PolicyQuery {gid}) => Body::PolicyState(registry.policy_state(&gid)?),
+                        (epochgrid_core::authorization::RELAY, Body::RelayWelcome(relay)) => {
+                            let subject = relay.validate(&registry)?;
+                            let mut headers = async_nats::HeaderMap::new();
+                            headers.insert("Nats-Msg-Id", format!("welcome:{}:{}", relay.sender, relay.id));
+                            async_nats::jetstream::new(client.clone()).publish_with_headers(subject, headers, relay.payload.into()).await?.await?;
+                            Body::WelcomeRelayed
+                        },
+                        (wire::KEYPACKAGE,Body::ClaimKeyPackage {user,device,group})=>transport::claim(&directory,&active,&user,&device,&group).await?,
                         (epochgrid_core::authorization::SUBJECT, Body::GroupPolicy(policy)) => {
                             Body::PolicyApplied { generation: registry.apply_policy(&policy)? }
                         },
@@ -195,8 +233,17 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
                         (wire::LOOKUP,Body::Lookup{user,device})=>transport::find(&directory,&active,&user,&device).await?,
                         (wire::DEVICES,Body::ListDevices{user})=>epochgrid_core::devices::find_devices(&directory,&active,&user).await?,
                         _=>Body::Rejected,
-                    })
+                    };
+                    if mutating {
+                        epochgrid_core::authorization::reconcile_consumers(&registry, &client).await?;
+                        admission.store(true, std::sync::atomic::Ordering::Release);
+                    }
+                    Ok::<Body, anyhow::Error>(body)
                 }).await;
+                if !admission.load(std::sync::atomic::Ordering::Acquire)
+                    && matches!(tokio::time::timeout(Duration::from_secs(5), repair_state(&registry, &client, &log, &directory, &key)).await, Ok(Ok(()))) {
+                    admission.store(true, std::sync::atomic::Ordering::Release);
+                }
                 let body=match response {Ok(Ok(body))=>body,_=>{tracing::warn!("dynamic identity operation rejected");Body::Rejected}};
                 let bytes=wire::encode(body).or_else(|_|wire::encode(Body::Rejected))?;
                 client.publish(reply,bytes.into()).await?;

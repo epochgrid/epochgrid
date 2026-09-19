@@ -60,7 +60,8 @@ struct Session {
     selected: Option<String>,
     before: Option<u64>,
     client: Option<async_nats::Client>,
-    ephemeral: Option<async_nats::Subscriber>,
+    ephemeral: Option<futures_util::stream::SelectAll<async_nats::Subscriber>>,
+    ephemeral_groups: Vec<String>,
     typing: TypingState,
     receipt_poll: Instant,
     receipt_cursor: usize,
@@ -82,6 +83,7 @@ impl Session {
             before: None,
             client: None,
             ephemeral: None,
+            ephemeral_groups: Vec::new(),
             typing: TypingState::default(),
             receipt_poll: Instant::now(),
             receipt_cursor: 0,
@@ -201,12 +203,23 @@ impl Session {
                 self.client = Some(transport::connect(&self.server, &self.store).await?);
             }
             let client = self.client.as_ref().context("connection missing")?;
-            if self.ephemeral.is_none() {
-                self.ephemeral = Some(client.subscribe("epochgrid.v1.group.*.ephemeral").await?);
-                client.flush().await?;
-            }
             epochgrid_core::transparency::audit(client, &self.store).await?;
             delivery::flush_outbox(&self.store, client).await?;
+            let subjects: Vec<_> = self
+                .store
+                .groups()?
+                .iter()
+                .map(|g| g.subject("ephemeral"))
+                .collect();
+            if self.ephemeral.is_none() || self.ephemeral_groups != subjects {
+                let mut subscriptions = Vec::new();
+                for subject in &subjects {
+                    subscriptions.push(client.subscribe(subject.clone()).await?);
+                }
+                client.flush().await?;
+                self.ephemeral = Some(futures_util::stream::select_all(subscriptions));
+                self.ephemeral_groups = subjects;
+            }
             if let Some(group) = self.store.groups()?.first() {
                 history::catch_up(&self.store, client, &group.name).await?;
                 for group in self.store.groups()? {

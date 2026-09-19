@@ -85,6 +85,7 @@ impl IdentityStore {
             )
             .map_err(|e| anyhow!("create MLS group: {e:?}"))?;
             self.refresh_coordinator(&self.load_group(&descriptor)?)?;
+            self.queue_policy(&self.load_group(&descriptor)?)?;
             Ok(descriptor)
         })
     }

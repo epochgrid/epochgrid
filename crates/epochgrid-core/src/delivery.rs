@@ -55,21 +55,19 @@ impl IdentityStore {
             let (commit, welcome, _) = group
                 .add_members(&self.provider, &signer, &[package])
                 .map_err(|e| anyhow!("MLS add member: {e:?}"))?;
-            // Queue encrypted Commit before Welcome; both are committed with MLS state.
-            self.queue(&descriptor.subject("handshake"), &commit.to_bytes()?)?;
-            self.queue(
-                &format!(
-                    "epochgrid.v1.user.{}.{}.inbox",
-                    recipient.payload.user_id, recipient.payload.device_id
-                ),
-                &wire::encode(Body::Welcome {
-                    payload: welcome.to_bytes()?,
-                })?,
-            )?;
             group
                 .merge_pending_commit(&self.provider)
                 .map_err(|e| anyhow!("merge local commit: {e:?}"))?;
             self.refresh_coordinator(&group)?;
+            self.queue_policy(&group)?;
+            self.queue(&descriptor.subject("handshake"), &commit.to_bytes()?)?;
+            self.queue_welcome(
+                &group,
+                recipient,
+                wire::encode(Body::Welcome {
+                    payload: welcome.to_bytes()?,
+                })?,
+            )?;
             Ok(())
         })
     }
@@ -145,7 +143,7 @@ impl IdentityStore {
     }
 }
 pub async fn flush_outbox(store: &IdentityStore, client: &async_nats::Client) -> Result<()> {
-    crate::transparency::audit(client, store).await?;
+    let snapshot = crate::transparency::audit(client, store).await?;
     ensure!(
         !store.is_revoked(&store.nkey()?.public_key())?,
         "this device is revoked"
@@ -165,6 +163,12 @@ pub async fn flush_outbox(store: &IdentityStore, client: &async_nats::Client) ->
         })?
         .collect::<Result<Vec<_>, _>>()?;
     for (id, subject, payload) in rows {
+        if crate::authorization::dispatch(store, client, &snapshot, id, &subject, &payload).await? {
+            store
+                .connection
+                .execute("UPDATE outbox SET sent=1 WHERE id=?1", [id])?;
+            continue;
+        }
         let mut headers = async_nats::HeaderMap::new();
         headers.insert(
             "Nats-Msg-Id",
@@ -239,6 +243,9 @@ pub async fn join_next(
         .double_ack()
         .await
         .map_err(|e| anyhow!("acknowledge Welcome: {e}"))?;
+    if store.dynamic_authorization()? {
+        transport::refresh_authorization(client).await?;
+    }
     Ok(descriptor)
 }
 

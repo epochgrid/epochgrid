@@ -143,8 +143,24 @@ pub async fn consumer(
             .await
             .context("CHAT consumer unavailable; re-run bootstrap and restart the service")?;
     let info = consumer.cached_info();
+    let valid_filters = if store.dynamic_authorization()? {
+        info.config.filter_subject.is_empty()
+            && !info.config.filter_subjects.is_empty()
+            && info.config.filter_subjects.iter().all(|subject| {
+                if subject == "epochgrid.v1.group._none_.message" {
+                    return true;
+                }
+                let parts: Vec<_> = subject.split('.').collect();
+                parts.len() == 5
+                    && parts[..3] == ["epochgrid", "v1", "group"]
+                    && crate::authorization::validate_gid(parts[3]).is_ok()
+                    && matches!(parts[4], "message" | "handshake")
+            })
+    } else {
+        info.config.filter_subject == "epochgrid.v1.group.*.*"
+    };
     ensure!(
-        info.config.filter_subject == "epochgrid.v1.group.*.*" && info.config.max_ack_pending == 1,
+        valid_filters && info.config.max_ack_pending == 1,
         "unexpected CHAT consumer configuration"
     );
     Ok(consumer)

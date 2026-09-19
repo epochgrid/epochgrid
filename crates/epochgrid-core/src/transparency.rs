@@ -200,16 +200,13 @@ pub async fn audit(
     local: &identity::IdentityStore,
 ) -> Result<Snapshot> {
     let result = async {
-        let reply = client
-            .request(wire::AUDIT, wire::encode(Body::RegistrationAudit)?.into())
-            .await?;
+        let reply =
+            crate::transport::request_idempotent(client, wire::AUDIT, Body::RegistrationAudit)
+                .await?;
         let snapshot = decode(&reply.payload)?;
-        let reply = client
-            .request(
-                wire::REVOCATIONS,
-                wire::encode(Body::RevocationAudit)?.into(),
-            )
-            .await?;
+        let reply =
+            crate::transport::request_idempotent(client, wire::REVOCATIONS, Body::RevocationAudit)
+                .await?;
         let Body::RevocationLog(revocations) = wire::decode(&reply.payload)? else {
             anyhow::bail!("revocation audit missing; upgrade service")
         };

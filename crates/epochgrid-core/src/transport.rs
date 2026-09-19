@@ -297,17 +297,16 @@ pub async fn claim_keypackage(
     wire::validate_id(user)?;
     wire::validate_id(device)?;
     wire::validate_id(group)?;
-    let response = client
-        .request(
-            wire::KEYPACKAGE,
-            wire::encode(Body::ClaimKeyPackage {
-                user: user.into(),
-                device: device.into(),
-                group: group.into(),
-            })?
-            .into(),
-        )
-        .await?;
+    let response = request_idempotent(
+        client,
+        wire::KEYPACKAGE,
+        Body::ClaimKeyPackage {
+            user: user.into(),
+            device: device.into(),
+            group: group.into(),
+        },
+    )
+    .await?;
     let Body::Found(registration) = wire::decode(&response.payload)? else {
         anyhow::bail!(
             "KeyPackage unavailable (one invitation per device until replenishment is implemented)"
@@ -335,7 +334,7 @@ pub async fn provision_mailboxes(
         wire::validate_id(parts[1])?;
         wire::validate_id(parts[3])?;
         nkeys::KeyPair::from_public_key(key)?;
-        stream
+        let consumer = stream
             .get_or_create_consumer(
                 &format!("device_{key}"),
                 async_nats::jetstream::consumer::pull::Config {
@@ -349,6 +348,16 @@ pub async fn provision_mailboxes(
                 },
             )
             .await?;
+        let config = &consumer.cached_info().config;
+        ensure!(
+            config.filter_subject == format!("epochgrid.v1.user.{}.{}.inbox", parts[1], parts[3])
+                && config.filter_subjects.is_empty()
+                && config.max_ack_pending == 1
+                && config.max_batch == 1
+                && config.deliver_subject.is_none()
+                && config.ack_policy == async_nats::jetstream::consumer::AckPolicy::Explicit,
+            "MAILBOX consumer has unsafe configuration; admission remains closed"
+        );
     }
     Ok(())
 }
@@ -417,6 +426,44 @@ subscribe: ["{inbox}", "epochgrid.v1.group.*.message", "epochgrid.v1.group.*.eph
         ));
     }
     format!("users: [{}]\n", entries.join(",\n"))
+}
+
+/// Wait for a newly admitted connection before using changed subject permissions.
+/// async-nats flush only drains the writer; it is not a reconnect acknowledgment.
+pub async fn refresh_authorization(client: &async_nats::Client) -> Result<()> {
+    use std::sync::atomic::Ordering;
+    let stats = client.statistics();
+    let before = stats.connects.load(Ordering::Relaxed);
+    client.force_reconnect().await?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while stats.connects.load(Ordering::Relaxed) <= before {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        client.flush().await
+    })
+    .await??;
+    Ok(())
+}
+
+/// Idempotent control operations can lose a response when a device lease expires.
+/// Renew authorization and retry once; callers retain an overall deadline.
+pub async fn request_idempotent(
+    client: &async_nats::Client,
+    subject: &str,
+    body: Body,
+) -> Result<async_nats::Message> {
+    let payload = wire::encode(body)?;
+    match client
+        .request(subject.to_owned(), payload.clone().into())
+        .await
+    {
+        Ok(message) => Ok(message),
+        Err(error) if error.kind() == async_nats::RequestErrorKind::TimedOut => {
+            refresh_authorization(client).await?;
+            Ok(client.request(subject.to_owned(), payload.into()).await?)
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 #[cfg(test)]

@@ -84,11 +84,13 @@ impl IdentityStore {
                 .remove_members(&self.provider, &signer, &removed)
                 .map_err(|e| anyhow!("MLS remove revoked leaves: {e:?}"))?;
             ensure!(welcome.is_none(), "removal unexpectedly produced a Welcome");
-            self.queue(&descriptor.subject("handshake"), &commit.to_bytes()?)?;
+
             group
                 .merge_pending_commit(&self.provider)
                 .map_err(|e| anyhow!("persist removal Commit: {e:?}"))?;
             self.refresh_coordinator(&group)?;
+            self.queue_policy(&group)?;
+            self.queue(&descriptor.subject("handshake"), &commit.to_bytes()?)?;
             Ok(true)
         })
     }

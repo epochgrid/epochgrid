@@ -98,6 +98,12 @@ pub enum Body {
     PolicyApplied {
         generation: u64,
     },
+    PolicyQuery {
+        gid: String,
+    },
+    PolicyState(Option<crate::authorization::PolicyState>),
+    RelayWelcome(crate::authorization::WelcomeRelay),
+    WelcomeRelayed,
 }
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Envelope {
