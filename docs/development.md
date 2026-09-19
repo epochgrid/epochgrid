@@ -316,3 +316,40 @@ use the development profile. No live typing checks have been re-enabled.
 The final local Milestone 23 run passed all workspace gates, 60 unit tests, 17 live
 NATS cases, the bounded harness, isolated Compose smoke and all three TUI modes.
 See the [status index](milestones.md) for remaining milestones and CI qualification.
+
+
+## Milestone 22 dynamic messaging validation
+
+The Auth Callout NATS case now exercises real MLS chat across independent enrolled
+devices, group removal, generation changes, unauthorized inbox/group/consumer access,
+revoked active-connection expiry, reconnect denial, coordinator rekeying and messages
+after restart. It checks actual CHAT payloads for a recognizable plaintext marker
+and proves the NATS configuration is unchanged with no reload. Three-second claims
+intentionally exercise expiry; catch-up retries are bounded and idempotent.
+
+Run `./scripts/dev/verify.sh dynamic-tui` for actual Alice/Bob pseudo-terminals using
+only dynamically enrolled device keys. It creates/invites/joins through the TUI,
+exchanges messages asynchronously and reopens Bob to catch up offline history.
+Every subprocess and phase has a deadline. CI runs this separately from the retained
+static development tests. Live typing assertions remain deferred as TD-001.
+
+### PR #13 lease-expiry CI regression
+
+Push run `35457276144` failed in the dynamic admission test with a bare `timed out`
+after approximately 24 seconds; the PR run on the same commit passed. The harness
+watchdog did not fire. Three local repetitions also passed. The error text and
+absence of later negative-test logs point to the initial MAILBOX consumer INFO
+lookup, but the original run had no backtrace to establish the exact call site.
+
+Consumer INFO reads previously had no retry when an authorization lease expired
+while awaiting a response. CHAT and MAILBOX lookup now renew admission and retry
+once on the typed timeout error only, within an overall 15-second deadline.
+Authorization/configuration errors fail immediately; neither this change nor the
+tests relax permissions, lease-expiry assertions or CI deadlines. Fault-injection
+unit tests cover a lost response, persistent timeouts, other errors and failed
+readmission. CI enables Rust backtraces, and lookup errors identify the stream.
+
+Fix validation passed: formatting, warnings-denied workspace Clippy, 65 unit tests,
+workspace build, all 17 live NATS integration cases, and the dynamic Alice/Bob TUI
+create/invite/join, bidirectional chat, restart/offline catch-up and ciphertext-only
+storage smoke test.

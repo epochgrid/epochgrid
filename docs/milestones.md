@@ -18,7 +18,7 @@ No `v0.1.0-alpha.1` tag or production-ready release has been published.
 | 19 | Complete in development model | Append-only replies, edits and reactions |
 | 20 | Complete in development model | Explicit MLS service participation and removal |
 | 21 | Complete admission slice | Canonical users, local single-use enrollment tokens, encrypted Auth Callout and dynamic revocation denial |
-| 22 | In progress | Signed coordinator policies, exact group grants, generation checks, transactional policy revocation and lease-expiry tests implemented; normal-client policy synchronization, filtered durable consumers, Welcome relay and full MLS/NATS convergence remain |
+| 22 | Complete | Signed policies synchronized with the MLS outbox; exact grants, filtered durable consumers, signed Welcome relay, bounded lease expiry and revocation/rekey convergence; dynamic CLI/TUI chat and restart tested |
 | 23 | Complete transport milestone | Shared production TLS profile, system/custom roots, name validation, configurable minimum version, TLS-first and certificate-rotation tests |
 | 24–25 | Not started | OS secret storage and protected SQLite state |
 | 26–28 | Not started | Qualified BYO-NATS contract, initialization/validation and backend privilege separation |
@@ -28,28 +28,41 @@ No `v0.1.0-alpha.1` tag or production-ready release has been published.
 
 ## Which deployment path works today?
 
-The complete messaging/TUI walkthrough still uses explicitly **development-only**
+The original README walkthrough uses explicitly **development-only**
 static NATS fixtures. Set `EPOCHGRID_PROFILE=development` in each terminal used for
 those commands. The provided development smoke runners select it explicitly and
 print a warning. This is not the alpha deployment model.
 
-The production-shaped path supports dynamic enrollment/admission and signed group
-policy operations over verified TLS. It does not yet support the complete normal
-CLI/TUI messaging workflow because Milestone 22 integration remains unfinished.
+The production-shaped path supports dynamic enrollment/admission and normal
+CLI/TUI encrypted chat, invitations, durable catch-up and revocation over verified
+TLS. Use the [dynamic walkthrough](operator/auth-callout.md#dynamic-client-walkthrough).
+Dynamic attachment access and the broader BYO-NATS qualification remain separate
+release work; the complete development feature set is not yet release-qualified.
 Completing TLS does not imply the alpha release gates are met. Local secrets and
 transcripts remain unencrypted pending Milestones 24–25.
 
 See [TLS](operator/tls.md), [Auth Callout](operator/auth-callout.md),
 [dynamic authorization](architecture/dynamic-authorization.md), and
-[deferred typing indicators](technical-debt.md). Finish Milestone 22 before claiming
-production-shaped end-to-end messaging support; Milestone 24 is the next numbered
-release-preparation milestone after TLS.
+[deferred typing indicators](technical-debt.md). Milestone 24 (Linux secret storage)
+is the next release-preparation milestone.
 
 
-## Latest local validation — Milestone 23
+## Historical local validation — Milestone 23
 
 Formatting, warnings-denied workspace Clippy, 60 unit tests, workspace build and
 all 17 live NATS integration cases passed. The bounded harness, isolated Compose
 CLI smoke and all three TUI smoke modes also passed. Typing assertions remain
 explicitly skipped under TD-001. These are local results; branch CI is a separate
 required check before merging. No release tag or artifact publication is implied.
+
+## Latest local validation — Milestone 22 completion
+
+Formatting, warnings-denied workspace Clippy, 62 unit tests and workspace build
+passed. All 17 live NATS integration cases, the bounded harness, Compose CLI smoke
+and all four TUI modes passed, including the new dynamic Auth Callout TUI flow.
+The final lease/retry adjustment was also checked with the expanded dynamic
+lifecycle case. It proves unchanged NATS configuration, no reload, per-group and
+per-device isolation, active-connection expiry, revoked reconnect denial, MLS epoch
+advancement and remaining-device messaging after restart. CI runs the new TUI mode
+with an independent deadline. Protected-branch CI remains required before merge;
+these local results are not a release tag or production security certification.

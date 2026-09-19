@@ -2,7 +2,7 @@ use crate::{
     identity::{IdentityStore, verify},
     wire::{self, Body, DeviceRegistration},
 };
-use anyhow::{Result, anyhow, ensure};
+use anyhow::{Context, Result, anyhow, ensure};
 use std::{collections::BTreeMap, path::Path, time::Duration};
 
 pub type Enrollment = BTreeMap<String, String>;
@@ -297,17 +297,16 @@ pub async fn claim_keypackage(
     wire::validate_id(user)?;
     wire::validate_id(device)?;
     wire::validate_id(group)?;
-    let response = client
-        .request(
-            wire::KEYPACKAGE,
-            wire::encode(Body::ClaimKeyPackage {
-                user: user.into(),
-                device: device.into(),
-                group: group.into(),
-            })?
-            .into(),
-        )
-        .await?;
+    let response = request_idempotent(
+        client,
+        wire::KEYPACKAGE,
+        Body::ClaimKeyPackage {
+            user: user.into(),
+            device: device.into(),
+            group: group.into(),
+        },
+    )
+    .await?;
     let Body::Found(registration) = wire::decode(&response.payload)? else {
         anyhow::bail!(
             "KeyPackage unavailable (one invitation per device until replenishment is implemented)"
@@ -335,7 +334,7 @@ pub async fn provision_mailboxes(
         wire::validate_id(parts[1])?;
         wire::validate_id(parts[3])?;
         nkeys::KeyPair::from_public_key(key)?;
-        stream
+        let consumer = stream
             .get_or_create_consumer(
                 &format!("device_{key}"),
                 async_nats::jetstream::consumer::pull::Config {
@@ -349,6 +348,16 @@ pub async fn provision_mailboxes(
                 },
             )
             .await?;
+        let config = &consumer.cached_info().config;
+        ensure!(
+            config.filter_subject == format!("epochgrid.v1.user.{}.{}.inbox", parts[1], parts[3])
+                && config.filter_subjects.is_empty()
+                && config.max_ack_pending == 1
+                && config.max_batch == 1
+                && config.deliver_subject.is_none()
+                && config.ack_policy == async_nats::jetstream::consumer::AckPolicy::Explicit,
+            "MAILBOX consumer has unsafe configuration; admission remains closed"
+        );
     }
     Ok(())
 }
@@ -417,6 +426,153 @@ subscribe: ["{inbox}", "epochgrid.v1.group.*.message", "epochgrid.v1.group.*.eph
         ));
     }
     format!("users: [{}]\n", entries.join(",\n"))
+}
+
+/// Wait for a newly admitted connection before using changed subject permissions.
+/// async-nats flush only drains the writer; it is not a reconnect acknowledgment.
+pub async fn refresh_authorization(client: &async_nats::Client) -> Result<()> {
+    use std::sync::atomic::Ordering;
+    let stats = client.statistics();
+    let before = stats.connects.load(Ordering::Relaxed);
+    client.force_reconnect().await?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while stats.connects.load(Ordering::Relaxed) <= before {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        client.flush().await
+    })
+    .await??;
+    Ok(())
+}
+
+/// Idempotent control operations can lose a response when a device lease expires.
+/// Renew authorization and retry once; callers retain an overall deadline.
+pub async fn request_idempotent(
+    client: &async_nats::Client,
+    subject: &str,
+    body: Body,
+) -> Result<async_nats::Message> {
+    let payload = wire::encode(body)?;
+    match client
+        .request(subject.to_owned(), payload.clone().into())
+        .await
+    {
+        Ok(message) => Ok(message),
+        Err(error) if error.kind() == async_nats::RequestErrorKind::TimedOut => {
+            refresh_authorization(client).await?;
+            Ok(client.request(subject.to_owned(), payload.into()).await?)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Consumer INFO is read-only. A lease expiry may discard its response; renew
+/// admission and retry once, without retrying authorization/configuration errors.
+pub(crate) async fn device_consumer(
+    store: &IdentityStore,
+    client: &async_nats::Client,
+    stream: &str,
+) -> Result<async_nats::jetstream::consumer::PullConsumer> {
+    let js = async_nats::jetstream::new(client.clone());
+    let name = format!("device_{}", store.nkey()?.public_key());
+    tokio::time::timeout(
+        Duration::from_secs(15),
+        consumer_read_retry(
+            || js.get_consumer_from_stream(name.clone(), stream),
+            || refresh_authorization(client),
+        ),
+    )
+    .await
+    .context("device consumer lookup deadline exceeded")?
+    .with_context(|| format!("{stream} device consumer lookup failed"))
+}
+
+async fn consumer_read_retry<T, F, Fut, R, Renew>(mut read: F, renew: R) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<
+            Output = std::result::Result<T, async_nats::jetstream::stream::ConsumerError>,
+        >,
+    R: FnOnce() -> Renew,
+    Renew: std::future::Future<Output = Result<()>>,
+{
+    use async_nats::jetstream::stream::ConsumerErrorKind;
+    match read().await {
+        Ok(value) => Ok(value),
+        Err(error) if error.kind() == ConsumerErrorKind::TimedOut => {
+            renew()
+                .await
+                .context("renew authorization for consumer lookup")?;
+            Ok(read().await?)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+#[cfg(test)]
+mod consumer_retry_tests {
+    use super::*;
+    use async_nats::jetstream::stream::{ConsumerError, ConsumerErrorKind};
+    use std::cell::Cell;
+
+    #[tokio::test]
+    async fn lost_consumer_response_recovers_once() -> Result<()> {
+        let calls = Cell::new(0);
+        let renewals = Cell::new(0);
+        let value = consumer_read_retry(
+            || {
+                calls.set(calls.get() + 1);
+                std::future::ready(if calls.get() == 1 {
+                    Err(ConsumerError::from(ConsumerErrorKind::TimedOut))
+                } else {
+                    Ok(42)
+                })
+            },
+            || {
+                renewals.set(renewals.get() + 1);
+                std::future::ready(Ok(()))
+            },
+        )
+        .await?;
+        assert_eq!((value, calls.get(), renewals.get()), (42, 2, 1));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn persistent_timeout_is_bounded_and_other_errors_are_not_retried() {
+        for (kind, expected_calls) in [
+            (ConsumerErrorKind::TimedOut, 2),
+            (ConsumerErrorKind::Request, 1),
+            (ConsumerErrorKind::InvalidConsumerType, 1),
+        ] {
+            let calls = Cell::new(0);
+            let result: Result<()> = consumer_read_retry(
+                || {
+                    calls.set(calls.get() + 1);
+                    std::future::ready(Err(ConsumerError::from(kind.clone())))
+                },
+                || std::future::ready(Ok(())),
+            )
+            .await;
+            assert!(result.is_err());
+            assert_eq!(calls.get(), expected_calls);
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_readmission_does_not_retry_consumer_read() {
+        let calls = Cell::new(0);
+        let result: Result<()> = consumer_read_retry(
+            || {
+                calls.set(calls.get() + 1);
+                std::future::ready(Err(ConsumerError::from(ConsumerErrorKind::TimedOut)))
+            },
+            || std::future::ready(Err(anyhow::anyhow!("admission denied"))),
+        )
+        .await;
+        assert!(format!("{:#}", result.unwrap_err()).contains("admission denied"));
+        assert_eq!(calls.get(), 1);
+    }
 }
 
 #[cfg(test)]

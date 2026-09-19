@@ -59,9 +59,13 @@ Issue short-lived user claims containing only calculated permissions. Each decis
 reads current enabled/revoked/generation state. Deny unknown, disabled, incomplete or
 revoked devices. Never issue wildcard `>` access to devices. Generation changes and
 revocation deny future grants; existing grants expire on a bounded TTL, enforced by
-NATS. MLS removal continues through authenticated control state and commits. Group
-permission/consumer convergence belongs to Milestone 22; do not claim that merely
-switching admission to callout fixes the previous shared CHAT consumer exposure.
+NATS. MLS removal continues through authenticated control state and commits.
+Milestone 22 replaces shared CHAT consumer exposure with backend-owned exact
+membership filters and synchronizes signed policies through the client outbox.
+Canonical UserId installations select this path; legacy handle installations retain
+the explicit static fixture. Client schema 8 remains readable: versioned intents
+use the existing transactional outbox; public wire variants are appended. Existing
+legacy MLS groups require fresh canonical enrollment and re-invitation.
 
 No normal enrollment/revocation action may edit a NATS file, reload a server, regenerate
 operator JWTs, or restart a broker. Integration config is operator-owned. Account

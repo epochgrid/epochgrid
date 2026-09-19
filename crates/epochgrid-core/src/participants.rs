@@ -110,9 +110,11 @@ impl IdentityStore {
             self.connection.execute("INSERT OR IGNORE INTO blocked_outbox(id) SELECT id FROM outbox WHERE sent=0 AND subject=?1", [descriptor.subject("message")])?;
             let (commit, welcome, _) = group.remove_members(&self.provider, &signer, &[target]).map_err(|e| anyhow!("MLS member removal: {e:?}"))?;
             ensure!(welcome.is_none(), "unexpected removal Welcome");
-            self.queue(&descriptor.subject("handshake"), &commit.to_bytes()?)?;
+
             group.merge_pending_commit(&self.provider).map_err(|e| anyhow!("persist removal Commit: {e:?}"))?;
             self.refresh_coordinator(&group)?;
+            self.queue_policy(&group)?;
+            self.queue(&descriptor.subject("handshake"), &commit.to_bytes()?)?;
             Ok(())
         })
     }

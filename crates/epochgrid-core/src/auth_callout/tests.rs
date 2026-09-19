@@ -203,3 +203,17 @@ fn group_claims_are_exact_and_revocation_invalidates_reconnect() -> Result<()> {
     assert!(!f.send(&f.request()?, true)?.nats.error.is_empty());
     Ok(())
 }
+
+#[test]
+fn control_role_lease_is_bounded_independently_of_device_ttl() -> Result<()> {
+    let mut fixture = Fixture::new()?;
+    fixture.callout.config.control_nkey = fixture.device.public_key();
+    fixture.callout.config.authorization_ttl_seconds = 3;
+    let response = fixture.send(&fixture.request()?, false)?;
+    let user = Claims::<User>::decode(&response.nats.jwt)?;
+    let expiry = user
+        .exp
+        .context("control role must not receive an unlimited lease")?;
+    assert!((now()? + 59..=now()? + 60).contains(&expiry));
+    Ok(())
+}

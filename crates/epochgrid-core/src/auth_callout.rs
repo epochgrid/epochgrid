@@ -231,6 +231,9 @@ impl Callout {
                 user.nats.permissions.permissions.publish.allow = vec![ENROLL.into()];
             } else if connect.nkey == self.config.control_nkey {
                 user.name = Some("EpochGrid control service".into());
+                // The operator-managed control role renews on a bounded 60-second
+                // lease, independently of deliberately short device leases.
+                user.exp = Some(timestamp + 60);
                 user.nats.permissions.permissions.publish.allow = vec![
                     "$JS.API.>".into(),
                     "$KV.IDENTITIES.>".into(),
@@ -240,6 +243,7 @@ impl Callout {
                     wire::AUDIT.into(),
                     wire::REVOCATIONS.into(),
                     wire::REVOKE.into(),
+                    "epochgrid.v1.user.*.*.inbox".into(),
                 ];
                 user.nats
                     .permissions
@@ -252,7 +256,7 @@ impl Callout {
                     .permissions
                     .subscribe
                     .allow
-                    .push(crate::authorization::SUBJECT.into());
+                    .push("epochgrid.v1.channel.*".into());
             } else {
                 let authorization = registry.authorize(&connect.nkey)?;
                 user.nats
@@ -274,6 +278,8 @@ impl Callout {
                 user.nats.permissions.permissions.publish.allow = [
                     ENROLL,
                     crate::authorization::SUBJECT,
+                    crate::authorization::RELAY,
+                    wire::KEYPACKAGE,
                     wire::REGISTER,
                     wire::LOOKUP,
                     wire::DEVICES,
@@ -302,8 +308,21 @@ impl Callout {
                             .push(subject);
                     }
                 }
-                // Consumer and Welcome relay permissions are separate integration steps.
-                // Never grant broad stream reads or cross-device mailbox publication.
+                for stream in ["CHAT", "MAILBOX"] {
+                    for subject in [
+                        format!("$JS.API.CONSUMER.INFO.{stream}.device_{}", connect.nkey),
+                        format!("$JS.API.CONSUMER.MSG.NEXT.{stream}.device_{}", connect.nkey),
+                        format!("$JS.ACK.{stream}.device_{}.>", connect.nkey),
+                    ] {
+                        user.nats
+                            .permissions
+                            .permissions
+                            .publish
+                            .allow
+                            .push(subject);
+                    }
+                }
+                // Only service-owned filtered consumers; no stream reads/create authority.
             }
             if let Some(limits) = &mut user.nats.permissions.limits
                 && let Some(nats) = &mut limits.nats_limits

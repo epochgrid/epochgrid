@@ -6,6 +6,8 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      RUST_BACKTRACE: "1"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -35,6 +37,9 @@ jobs:
       - name: Interactive TUI smoke
         timeout-minutes: 4
         run: ./scripts/dev/verify.sh tui
+      - name: Dynamic Auth Callout TUI smoke
+        timeout-minutes: 4
+        run: ./scripts/dev/verify.sh dynamic-tui
       - name: Message relationship TUI smoke
         timeout-minutes: 2
         run: ./scripts/dev/verify.sh relations-tui

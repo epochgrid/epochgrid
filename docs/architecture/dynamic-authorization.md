@@ -1,10 +1,10 @@
 # Milestone 22 — dynamic authorization
 
-Status: policy registry, signed request/reply updates, exact group grants and
-transactional revocation are implemented and tested. Client/consumer/Welcome
-integration remains in progress; dynamic CLI/TUI messaging is not yet supported.
-[Milestone 23 TLS](../operator/tls.md) is implemented independently; it does not
-complete these remaining integration steps. See [current status](../milestones.md).
+Status: complete for the Milestone 22 acceptance scope. Normal CLI/TUI chat uses
+signed policies, exact grants, filtered durable consumers and Welcome relay.
+Revocation/rekeying and restart are tested without NATS configuration edits or
+reloads. [Milestone 23 TLS](../operator/tls.md) protects the shared transport path.
+This is not completion of all [alpha release gates](../milestones.md).
 
 ## Policy authority and migration
 
@@ -41,8 +41,8 @@ NATS configuration or controls the NATS process.
 6. Live Alice/Bob tests for messaging, revoked active connections, reconnect denial,
    group removal, unrelated group isolation and restart convergence.
 
-Steps 3–6 remain required before dynamic messaging is supported. Do not enable the
-legacy all-group consumer or cross-device inbox grants as an interim shortcut.
+All six steps are implemented. Dynamic clients have no all-group consumer, raw
+CHAT stream-read, consumer-management or cross-device inbox-publication grants.
 
 ## Expiry and convergence
 
@@ -58,3 +58,30 @@ remaining members without granting the removed device future group traffic.
 The service sees metadata and opaque MLS protocol bytes, never group secrets or
 application plaintext. A malicious authorization coordinator can misgrant transport
 access, but transport access alone cannot create an MLS leaf or decrypt messages.
+
+## Implemented delivery and failure behavior
+
+Canonical UserId installations use the dynamic path; legacy handle installations
+remain explicit development fixtures. Persist a versioned authorization intent in
+the same SQLite outbox transaction as each locally created MLS epoch. Resolve MLS
+public keys against the authenticated directory, synchronize policy before its
+Commit/Welcome, and refresh the coordinator's NATS connection before publishing.
+Only the control service relays signed, membership-checked Welcome envelopes.
+
+The service owns durable consumer filters. Rebuild a device's CHAT consumer when
+membership changes, replaying available matching ciphertext from the beginning;
+local sequence deduplication preserves already staged history. This intentionally
+prefers safe replay over a crash-prone delete/recreate cursor handoff. Empty
+membership uses a reserved non-group filter, never an empty wildcard filter.
+Reconcile consumers before opening admission on startup and after mutations;
+failed reconciliation closes admission until a bounded retry succeeds. Existing
+Core NATS claims remain bounded by their configured lease, including in-flight
+requests and ciphertext already delivered to endpoints.
+
+Client control requests that are idempotent (audit, same-group KeyPackage claim,
+policy application and identical Welcome relay) retry at most once after a lost
+response, renewing authorization first. Each reconnect has a five-second deadline;
+the TUI retains its overall network deadline and durable retry loop. A flush is
+not treated as proof of reconnection: the client waits for the NATS connection
+counter to advance. The privileged control connection also expires, on a fixed
+60-second lease independent of the shorter device lease used in stress tests.
