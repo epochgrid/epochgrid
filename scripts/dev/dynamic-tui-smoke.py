@@ -4,6 +4,9 @@ import importlib.util
 import json
 from pathlib import Path
 import socket
+import select
+import socketserver
+import threading
 import subprocess
 import tempfile
 
@@ -13,8 +16,47 @@ spec.loader.exec_module(tui)
 SERVICE = str(Path('target/debug/epochgrid-service').resolve())
 
 
-def run():
+class ClientProxy(socketserver.ThreadingTCPServer):
+    """Interrupt only Bob's transport, leaving the Auth Callout service online."""
+    daemon_threads = True
+
+    def __init__(self, port):
+        self.upstream_port = port
+        self.online = threading.Event()
+        self.online.set()
+        super().__init__(('127.0.0.1', 0), ProxyHandler)
+        self.thread = threading.Thread(target=self.serve_forever, daemon=True)
+        self.thread.start()
+
+    def close(self):
+        self.online.clear()
+        self.shutdown()
+        self.server_close()
+        self.thread.join(timeout=5)
+
+
+class ProxyHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        if not self.server.online.is_set():
+            return
+        try:
+            with socket.create_connection(('127.0.0.1', self.server.upstream_port), timeout=1) as upstream:
+                self.request.settimeout(1)
+                while self.server.online.is_set():
+                    readable, _, _ = select.select([self.request, upstream], [], [], 0.05)
+                    for source in readable:
+                        data = source.recv(65536)
+                        if not data:
+                            return
+                        destination = upstream if source is self.request else self.request
+                        destination.sendall(data)
+        except OSError:
+            pass  # Connection loss is the fault this fixture injects.
+
+
+def run(disconnect_before_join=False):
     processes = []
+    proxy = None
     with tempfile.TemporaryDirectory(prefix='epochgrid-dynamic-tui-') as directory:
         root = Path(directory)
         backend = root / 'backend'
@@ -57,14 +99,35 @@ def run():
                 subprocess.run([tui.BINARY, '--home', str(root / name), '--server', url, 'identity', 'enroll'],
                                input=token, capture_output=True, check=True, timeout=10)
             alice = tui.Client(root, 'alice', url)
-            bob = tui.Client(root, 'bob', url)
+            if disconnect_before_join:
+                proxy = ClientProxy(port)
+            bob_url = f'nats://127.0.0.1:{proxy.server_address[1]}' if proxy else url
+            bob = tui.Client(root, 'bob', bob_url)
             tui.wait(lambda: all('Online' in c.screen.text for c in (alice, bob)), 'dynamic TUI online')
             alice.type('/create engineering\r')
             tui.wait(lambda: tui.query(root, 'alice', 'SELECT COUNT(*) FROM groups') == 1, 'create channel')
             alice.type(f'/invite {users["bob"]} laptop\r')
             tui.wait(lambda: 'Invitation delivered' in alice.screen.text, 'dynamic invitation')
+            if disconnect_before_join:
+                proxy.online.clear()
+                tui.wait(lambda: 'Offline' in bob.screen.text, 'Bob observes disconnect')
             bob.type(f'/join {users["alice"]} laptop\r')
-            tui.wait(lambda: tui.query(root, 'bob', 'SELECT COUNT(*) FROM groups') == 1, 'dynamic join')
+            if disconnect_before_join:
+                tui.wait(lambda: 'Waiting for connection to join channel' in bob.screen.text,
+                         'offline join retained')
+                proxy.online.set()
+            tui.wait(lambda: tui.query(root, 'bob', 'SELECT COUNT(*) FROM groups') == 1
+                     and 'Channel joined' in bob.screen.text
+                     and '> #engineering' in bob.screen.text, 'dynamic join')
+            if disconnect_before_join:
+                bob.close()
+                bob = tui.Client(root, 'bob', bob_url)
+                tui.wait(lambda: 'Online' in bob.screen.text and '> #engineering' in bob.screen.text,
+                         'joined channel survives restart')
+                assert tui.query(root, 'bob', 'SELECT COUNT(*) FROM groups') == 1
+                tui.finish(root, [alice, bob], processes, [])
+                print('EpochGrid single offline join, reconnect and joined-channel restart passed')
+                return
             secrets = ['DYNAMIC_TUI_ALICE_91F3', 'DYNAMIC_TUI_BOB_28A4', 'DYNAMIC_TUI_OFFLINE_45B1']
             alice.type(secrets[0] + '\r')
             tui.wait(lambda: tui.has(root, 'bob', secrets[0]) and secrets[0] in bob.screen.text, 'Alice to Bob')
@@ -80,6 +143,8 @@ def run():
             tui.finish(root, [alice, bob], processes, secrets)
             print('EpochGrid dynamic TUI create/invite/join, bidirectional MLS chat, restart/offline history and ciphertext-only storage passed')
         finally:
+            if proxy:
+                proxy.close()
             for client in tui.CLIENTS:
                 client.cleanup()
             for process in processes:
@@ -89,4 +154,7 @@ def run():
 
 
 if __name__ == '__main__':
-    run()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--disconnect-before-join', action='store_true')
+    run(parser.parse_args().disconnect_before_join)

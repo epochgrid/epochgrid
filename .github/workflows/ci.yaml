@@ -40,6 +40,9 @@ jobs:
       - name: Dynamic Auth Callout TUI smoke
         timeout-minutes: 4
         run: ./scripts/dev/verify.sh dynamic-tui
+      - name: Dynamic join reconnect regression
+        timeout-minutes: 4
+        run: ./scripts/dev/verify.sh dynamic-join
       - name: Message relationship TUI smoke
         timeout-minutes: 2
         run: ./scripts/dev/verify.sh relations-tui
