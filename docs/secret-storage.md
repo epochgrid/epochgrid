@@ -1,10 +1,12 @@
-# Linux credential storage — Milestone 24
+# Linux credentials and encrypted SQLite — Milestones 24–25
 
 EpochGrid stores standalone device and backend credentials in Linux Secret Service.
 Homes contain opaque references and independently checked public-key bindings.
 There is no plaintext fallback, including in the development transport profile.
-Pre-Milestone-24 homes, backend configurations and recovery archives are unsupported;
-use fresh state and enrollment. No migration or automatic reset is provided.
+Pre-Milestone-25 plaintext homes and registries are unsupported; use fresh state
+and enrollment. No migration or automatic reset is provided. Milestone 24 v2
+recovery archives remain usable for administration recovery into a fresh encrypted
+home; older archive formats remain unsupported.
 
 ## Day-one setup
 
@@ -29,8 +31,8 @@ collection are all required for initialization/enrollment and loading credential
 Run the ordinary identity initialization/enrollment, CLI, TUI and backend commands
 in that session. No credentials need to be copied into seed files or environment
 variables. Existing supported homes keep the same identity across process restarts.
-`identity show`, offline history and recovery status can inspect public/local state
-without loading the NKey. TUI loads its NKey on its dedicated worker before network
+`identity show`, offline history and recovery status require the database key
+from Secret Service, even when they do not load the NKey. TUI loads its NKey on its dedicated worker before network
 retries, so credential failures are shown as startup errors instead of connectivity
 failures. Each keyring operation has a five-second deadline.
 
@@ -49,8 +51,8 @@ non-Linux adapter in this milestone.
 | Client/device NKey, including restored administration identity | Secret Service; public reference in `identity.sqlite` |
 | Backend directory/control NKey | Secret Service; public reference under `control/` |
 | Auth Callout account issuer, XKey and connection NKey | Secret Service; typed references in version-2 `auth.json` |
-| MLS signing keys, private KeyPackages, group and ratchet secrets, attachment keys | Still in unencrypted SQLite; Milestone 25 |
-| Transcripts, membership/trust records, receipt and relationship metadata | Still in unencrypted SQLite; Milestone 25 |
+| MLS signing keys, private KeyPackages, group and ratchet secrets, attachment keys | SQLCipher-encrypted SQLite; independent database key in Secret Service |
+| Transcripts, membership/trust records, receipt and relationship metadata | SQLCipher-encrypted SQLite; independent database key in Secret Service |
 | Explicit encrypted recovery archive and its separate secret file | User-controlled portable recovery material, never an automatic runtime fallback |
 
 `credentials.json` records role-to-item references and initialization progress; it
@@ -66,14 +68,48 @@ This is not a claim of hardware backing,
 non-exportable keys or isolation from other applications running as the same user.
 The unlocked application necessarily holds credentials in memory. Owned secret
 buffers are zeroized where practical; libraries may retain copies. A running
-process may cache a loaded NKey until exit, so locking the keyring is not device
+process may cache a loaded NKey and SQLCipher key until exit, so locking the keyring is not device
 revocation or a guarantee that already-loaded keys have been erased.
 
 Copying only a home does not copy its standalone credentials. A lost keyring cannot
 be repaired from public references: restore the appropriate keyring or use the
 supported encrypted identity-administration recovery flow, then enroll a fresh
-messaging device. A copied SQLite database still exposes MLS private material and
-history until Milestone 25; this milestone is not complete local-state encryption.
+messaging device. A copied database without its key cannot expose MLS private material or history
+through ordinary SQLite access. Database backup/recovery is not supplied by the
+identity-administration archive: preserve matching database files, metadata and
+the keyring through an operator-managed consistent backup if those must survive.
+
+## Encrypted database lifecycle
+
+SQLCipher protects client `identity.sqlite`, backend `auth.sqlite`, and backend
+`control/identity.sqlite`, each with an independent random 256-bit key. Keys are
+stored only in Secret Service; their public fingerprint and opaque item reference
+are recorded in `credentials.json` and `<role>.database.json`. This fingerprint is
+not an asymmetric public key. Database metadata is versioned, contains no key,
+and is bound to an encrypted record carrying the role and item ID.
+
+Application connections apply their key before schema queries or migrations and
+check that SQLCipher is present. A separate unkeyed, read-only format probe rejects
+legacy plaintext databases. Database pages and journal/WAL page payloads are encrypted;
+temporary SQL tables remain in memory. File names, sizes, timing, public metadata,
+and sidecar structure remain observable. Directories/files use 0700/0600. Explicit
+attachment saves remain plaintext. This does not protect an unlocked process from
+same-user compromise, or cover swap/core dumps, exports or unrelated logs.
+
+A short per-database lock serializes opening/provisioning, separately from the
+identity lifetime lock. The key and pending metadata reach durable storage before
+SQLite creation. An encrypted binding transaction precedes marking the metadata
+ready. Retries reuse that key. Missing metadata for an existing database, missing
+keys, wrong bindings, corruption, or a missing/empty established database fail
+without reset or replacement. Plaintext databases are rejected unchanged. No key
+rotation, automatic key deletion, plaintext conversion or database export is offered.
+
+Keep the entire home/registry metadata with its database. If startup reports a
+missing key, restore the original keyring; if it reports missing metadata or a
+mismatched database, restore the matching set. Do not delete metadata to force
+initialization. Locked/unavailable keyrings must be corrected before retrying.
+An open process can retain decrypted state until exit; keyring locking does not
+immediately revoke it.
 
 ## Interrupted initialization and recovery
 
@@ -107,7 +143,9 @@ XDG data/config/runtime directories and never uses the caller's login keyring.
 The standalone failure-state tests use an in-memory backend; existing identity
 and process-restart tests use the real isolated provider. The `secrets` phase also
 checks lock/duplicate errors and real CLI/backend initialization and recovery, and
-scans owned files for known NKey/XKey values. Missing fixture dependencies fail the
+scans owned files for known NKey/XKey and raw/encoded database-key values.
+Database tests cover unkeyed/wrong-key access, encrypted WAL/journals, crash
+recovery, provisioning failure and preservation of existing state. Missing fixture dependencies fail the
 phase rather than silently skipping coverage.
 
 Compose smoke copies its fixture into a temporary root and uses a distinct Compose

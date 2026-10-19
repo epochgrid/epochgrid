@@ -28,7 +28,7 @@ The explicitly selected development Compose profile has no TLS and binds loopbac
 NKeys do not encrypt transport. Milestone 23 requires verified TLS by default for
 all shipped network paths; [TLS configuration](operator/tls.md) explains trust,
 minimum version and rotation. Dynamic CLI/TUI chat is implemented; later release
-gates, including local secret protection, remain unfinished.
+deployment and release gates remain unfinished.
 
 Development group permissions use namespace wildcards, so enrolled devices can
 observe unrelated lab ciphertext or inject invalid traffic. MLS rejects invalid
@@ -41,9 +41,11 @@ and broader availability controls remain work for the resource-limits milestone.
 Endpoint compromise can expose private keys and the retained plaintext transcript.
 MLS key erasure does not erase the separately retained local plaintext history.
 Standalone NATS device/backend credentials use Linux Secret Service with encrypted
-D-Bus sessions and checked public-key bindings. SQLite and journals still contain
-unencrypted MLS private state and transcripts; Unix directories/files use 0700/0600
-and an OS file lock. See [secret storage](secret-storage.md) for the keyring boundary.
+D-Bus sessions and checked public-key bindings. SQLCipher encrypts MLS private
+state, transcripts and backend registry data with independent random Secret Service
+keys, including journal/WAL page payloads. Temporary SQL state stays in memory;
+file sizes, names, public references and sidecar structure remain visible. Unix
+directories/files use 0700/0600 and OS file locks. See [secret storage](secret-storage.md) for the keyring boundary.
 Use a dedicated private directory on a trusted filesystem. Windows ACL integration
 is not implemented. Future adapters may support macOS
 Keychain/Secure Enclave, Windows CNG/TPM and mobile secure keystores.
@@ -76,7 +78,7 @@ or remote deployments. Tests do not claim to hide public identity metadata, prov
 forward secrecy/post-compromise recovery, or protect an already compromised device.
 
 Milestone 11's TUI retains the same cryptographic and authorization boundaries.
-Offline sends persist ciphertext and the existing unencrypted local transcript;
+Offline sends persist ciphertext and the SQLCipher-encrypted local transcript;
 uncommitted composition is volatile. Incoming terminal control bytes are escaped,
 and bracketed paste does not execute commands automatically. Normal tracing output
 is disabled in TUI mode to avoid leaking content or corrupting terminal rendering;
@@ -160,7 +162,7 @@ manifest is an intentional attachment recipient. Revocation prevents future fabr
 access but cannot erase already saved files, ciphertext copies or known DEKs.
 Client expiration is an availability policy, not cryptographic timed erasure.
 
-Local SQLite retains manifest DEKs unencrypted; explicitly saved files are plaintext.
+Local SQLCipher databases protect retained manifest DEKs; explicitly saved files are plaintext.
 Recovery excludes both attachment keys and files. No automatic download, path derived
 from a received filename, execution or preview is performed. Authenticating a file
 proves byte integrity, not that a member-supplied file is safe to open. Shared lab
@@ -185,7 +187,7 @@ Milestone 18 receipts are signed MLS-exporter-encrypted device claims over Core
 NATS, inheriting the ephemeral transport's epoch-scoped secrecy and metadata
 leakage. A read claim means client presentation, not proof of human attention;
 a malicious group member can lie about delivery or reading. Unknown receipts
-cannot create messages. Local compact receipt metadata is unencrypted and excluded
+cannot create messages. Local compact receipt metadata is SQLCipher-encrypted and excluded
 from recovery. Loss or non-overlapping online sessions can leave state unknown.
 Previously observed receipts survive revocation as historical claims, not evidence
 of current authorization. See [receipt semantics](receipts.md).
@@ -196,7 +198,7 @@ events. Only the original device can edit its text messages. Authenticated count
 make edit/reaction selection independent of transport ordering for the same event
 set; they do not prevent infrastructure from withholding events or presenting
 inconsistent histories. Editing does not erase historical content from recipients,
-local plaintext logs or backups. The new local event log is unencrypted, retained
+local plaintext logs or backups. The local event log is SQLCipher-encrypted, retained
 for replay and excluded from recovery. Upgrade all clients together before using
 the new application envelope.
 
@@ -253,5 +255,5 @@ Enrollment tokens must be delivered securely and are exposed to their authorized
 control endpoint. INFO metadata is cleartext with the standard NATS handshake;
 TLS-first protects it too. Reconnect keeps certificate verification enabled, but
 changing a trust bundle requires a new process/connection configuration. The alpha
-has no custom certificate pinning, CRL distribution or mandatory mTLS. TLS does not
-fix unencrypted local state or complete the broader [release gates](milestones.md).
+has no custom certificate pinning, CRL distribution or mandatory mTLS. Local state is protected separately by Milestone 25 SQLCipher storage; TLS does not
+complete the broader [release gates](milestones.md).

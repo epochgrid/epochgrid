@@ -35,7 +35,7 @@ credentials remain valid and the current broad CHAT consumer may still receive
 ciphertext. The removed leaf cannot derive future epoch secrets. Existing NATS group
 ACL limitations remain; use device revocation to disable its fabric credential.
 
-A participant is an intentional plaintext recipient and retains unencrypted local
+A participant is an intentional plaintext recipient and retains SQLCipher-encrypted local
 history under the same endpoint boundary as clients. Removal cannot erase previously
 received plaintext or prevent a remaining member from forwarding content. Service
 responses describe only its local connection and MLS operation, not fabric-wide

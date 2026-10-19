@@ -289,4 +289,5 @@ Rustls verifies chains and endpoint SANs against OS roots or an explicit PEM bun
 there is no insecure verifier. TLS 1.3 is the default minimum; explicit TLS 1.2
 compatibility and TLS-first handshakes are available. Certificate and CA rotation
 remain operator-controlled. Trust bundles are loaded when constructing a connection;
-root rotation requires process restart. Local storage is unchanged and unencrypted.
+root rotation requires process restart. Milestone 25 separately protects local
+SQLite state with independent Secret Service keys; see [storage](secret-storage.md).

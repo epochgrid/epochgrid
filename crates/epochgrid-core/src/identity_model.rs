@@ -93,19 +93,7 @@ pub struct AuthRegistry {
 }
 impl AuthRegistry {
     pub fn open(home: &Path) -> Result<Self> {
-        std::fs::create_dir_all(home)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(home, std::fs::Permissions::from_mode(0o700))?;
-        }
-        let path = home.join("auth.sqlite");
-        let db = Connection::open(&path)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-        }
+        let db = crate::database::open(home, "auth")?;
         db.busy_timeout(Duration::from_secs(1))?;
         db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS auth_migrations(version INTEGER PRIMARY KEY);")?;
         let version: i64 = db.query_row(

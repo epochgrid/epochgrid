@@ -1,9 +1,10 @@
 # Encrypted recovery — Milestone 15
 
-Milestone 24 requires Linux Secret Service for the source and destination
-credentials. Recovery archives from earlier milestones are unsupported. Export
+Milestone 25 requires Linux Secret Service for source/destination credentials and
+database keys. Milestone 24 v2 archives remain supported; earlier formats do not. Export
 reads the NKey from the keyring; restore places it in the destination keyring and
-stores only its public reference locally. An interrupted restore may be retried
+stores its reference inside a fresh encrypted database with a new database key.
+The archive does not back up the old database key, history or MLS ratchets. An interrupted restore may be retried
 against the same uninitialized home. See [secret storage](secret-storage.md).
 
 Current deployment and milestone status: [status index](milestones.md). Local
@@ -69,8 +70,7 @@ rollback-resistant hardware or global transparency witnesses.
 
 The service has neither recovery secrets nor a recovery API. Users may keep the
 opaque encrypted file in untrusted storage; this milestone does not provision an
-Object Store bucket. Package size is observable. Local restored NKeys remain in
-unencrypted development SQLite. In-memory secret buffers are zeroized where owned;
+Object Store bucket. Package size is observable. Local restored NKeys remain in Secret Service; local state is SQLCipher-encrypted. In-memory secret buffers are zeroized where owned;
 this is not a guarantee against swap, crash dumps or library/runtime copies.
 
 ## Commands and replacement workflow

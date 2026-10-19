@@ -120,7 +120,7 @@ fn migration_preserves_history_and_rolls_back_on_failure() -> Result<()> {
         CREATE TRIGGER fail_attachment_migration BEFORE INSERT ON epochgrid_migrations WHEN NEW.version=5 BEGIN SELECT RAISE(ABORT,'injected migration'); END;")?;
     drop(store);
     assert!(IdentityStore::open(root.path()).is_err());
-    let connection = rusqlite::Connection::open(root.path().join("identity.sqlite"))?;
+    let connection = crate::database::open(root.path(), "identity")?;
     let count: u64 = connection.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE name='attachments'",
         [],

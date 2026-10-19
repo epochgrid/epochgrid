@@ -160,6 +160,7 @@ fn live_keyring_restart_binding_duplicate_and_lock() -> Result<()> {
     }
     let vault = Vault::new(root.path());
     let reference = vault.provision("device", Kind::User)?;
+    let database = vault.provision("database-identity", Kind::Database)?;
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
         use secret_service::{EncryptionType, SecretService};
@@ -184,10 +185,37 @@ fn live_keyring_restart_binding_duplicate_and_lock() -> Result<()> {
             Some(Error::Duplicate)
         ));
         duplicate.delete().await?;
+        let duplicate_database = collection
+            .create_item(
+                "duplicate database key",
+                HashMap::from([
+                    ("application", "org.epochgrid.credentials.v1"),
+                    ("id", database.id.as_str()),
+                ]),
+                database.read()?.as_bytes(),
+                false,
+                "text/plain",
+            )
+            .await?;
+        assert!(matches!(
+            crate::identity::IdentityStore::open(root.path())
+                .err()
+                .unwrap()
+                .downcast_ref::<Error>(),
+            Some(Error::Duplicate)
+        ));
+        duplicate_database.delete().await?;
         let mut wrong = reference.clone();
         wrong.public_key = nkeys::KeyPair::new_user().public_key();
         assert!(wrong.read().is_err());
         collection.lock().await?;
+        assert!(matches!(
+            crate::identity::IdentityStore::open(root.path())
+                .err()
+                .unwrap()
+                .downcast_ref::<Error>(),
+            Some(Error::Locked)
+        ));
         assert!(matches!(
             reference.read().unwrap_err().downcast_ref::<Error>(),
             Some(Error::Locked)
@@ -237,5 +265,47 @@ fn identity_transaction_failure_reuses_the_protected_key_on_restart() -> Result<
                 .any(|w| w == original.as_bytes())
         );
     }
+    Ok(())
+}
+
+#[test]
+fn database_key_provisioning_retries_and_rejects_replacement() -> Result<()> {
+    let (root, backend, vault) = fixture()?;
+    backend.fail_after_create.store(true, Ordering::SeqCst);
+    assert!(
+        vault
+            .provision("database-identity", Kind::Database)
+            .is_err()
+    );
+    let reference = vault.provision("database-identity", Kind::Database)?;
+    let key = reference.read_with(backend.as_ref())?;
+    assert_eq!(key.len(), 64);
+    assert_eq!(backend.items.lock().unwrap().len(), 1);
+    let metadata = std::fs::read(root.path().join("credentials.json"))?;
+    assert!(!metadata.windows(key.len()).any(|w| w == key.as_bytes()));
+    backend.items.lock().unwrap().remove(&reference.id);
+    assert!(
+        vault
+            .provision("database-identity", Kind::Database)
+            .is_err()
+    );
+    assert!(backend.items.lock().unwrap().is_empty());
+    backend
+        .items
+        .lock()
+        .unwrap()
+        .insert(reference.id.clone(), Kind::Database.generate()?);
+    assert!(reference.read_with(backend.as_ref()).is_err());
+    assert!(
+        vault
+            .provision("database-identity", Kind::Database)
+            .is_err()
+    );
+    backend
+        .items
+        .lock()
+        .unwrap()
+        .insert(reference.id.clone(), Zeroizing::new("invalid".into()));
+    assert!(reference.read_with(backend.as_ref()).is_err());
     Ok(())
 }

@@ -16,6 +16,14 @@ share transactions. An OS file lock permits one client per device; the operating
 system releases it when the process dies. Do not delete a lock file to bypass a
 running client.
 
+Since Milestone 25, that database is SQLCipher-encrypted. Restart and offline
+history require the original database key in Linux Secret Service, plus the
+matching `identity.database.json` metadata. Preserve the complete home and any
+SQLite journal/WAL files with its keyring; do not delete metadata to bypass a key
+error. Existing plaintext homes are rejected without conversion. Administration
+recovery creates a new encrypted home and does not restore messaging history or
+ratchets. See [protected storage](secret-storage.md).
+
 ## Resume commands
 
 With NATS running against its existing volume, run either:
@@ -91,5 +99,5 @@ The original Milestone 9 tests cover the two-device epoch. Milestones 12–14 ad
 ordered membership-Commit replay and revocation; see their architecture notes. Terminal output is not
 transactional: a crash after printing but before marking displayed can repeat a
 line. No exactly-once display or hardware durability guarantee is claimed.
-Local plaintext transcripts and private state remain unencrypted development
-storage. Recovery testing is not a security audit.
+Since Milestone 25, transcripts and private state use encrypted SQLite with
+Secret Service keys; an unlocked endpoint retains access to their contents. Recovery testing is not a security audit.

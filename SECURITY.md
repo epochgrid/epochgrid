@@ -12,8 +12,9 @@ email or response-time commitment has been established.
 
 Never attach NATS seeds, credentials, recovery secrets/packages, SQLite databases
 or real private messages.
-Local SQLite retains unencrypted message history and MLS private state; standalone
-NATS credentials use Linux Secret Service.
+Local SQLCipher databases protect message history, MLS private state and backend
+registry data with independent keys in Linux Secret Service. Standalone NATS
+credentials also use Secret Service; unlocked processes can still expose state.
 See [the threat model](docs/threat-model.md) for implemented boundaries and gaps.
 
 The Milestones 0–10 MVP has automated acceptance coverage for the two-device flow,
@@ -22,8 +23,8 @@ audit or change the prototype's deployment status. See the
 [acceptance evidence and limits](docs/mvp-acceptance.md).
 
 The Milestone 11 terminal client does not change production readiness or key
-storage. Its offline queue and visible history retain the same local plaintext
-storage exposure. Unread indicators are local UI state, not secure read receipts.
+storage. Since Milestone 25, its offline queue and visible history use encrypted
+SQLite; an unlocked endpoint can still expose the retained content. Unread indicators are local UI state, not secure read receipts.
 
 
 Milestone 12 supports independent device leaves for the same logical user. A
@@ -77,7 +78,7 @@ cannot be detected as stale offline. The service cannot decrypt the package, but
 endpoint compromise, co-located secret/package storage, swap and crash dumps remain
 risks. Keep recovery secrets outside the device and apart from archives. Local
 restored identity credentials use Linux Secret Service; restored trust metadata
-remains in unencrypted SQLite. No hardware-keystore or guaranteed secure-erasure
+is stored in SQLCipher-encrypted SQLite. No hardware-keystore or guaranteed secure-erasure
 claim is made. See [recovery boundaries](docs/encrypted-recovery.md).
 
 
@@ -88,7 +89,7 @@ manifest is an intentional attachment recipient. Revocation prevents future fabr
 access but cannot erase already saved files, ciphertext copies or known DEKs.
 Client expiration is an availability policy, not cryptographic timed erasure.
 
-Local SQLite retains manifest DEKs unencrypted; explicitly saved files are plaintext.
+Local SQLCipher databases protect retained manifest DEKs; explicitly saved files are plaintext.
 Recovery excludes both attachment keys and files. No automatic download, path derived
 from a received filename, execution or preview is performed. Authenticating a file
 proves byte integrity, not that a member-supplied file is safe to open. Shared lab
@@ -113,7 +114,7 @@ Milestone 18 receipts are signed MLS-exporter-encrypted device claims over Core
 NATS, inheriting the ephemeral transport's epoch-scoped secrecy and metadata
 leakage. A read claim means client presentation, not proof of human attention;
 a malicious group member can lie about delivery or reading. Unknown receipts
-cannot create messages. Local compact receipt metadata is unencrypted and excluded
+cannot create messages. Local compact receipt metadata is SQLCipher-encrypted and excluded
 from recovery. Loss or non-overlapping online sessions can leave state unknown.
 Previously observed receipts survive revocation as historical claims, not evidence
 of current authorization. See [receipt semantics](docs/receipts.md).
@@ -124,7 +125,7 @@ events. Only the original device can edit its text messages. Authenticated count
 make edit/reaction selection independent of transport ordering for the same event
 set; they do not prevent infrastructure from withholding events or presenting
 inconsistent histories. Editing does not erase historical content from recipients,
-local plaintext logs or backups. The new local event log is unencrypted, retained
+local plaintext logs or backups. The local event log is SQLCipher-encrypted, retained
 for replay and excluded from recovery. Upgrade all clients together before using
 the new application envelope.
 
@@ -166,8 +167,10 @@ lease expiry; MLS rekeying waits for an active coordinator. The operator-managed
 control-service connection renews on a fixed 60-second lease; it is not a device.
 Protect it and rotate its configured key deliberately.
 Standalone NATS device/backend credentials use Linux Secret Service; there is no
-plaintext runtime fallback. MLS private state and transcripts remain unencrypted
-pending Milestone 25. See [secret storage](docs/secret-storage.md) for the exact boundary.
+plaintext runtime fallback. Milestone 25 encrypts SQLite and journal/WAL page
+payloads, requires fresh encrypted homes, and keeps SQL temporary data in memory.
+Public metadata, filenames, sizes and sidecar structure remain observable.
+Keyring locking does not erase keys already loaded into a running process. See [secret storage](docs/secret-storage.md) for the exact boundary.
 Typing UI is unreliable and deferred as TD-001. See [current status](docs/milestones.md)
 and [TLS operational requirements](docs/operator/tls.md); no alpha release gate
 should be inferred from historical milestone validation paragraphs alone.

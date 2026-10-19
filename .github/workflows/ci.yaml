@@ -31,7 +31,7 @@ jobs:
       - name: Workspace build
         timeout-minutes: 6
         run: ./scripts/dev/verify.sh build
-      - name: Protected credential storage
+      - name: Protected credentials and encrypted database lifecycle
         timeout-minutes: 5
         run: ./scripts/dev/verify.sh secrets
       - name: NATS integration tests

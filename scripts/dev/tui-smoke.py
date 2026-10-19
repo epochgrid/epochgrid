@@ -9,6 +9,7 @@ from pathlib import Path
 import pty
 import socket
 import sqlite3
+import json
 import struct
 import subprocess
 import tempfile
@@ -164,6 +165,20 @@ def query(root, user, sql, values=(), *, timeout=5):
     deadline = time.monotonic() + timeout
     while True:
         try:
+            if (root / user / 'identity.database.json').exists():
+                request = {'sql': sql, 'values': [{'blob': v.hex()} if isinstance(v, bytes) else v for v in values]}
+                result = subprocess.run(['target/debug/examples/encrypted-query', str(root / user / 'identity.sqlite')],
+                                        input=json.dumps(request), text=True, capture_output=True,
+                                        timeout=max(0.01, deadline - time.monotonic()))
+                if result.returncode == 75:
+                    error = sqlite3.OperationalError('encrypted database locked')
+                    error.sqlite_errorcode = sqlite3.SQLITE_BUSY
+                    raise error
+                if result.returncode:
+                    raise RuntimeError(result.stderr)
+                value = json.loads(result.stdout)
+                return bytes.fromhex(value['blob']) if isinstance(value, dict) else value
+            # Only the standalone harness regression fixtures use plaintext SQLite.
             with closing(sqlite3.connect(uri, uri=True, timeout=0)) as connection:
                 return connection.execute(sql, values).fetchone()[0]
         except sqlite3.OperationalError as error:

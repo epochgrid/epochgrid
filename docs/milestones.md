@@ -21,7 +21,7 @@ No `v0.1.0-alpha.1` tag or production-ready release has been published.
 | 22 | Implemented — live reliability deferred (TD-002) | Signed policies synchronized with the MLS outbox; exact grants, filtered durable consumers, signed Welcome relay, bounded lease expiry and revocation/rekey convergence; dynamic CLI/TUI chat and restart coverage quarantined after intermittent failures |
 | 23 | Complete transport milestone | Shared production TLS profile, system/custom roots, name validation, configurable minimum version, TLS-first and certificate-rotation tests |
 | 24 | Implemented; locally validated | Linux Secret Service credentials, no plaintext fallback, fresh installs only |
-| 25 | Not started | Apply protected secret storage to SQLite encryption |
+| 25 | Implemented; locally validated | SQLCipher client/backend state, independent Secret Service keys, fresh encrypted homes only |
 | 26–28 | Not started | Qualified BYO-NATS contract, initialization/validation and backend privilege separation |
 | 29–31 | Not started | Resource bounds, operational diagnostics and structured audit events |
 | 32–34 | Not started | Official Linux artifacts, GHCR runtime image and release supply chain |
@@ -41,33 +41,42 @@ temporarily quarantined under [TD-002](technical-debt.md). Use the [dynamic walk
 Dynamic attachment access and the broader BYO-NATS qualification remain separate
 release work; the complete development feature set is not yet release-qualified.
 Completing TLS does not imply the alpha release gates are met. Standalone NATS credentials use [Linux Secret Service](secret-storage.md). MLS
-private state and transcripts remain unencrypted pending Milestone 25.
+private state, transcripts and backend registry data use SQLCipher with independent
+Secret Service keys. Existing plaintext homes/registries require fresh enrollment;
+offline database access also requires the keyring.
 
 See [TLS](operator/tls.md), [Auth Callout](operator/auth-callout.md),
 [dynamic authorization](architecture/dynamic-authorization.md), and
 [deferred typing and dynamic authorization checks](technical-debt.md). Milestone 25 (protected SQLite state)
-is the next release-preparation milestone.
+is locally complete. Milestone 26 (BYO-NATS qualification) is next.
 
 
-## Latest local validation — 2026-10-18
+## Latest local validation — 2026-10-19
 
-Milestone 24 passed formatting, warnings-denied workspace Clippy, all 74 unit
-tests, workspace build, ten Python harness tests, all 16 retained live NATS
-cases, Compose/CLI smoke, the main, relationship and service-participant TUI
-workflows, and the focused dynamic join/reconnect regression. The NATS suite
-completed in 206.70 seconds with the existing TD-002 case filtered out.
+Milestone 25 passed formatting, warnings-denied workspace Clippy, all 84 unit
+tests, workspace binaries/examples build, ten Python harness tests, all 16 retained
+live NATS cases, Compose/CLI smoke, main/relationship/service-participant TUI
+workflows, and focused dynamic join/reconnect. The final NATS suite completed in
+253.24 seconds with the existing TD-002 case filtered out.
 
-Protected-credential validation also passed: two explicit live Secret Service
-tests and CLI/backend lifecycle checks covering restart, encrypted recovery,
-missing/locked/duplicate credentials, binding mismatch, unavailable and stalled
-D-Bus sessions, interrupted initialization, and scans for plaintext seeds in
-application files. Tests use disposable password-protected keyrings; Compose
-smoke removes its temporary stack and volume without replacing developer state.
+Two explicit live Secret Service tests and CLI/backend lifecycle checks also
+passed, including encrypted administration recovery, restart, missing/locked/
+duplicate/swapped keys, unavailable/stalled D-Bus sessions, and no-secret-file scans.
+Database coverage includes unreadability without the key, encrypted WAL/journal
+payloads, actual MLS signing-key/transcript/registry marker scans, process-crash
+recovery, interrupted metadata commits, legacy plaintext rejection, and refusal to
+reset established state. Cross-process registry readers/writers protect against
+POSIX-lock loss; the format probe uses SQLite-managed connections.
 
-Live typing assertions and the full dynamic authorization integration/messaging
-checks remain deferred under TD-001/TD-002 and were not rerun. A green default
-gate does not certify dynamic authorization end to end. These are local results;
-protected-branch CI checks remain required before merge.
+Logs are retained locally under `/tmp/epochgrid-m25/`. Tests use disposable
+password-protected keyrings and isolated Compose state; developer state is not
+converted or reset. Existing plaintext homes remain unsupported. Recovery v2
+archives retain administration-only scope, with a fresh database key on restore.
+
+Live typing assertions and full dynamic authorization integration/messaging checks
+remain deferred under TD-001/TD-002. A green default gate does not certify dynamic
+authorization end to end. These are local results; protected-branch CI checks
+remain required before merge. No alpha release or publication is implied.
 
 Earlier milestone results are consolidated in
 [historical local validation](development.md#historical-local-validation). See
