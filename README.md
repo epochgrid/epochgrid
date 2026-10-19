@@ -330,7 +330,9 @@ See [restart and recovery](docs/recovery.md) for tested failure boundaries and l
 
 ## Verify
 
-Run the same complete MVP and alpha gate as CI (includes the pinned NATS download and Compose):
+Run the same MVP gate as CI (includes the pinned NATS download and Compose).
+Dynamic authorization live checks are temporarily opt-in under
+[TD-002](docs/technical-debt.md#td-002--dynamic-authorization-live-checks-deferred-during-mvp-work):
 
 ```bash
 ./scripts/dev/verify.sh
@@ -343,7 +345,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo build --workspace
-EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service --test registration -- --ignored --test-threads=1
+./scripts/dev/verify.sh nats
 ./scripts/dev/smoke.sh
 EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/tui-smoke.py
 ```

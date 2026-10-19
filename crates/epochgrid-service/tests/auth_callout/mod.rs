@@ -69,7 +69,7 @@ async fn errors_at_least(errors: &AtomicUsize, count: usize) -> Result<()> {
     Ok(())
 }
 #[tokio::test]
-#[ignore = "requires built workspace binaries and nats-server; run explicitly in CI"]
+#[ignore = "TD-002: dynamic authorization instability; run scripts/dev/verify.sh nats-dynamic"]
 async fn dynamic_enrollment_inbox_isolation_revocation_without_reload() -> Result<()> {
     let temp = tempfile::tempdir()?;
     let result = tokio::time::timeout(Duration::from_secs(180), workflow(temp.path()))

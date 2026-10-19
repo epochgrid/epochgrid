@@ -18,7 +18,7 @@ No `v0.1.0-alpha.1` tag or production-ready release has been published.
 | 19 | Complete in development model | Append-only replies, edits and reactions |
 | 20 | Complete in development model | Explicit MLS service participation and removal |
 | 21 | Complete admission slice | Canonical users, local single-use enrollment tokens, encrypted Auth Callout and dynamic revocation denial |
-| 22 | Complete | Signed policies synchronized with the MLS outbox; exact grants, filtered durable consumers, signed Welcome relay, bounded lease expiry and revocation/rekey convergence; dynamic CLI/TUI chat and restart tested |
+| 22 | Implemented — live reliability deferred (TD-002) | Signed policies synchronized with the MLS outbox; exact grants, filtered durable consumers, signed Welcome relay, bounded lease expiry and revocation/rekey convergence; dynamic CLI/TUI chat and restart coverage quarantined after intermittent failures |
 | 23 | Complete transport milestone | Shared production TLS profile, system/custom roots, name validation, configurable minimum version, TLS-first and certificate-rotation tests |
 | 24–25 | Not started | OS secret storage and protected SQLite state |
 | 26–28 | Not started | Qualified BYO-NATS contract, initialization/validation and backend privilege separation |
@@ -35,7 +35,8 @@ print a warning. This is not the alpha deployment model.
 
 The production-shaped path supports dynamic enrollment/admission and normal
 CLI/TUI encrypted chat, invitations, durable catch-up and revocation over verified
-TLS. Use the [dynamic walkthrough](operator/auth-callout.md#dynamic-client-walkthrough).
+TLS. Dynamic join/send synchronization remains unreliable; its live checks are
+temporarily quarantined under [TD-002](technical-debt.md). Use the [dynamic walkthrough](operator/auth-callout.md#dynamic-client-walkthrough).
 Dynamic attachment access and the broader BYO-NATS qualification remain separate
 release work; the complete development feature set is not yet release-qualified.
 Completing TLS does not imply the alpha release gates are met. Local secrets and
@@ -43,26 +44,22 @@ transcripts remain unencrypted pending Milestones 24–25.
 
 See [TLS](operator/tls.md), [Auth Callout](operator/auth-callout.md),
 [dynamic authorization](architecture/dynamic-authorization.md), and
-[deferred typing indicators](technical-debt.md). Milestone 24 (Linux secret storage)
+[deferred typing and dynamic authorization checks](technical-debt.md). Milestone 24 (Linux secret storage)
 is the next release-preparation milestone.
 
 
-## Historical local validation — Milestone 23
+## Latest local validation — 2026-10-18
 
-Formatting, warnings-denied workspace Clippy, 60 unit tests, workspace build and
-all 17 live NATS integration cases passed. The bounded harness, isolated Compose
-CLI smoke and all three TUI smoke modes also passed. Typing assertions remain
-explicitly skipped under TD-001. These are local results; branch CI is a separate
-required check before merging. No release tag or artifact publication is implied.
+After the TD-002 quarantine, formatting, warnings-denied workspace Clippy, all 65
+unit tests, workspace build and all ten Python harness tests passed. The 16 retained
+live NATS cases passed in 192.56 seconds, with exactly one dynamic Auth Callout
+case filtered out. Verifier routing and failure propagation checks also passed.
 
-## Latest local validation — Milestone 22 completion
+Compose and static TUI workflows remain required by CI but were not rerun during
+this change. The quarantined dynamic checks were not rerun. Hosted CI has not
+been rerun for these local changes; protected-branch checks remain required before
+merge. A green default gate does not certify dynamic authorization end to end.
 
-Formatting, warnings-denied workspace Clippy, 62 unit tests and workspace build
-passed. All 17 live NATS integration cases, the bounded harness, Compose CLI smoke
-and all four TUI modes passed, including the new dynamic Auth Callout TUI flow.
-The final lease/retry adjustment was also checked with the expanded dynamic
-lifecycle case. It proves unchanged NATS configuration, no reload, per-group and
-per-device isolation, active-connection expiry, revoked reconnect denial, MLS epoch
-advancement and remaining-device messaging after restart. CI runs the new TUI mode
-with an independent deadline. Protected-branch CI remains required before merge;
-these local results are not a release tag or production security certification.
+Earlier milestone results are consolidated in
+[historical local validation](development.md#historical-local-validation). See
+[TD-002](technical-debt.md) for failed CI runs and restoration criteria.

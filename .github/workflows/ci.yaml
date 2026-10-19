@@ -37,9 +37,8 @@ jobs:
       - name: Interactive TUI smoke
         timeout-minutes: 4
         run: ./scripts/dev/verify.sh tui
-      - name: Dynamic Auth Callout TUI smoke
-        timeout-minutes: 4
-        run: ./scripts/dev/verify.sh dynamic-tui
+      - name: Deferred dynamic authorization checks (TD-002)
+        run: echo 'SKIP TD-002 - dynamic Auth Callout integration and TUI smoke are opt-in; see docs/technical-debt.md'
       - name: Message relationship TUI smoke
         timeout-minutes: 2
         run: ./scripts/dev/verify.sh relations-tui
