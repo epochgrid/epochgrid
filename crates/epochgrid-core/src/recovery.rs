@@ -14,7 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use zeroize::Zeroizing;
 
 // Fixed-width magic, version and algorithm; all authenticated as associated data.
-const HEADER: &[u8; 10] = b"EGRECOV\0\x01\x01";
+const HEADER: &[u8; 10] = b"EGRECOV\0\x02\x01";
 const NONCE_LEN: usize = 12;
 pub const MAX_PACKAGE: usize = 1_048_576;
 pub const MAX_SECRET_FILE: usize = 128;
@@ -136,7 +136,7 @@ impl RecoveryArchive {
     }
     fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 1 && self.exported_at > 0,
+            self.version == 2 && self.exported_at > 0,
             "unsupported recovery payload"
         );
         identity::verify_signature(&self.registration)?;
@@ -219,7 +219,7 @@ impl RecoveryArchive {
         store.transaction(|| {
             let count: u64 = store.connection.query_row("SELECT (SELECT COUNT(*) FROM local_identity) + (SELECT COUNT(*) FROM groups) + (SELECT COUNT(*) FROM recovery_metadata) + (SELECT COUNT(*) FROM device_trust) + (SELECT COUNT(*) FROM transparency_state) + (SELECT COUNT(*) FROM revoked_devices) + (SELECT COUNT(*) FROM revocation_checkpoint) + (SELECT COUNT(*) FROM trust_alert) + (SELECT COUNT(*) FROM transcript) + (SELECT COUNT(*) FROM outbox) + (SELECT COUNT(*) FROM chat_deliveries) + (SELECT COUNT(*) FROM welcomes) + (SELECT COUNT(*) FROM received) + (SELECT COUNT(*) FROM attachments) + (SELECT COUNT(*) FROM receipt_messages) + (SELECT COUNT(*) FROM device_receipts) + (SELECT COUNT(*) FROM message_events) + (SELECT COUNT(*) FROM participant_events)", [], |r| r.get(0))?;
             ensure!(count == 0, "recovery requires an uninitialized home; existing identity/trust state cannot be overwritten");
-            store.connection.execute("INSERT INTO local_identity VALUES(1,?1,?2)", params![self.seed.as_str(), postcard::to_allocvec(&self.registration)?])?;
+            store.connection.execute("INSERT INTO local_identity VALUES(1,?1,?2)", params![serde_json::to_string(&store.vault.import("device", crate::secrets::Kind::User, &self.seed)?)?, postcard::to_allocvec(&self.registration)?])?;
             for device in &self.evidence.devices {
                 store.connection.execute("INSERT INTO device_trust VALUES(?1,?2,?3,?4,?5)", params![device.user,device.device,device.fingerprint,device.latest_fingerprint,device.state])?;
             }
@@ -303,13 +303,9 @@ impl IdentityStore {
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        let seed = Zeroizing::new(self.connection.query_row(
-            "SELECT seed FROM local_identity WHERE id=1",
-            [],
-            |r| r.get::<_, String>(0),
-        )?);
+        let seed = Zeroizing::new(self.nkey()?.seed()?);
         let archive = RecoveryArchive {
-            version: 1,
+            version: 2,
             exported_at: now()?,
             registration,
             seed,

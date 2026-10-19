@@ -4,6 +4,23 @@ export EPOCHGRID_PROFILE=development
 unset EPOCHGRID_TLS_CA_PATH EPOCHGRID_TLS_FIRST EPOCHGRID_TLS_MIN_VERSION
 cd "$(dirname "$0")/../.."
 umask 077
+# Each keyring fixture is disposable: never pair it with a developer's .dev homes.
+if [[ "${EPOCHGRID_COMPOSE_FIXTURE:-}" != 1 ]]; then
+  smoke_root=$(mktemp -d /tmp/epochgrid-compose.XXXXXX)
+  trap 'rm -rf "$smoke_root"' EXIT
+  mkdir -p "$smoke_root/scripts" "$smoke_root/target" "$smoke_root/.dev"
+  cp -R scripts/dev "$smoke_root/scripts/"
+  cp -R config "$smoke_root/"
+  cp compose.yaml "$smoke_root/"
+  cp -R .dev/nats-image "$smoke_root/.dev/"
+  ln -s "$PWD/target/debug" "$smoke_root/target/debug"
+  EPOCHGRID_COMPOSE_FIXTURE=1 COMPOSE_PROJECT_NAME="epochgrid-smoke-$$" bash "$smoke_root/scripts/dev/smoke.sh"
+  exit $?
+fi
+[[ "${COMPOSE_PROJECT_NAME:-}" == epochgrid-smoke-* ]] || {
+  echo 'Compose smoke requires its own disposable project' >&2
+  exit 2
+}
 service_pid=''
 stop_service() {
   [[ -n "$service_pid" ]] || return 0
@@ -23,7 +40,7 @@ stop_service() {
 }
 cleanup() {
   stop_service || true
-  python3 scripts/dev/run-bounded.py 20 docker compose down || true
+  python3 scripts/dev/run-bounded.py 20 docker compose down --volumes || true
 }
 trap cleanup EXIT
 trap 'exit 130' INT

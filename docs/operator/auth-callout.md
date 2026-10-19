@@ -53,14 +53,21 @@ Both are service credentials, separate from arbitrary enrolled devices.
 epochgrid-service --home ./epochgrid-state auth-init
 ```
 
-This writes private EpochGrid keys, a version-1 `auth.json` and a reference NATS snippet.
-It does not contact, write to or restart NATS. Integrate the snippet's dedicated auth
-account, application account and callout block with existing operator-owned config,
-including TLS. Set `auth.json.target_account` to the chosen account name. Key paths
-are relative to that JSON file. `issuer_seed` is the account signing seed;
-`encryption_seed` is the callout XKey; `connection_seed` connects the auth listener;
-`control_nkey` admits only the backend's fixed possession credential. The backend
-keeps its directory-signing NKey in `HOME/control`, independently of the issuer.
+Run initialization and the service under the same Linux account and provisioned
+Secret Service session. [Secret storage setup](../secret-storage.md) describes the
+unlocked-keyring prerequisite and headless service contract.
+
+Initialization writes a version-2 `auth.json`, public credential references and a
+reference NATS snippet. Credential values live in Secret Service, not seed files.
+It does not contact, write to or restart NATS. Integrate the snippet's dedicated
+auth account, application account and callout block with operator-owned config,
+including TLS. Set `auth.json.target_account` to the chosen account name.
+`issuer`, `encryption` and `connection` are typed keyring references with public-key
+bindings; `control_nkey` admits only the backend's fixed possession credential.
+The directory-signing credential is also in Secret Service; `HOME/control` keeps
+its public identity and reference. Missing/locked credentials fail startup before
+admission. Version-1 configs and plaintext seed files are unsupported; use fresh
+backend state and enrollment rather than migrating them.
 
 `authorization_ttl_seconds` defaults to 30 and accepts 2–60 seconds. NATS expires
 connections on this deadline; reconnect requires a new signed, current-state grant.

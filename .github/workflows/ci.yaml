@@ -22,12 +22,18 @@ jobs:
       - name: Clippy
         timeout-minutes: 11
         run: ./scripts/dev/verify.sh clippy
+      - name: Install isolated keyring test dependencies
+        timeout-minutes: 3
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dbus-daemon gnome-keyring libsecret-tools
       - name: Unit tests
         timeout-minutes: 4
         run: ./scripts/dev/verify.sh unit
       - name: Workspace build
         timeout-minutes: 6
         run: ./scripts/dev/verify.sh build
+      - name: Protected credential storage
+        timeout-minutes: 5
+        run: ./scripts/dev/verify.sh secrets
       - name: NATS integration tests
         timeout-minutes: 9
         run: ./scripts/dev/verify.sh nats

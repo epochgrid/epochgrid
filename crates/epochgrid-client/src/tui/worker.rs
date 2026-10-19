@@ -83,6 +83,9 @@ struct Session {
 impl Session {
     fn new(store: IdentityStore, server: String) -> Result<Self> {
         store.registration()?;
+        // Load once on the dedicated worker before the network retry loop. A
+        // locked/missing keyring is an actionable startup error, not "offline".
+        store.nkey()?;
         let selected = store.groups()?.first().map(|g| g.name.clone());
         Ok(Self {
             store,

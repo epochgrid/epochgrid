@@ -25,13 +25,12 @@ impl Fixture {
         let root = tempfile::tempdir()?;
         let issuer = KeyPair::new_account();
         let auth_x = XKey::new();
-        std::fs::write(root.path().join("issuer"), issuer.seed()?)?;
-        std::fs::write(root.path().join("xkey"), auth_x.seed()?)?;
+        let vault = crate::secrets::Vault::new(root.path());
         let config = Config {
-            version: 1,
-            issuer_seed: root.path().join("issuer"),
-            encryption_seed: root.path().join("xkey"),
-            connection_seed: root.path().join("unused"),
+            version: 2,
+            issuer: vault.import("issuer", Kind::Account, &issuer.seed()?)?,
+            encryption: vault.import("encryption", Kind::XKey, &auth_x.seed()?)?,
+            connection: vault.provision("connection", Kind::User)?,
             control_nkey: KeyPair::new_user().public_key(),
             target_account: "EPOCHGRID".into(),
             authorization_ttl_seconds: 30,
@@ -60,7 +59,7 @@ impl Fixture {
     }
     fn request(&self) -> Result<Claims<Request>> {
         Ok(serde_json::from_value(
-            serde_json::json!({"iat":0,"iss":"","jti":"","sub":KeyPair::from_seed(&read_seed(&self.config.issuer_seed)?)?.public_key(),"aud":"nats-authorization-request","exp":now()?+2,"nats":{"type":"authorization_request","version":2,"server_id":{"id":self.server.public_key(),"xkey":self.server_x.public_key()},"user_nkey":KeyPair::new_user().public_key(),"client_info":{"nonce":"test-challenge"},"connect_opts":{"nkey":self.device.public_key(),"sig":URL_SAFE_NO_PAD.encode(self.device.sign(b"test-challenge")?)}}}),
+            serde_json::json!({"iat":0,"iss":"","jti":"","sub":self.config.issuer.public_key,"aud":"nats-authorization-request","exp":now()?+2,"nats":{"type":"authorization_request","version":2,"server_id":{"id":self.server.public_key(),"xkey":self.server_x.public_key()},"user_nkey":KeyPair::new_user().public_key(),"client_info":{"nonce":"test-challenge"},"connect_opts":{"nkey":self.device.public_key(),"sig":URL_SAFE_NO_PAD.encode(self.device.sign(b"test-challenge")?)}}}),
         )?)
     }
     fn send(&mut self, request: &Claims<Request>, ready: bool) -> Result<Claims<Response>> {

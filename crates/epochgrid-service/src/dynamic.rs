@@ -11,47 +11,63 @@ use std::{io::Write, path::Path, time::Duration};
 
 fn private_file(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
+    options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let mut file = options.open(path)?;
+    let temporary = path.with_extension("pending");
+    let mut file = options.open(&temporary)?;
     file.write_all(bytes)?;
     file.sync_all()?;
+    std::fs::rename(temporary, path)?;
+    std::fs::File::open(path.parent().context("configuration directory")?)?.sync_all()?;
     Ok(())
 }
 pub fn init(home: &Path) -> Result<()> {
-    AuthRegistry::open(home)?;
     ensure!(
         !home.join("auth.json").exists(),
         "authentication configuration already exists"
     );
-    let issuer = nkeys::KeyPair::new_account();
-    let encryption = nkeys::XKey::new();
-    let connection = nkeys::KeyPair::new_user();
+    ensure!(
+        !["issuer.seed", "encryption.seed", "auth.seed"]
+            .iter()
+            .any(|name| home.join(name).exists()),
+        "pre-Milestone-24 backend is unsupported; choose a fresh home"
+    );
+    AuthRegistry::open(home)?;
+    // Serialize initialization and leave public references resumable after a crash.
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(home.join("auth-init.lock"))?;
+    lock.try_lock()
+        .context("authentication initialization already in progress")?;
+    ensure!(
+        !home.join("auth.json").exists(),
+        "authentication configuration already exists"
+    );
+    let vault = epochgrid_core::secrets::Vault::new(home);
+    let issuer = vault.provision("issuer", epochgrid_core::secrets::Kind::Account)?;
+    let encryption = vault.provision("encryption", epochgrid_core::secrets::Kind::XKey)?;
+    let connection = vault.provision("connection", epochgrid_core::secrets::Kind::User)?;
     let mut control = IdentityStore::open(&home.join("control"))?;
     if control.registration().is_err() {
         control.init("service", "laptop")?;
     }
     let config = Config {
-        version: 1,
-        issuer_seed: "issuer.seed".into(),
-        encryption_seed: "encryption.seed".into(),
-        connection_seed: "auth.seed".into(),
+        version: 2,
+        issuer: issuer.clone(),
+        encryption: encryption.clone(),
+        connection: connection.clone(),
         target_account: "EPOCHGRID".into(),
         control_nkey: control.nkey()?.public_key(),
         authorization_ttl_seconds: 30,
         development_plaintext: false,
     };
-    private_file(&home.join("issuer.seed"), issuer.seed()?.as_bytes())?;
-    private_file(&home.join("encryption.seed"), encryption.seed()?.as_bytes())?;
-    private_file(&home.join("auth.seed"), connection.seed()?.as_bytes())?;
-    private_file(
-        &home.join("auth.json"),
-        &serde_json::to_vec_pretty(&config)?,
-    )?;
     let snippet = format!(
         r#"# Reference only: integrate with operator-owned configuration; do not replace it.
 # Add operator-managed TLS and JetStream. No static device users.
@@ -64,12 +80,14 @@ authorization {{
   auth_callout {{ issuer: "{}", xkey: "{}", account: EPOCHGRID_AUTH, auth_users: ["{}"], allowed_accounts: [EPOCHGRID] }}
 }}
 "#,
-        connection.public_key(),
-        issuer.public_key(),
-        encryption.public_key(),
-        connection.public_key()
+        connection.public_key, issuer.public_key, encryption.public_key, connection.public_key
     );
-    private_file(&home.join("nats-reference.conf"), snippet.as_bytes())?;
+    // Reference snippet is public and may be recreated after interrupted initialization.
+    std::fs::write(home.join("nats-reference.conf"), snippet.as_bytes())?;
+    private_file(
+        &home.join("auth.json"),
+        &serde_json::to_vec_pretty(&config)?,
+    )?;
     println!(
         "EpochGrid integration keys initialized; review auth.json and nats-reference.conf. NATS was not modified."
     );
@@ -107,13 +125,20 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
     if config.development_plaintext {
         tracing::warn!("DEVELOPMENT ONLY: unencrypted client transport enabled");
     }
+    // Resolve every local credential before opening subscriptions/admission.
+    let mut callout = Callout::new(config.clone())?;
+    let identity = IdentityStore::open(&home.join("control"))?;
+    let key = identity.nkey()?;
+    ensure!(
+        key.public_key() == config.control_nkey,
+        "control identity does not match callout configuration"
+    );
     let auth_client = config.connect(url).await?;
     let mut requests = auth_client
         .queue_subscribe(auth_callout::SUBJECT, "epochgrid-auth".into())
         .await?;
     auth_client.flush().await?;
     let auth_registry = AuthRegistry::open(home)?;
-    let mut callout = Callout::new(config.clone())?;
     let admission = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let admission_worker = admission.clone();
     let mut auth_task = AuthTask(tokio::spawn(async move {
@@ -145,12 +170,6 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
         anyhow::bail!("auth subscription ended")
     }));
     let mut registry = AuthRegistry::open(home)?;
-    let identity = IdentityStore::open(&home.join("control"))?;
-    let key = identity.nkey()?;
-    ensure!(
-        key.public_key() == config.control_nkey,
-        "control identity does not match callout configuration"
-    );
     let client = transport::connect(url, &identity).await?;
     drop(identity);
     let directory = transport::provision(client.clone()).await?;

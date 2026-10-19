@@ -232,15 +232,16 @@ Migration 3 and the network acknowledgment/retry semantics are specified in
 [device revocation](device-revocation.md). No private keys or message plaintext occur
 in the revocation API, KV values, authorization include or NATS subjects.
 
-## Milestone 15: encrypted recovery file v1
+## Encrypted recovery file v2 (Milestone 24)
 
 No NATS subjects, Body discriminants or MLS message formats change. Recovery is a
-local, independently versioned binary file, not a new transport message.
+local, independently versioned binary file, not a new transport message. Version 1
+archives are unsupported; version 2 restore writes the NKey to Secret Service.
 
 | Offset | Length | Value |
 | --- | --- | --- |
 | 0 | 8 | ASCII `EGRECOV` followed by NUL |
-| 8 | 1 | Format version 1 |
+| 8 | 1 | Format version 2 |
 | 9 | 1 | Algorithm 1: AES-256-GCM |
 | 10 | 12 | Random nonce |
 | 22 | remaining | Ciphertext followed by the 16-byte GCM tag |
@@ -253,7 +254,7 @@ parsing accepts upper/lowercase hex and surrounding whitespace, with a 128-byte 
 input limit. There is no user-password mode or password-derived encryption key.
 
 The encrypted plaintext is one postcard `RecoveryArchive`, in field order:
-`version: u16` (1), `exported_at: i64` (UTC Unix seconds),
+`version: u16` (2), `exported_at: i64` (UTC Unix seconds),
 `registration: DeviceRegistration`, `seed: String`, `evidence: Evidence`,
 `groups: Vec<GroupHint>`. Trailing plaintext bytes are rejected. `Evidence` fields:
 `devices: Vec<DeviceTrust>`, `directory_key: Option<String>`,
