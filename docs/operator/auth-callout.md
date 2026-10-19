@@ -1,7 +1,8 @@
-# Auth Callout contract — Milestone 21
+# Auth Callout contract — Milestones 21–22
 
-The dynamic admission slice is implemented. This is not yet the complete alpha deployment
-quickstart: group authorization, operational hardening and release gates remain. Do not deploy the static development bootstrap as production authentication.
+Dynamic enrollment, authorization, CLI/TUI chat and revocation are implemented.
+This is not yet the complete alpha deployment quickstart: local secret protection,
+operational hardening and release gates remain. Do not deploy the static development bootstrap as production authentication.
 
 NATS Auth Callout is the production admission model. Operators integrate the callout
 in an isolated authentication account and delegate only the EpochGrid application
@@ -63,7 +64,9 @@ keeps its directory-signing NKey in `HOME/control`, independently of the issuer.
 
 `authorization_ttl_seconds` defaults to 30 and accepts 2–60 seconds. NATS expires
 connections on this deadline; reconnect requires a new signed, current-state grant.
-The backend connection currently uses the same TTL. `development_plaintext` defaults
+The operator-managed backend integration connection uses a fixed 60-second lease,
+independent of device TTL. It is outside device revocation and its configured key
+must be rotated deliberately by the operator. `development_plaintext` defaults
 to false. Setting it true is an explicit, logged development-only exception; it is
 never a supported alpha transport profile and also requires
 `EPOCHGRID_PROFILE=development`. Production rejects this setting. The shared
@@ -118,12 +121,13 @@ NATS configuration. Existing connections may remain usable until their claim exp
 this is bounded revocation latency, not immediate disconnection. Devices and backend
 fail closed when fresh authorization cannot be obtained.
 
-M21 device grants cover registration/audit/lookup/revocation, the restricted enrollment
-endpoint, their own request/reply prefix and their own device inbox subscription.
-They grant no cross-device inbox publication, general group subjects, CHAT consumers
-or attachments. M22 adds membership-scoped access and MLS/NATS convergence. The previous
-chat features remain executable in explicit `--dev-static` fixtures; that mode is
-unsupported for alpha deployment. Do not claim the alpha release gates are satisfied.
+Device grants cover registration/audit/lookup/revocation/KeyPackage discovery, the
+restricted enrollment endpoint, their own request/reply prefix and inbox, exact
+authorized group subjects, and INFO/NEXT/ACK on their own CHAT/MAILBOX consumers.
+They grant no cross-device inbox publication, raw CHAT reads, consumer management,
+or general group wildcard. Attachment Object Store grants remain separate release
+work; use the explicit static fixture to exercise the historical attachment demo.
+Do not claim the alpha release gates are satisfied.
 
 Auth Callout replay tracking uses the signed server ID and per-connection temporary
 user key, the binding NATS itself enforces, rather than assuming a JWT ID is the
@@ -131,10 +135,57 @@ connection identity. Denials reveal no enrollment tokens. The protected auth acc
 and server-enforced request-subject publication deny are required trust boundaries;
 a self-signed server JWT alone does not establish membership of a trusted fabric.
 
-Milestone 22 work in progress: admitted devices may send signed coordinator updates
-on `epochgrid.v1.channel.policy`. Validated registry membership now grants exact
-`.message`, `.handshake` and `.ephemeral` subjects for each authorized group.
-There is still no blanket group wildcard, cross-device inbox publish permission or
-client consumer-management permission. Normal CLI/TUI dynamic messaging remains
-unavailable pending policy/outbox synchronization, filtered durable consumers and
-Welcome relay. See [the implementation plan](../architecture/dynamic-authorization.md).
+Milestone 22 synchronizes signed coordinator updates on
+`epochgrid.v1.channel.policy` before publishing the associated MLS Commit and
+Welcome. The control service owns membership-filtered CHAT consumers and relays
+signed, opaque Welcomes on `epochgrid.v1.channel.welcome`. Clients never publish
+directly to another inbox. Changing filters rebuilds the durable consumer and
+replays matching history; local sequence deduplication preserves previously staged
+messages. An empty group list uses a reserved filter that matches no valid group.
+On startup or interrupted mutations, admission stays closed until durable lifecycle
+state and filters are repaired. Unsafe existing MAILBOX filters fail closed.
+See [the implementation design](../architecture/dynamic-authorization.md).
+
+## Dynamic client walkthrough
+
+First integrate the configuration above with your operator-owned NATS fabric and
+start the service over verified TLS. Enroll Alice and Bob in separate client homes
+using separately issued tokens. Keep each printed canonical `egusr-...` UserId;
+commands currently use that ID rather than the local provider handle. A custom CA
+requires `EPOCHGRID_TLS_CA_PATH` on each client and service process.
+
+On Alice's installation, set `BOB_USER` to Bob's printed canonical UserId:
+
+```bash
+epochgrid --home ./alice-device --server tls://nats.example.org:4222 channel create engineering
+epochgrid --home ./alice-device --server tls://nats.example.org:4222   channel invite engineering "$BOB_USER" --device laptop
+```
+
+On Bob's installation, set `ALICE_USER` to Alice's printed canonical UserId:
+
+```bash
+epochgrid --home ./bob-device --server tls://nats.example.org:4222   channel join --from "$ALICE_USER" --device laptop
+epochgrid --home ./bob-device --server tls://nats.example.org:4222 tui
+```
+
+Run `tui` with Alice's home and the same server too. Inside the TUI, `/create NAME`,
+`/invite USER DEVICE` and `/join USER DEVICE` use the same durable implementation.
+Send messages, close either client and reopen it: local MLS state and filtered
+JetStream history resume. The service receives only MLS ciphertext/protocol data.
+Channel creation is local first; its authorization intent is synchronized on the
+next invite/send/sync or TUI network tick. Interrupted network operations retain
+queued work for retry.
+
+For another device of Alice, issue a new token with the same `--handle alice`, enroll
+with a distinct `--device workstation`, and invite that canonical user/device leaf.
+An active Alice device can run `device revoke "$ALICE_USER" workstation`.
+The device is denied on reconnect without editing NATS configuration. Existing
+claims expire within the configured TTL; active coordinators remove its MLS leaves
+on sync before sending future-epoch messages. Offline coordinators delay MLS
+rekeying, and revocation never erases previously delivered plaintext.
+
+`./scripts/dev/verify.sh dynamic-tui` is an isolated plaintext **development test**
+of this dynamic path, including real terminal clients and offline catch-up. It
+creates temporary operator configuration solely for the test; none of its device
+NKeys are static NATS users. The TLS integration test separately exercises the
+shared verified transport used by these commands.

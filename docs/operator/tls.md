@@ -1,7 +1,7 @@
 # Production TLS profile — Milestone 23
 
 The shared TLS profile and live validation are implemented. This transport
-milestone does not complete Milestone 22's dynamic messaging integration. See the
+milestone provides transport protection; Milestone 22 now integrates dynamic messaging. See the
 [current status and validation summary](../milestones.md).
 
 ## Design

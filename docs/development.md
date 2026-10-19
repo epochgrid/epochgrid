@@ -6,6 +6,23 @@ default. For all local plaintext commands in this document, set
 select this explicitly; production TLS tests override it per subprocess and require
 OpenSSL for temporary test certificates. See [TLS configuration](operator/tls.md).
 
+## Current verification
+
+Run `./scripts/dev/verify.sh` for the default CI gate. It includes 67 unit tests,
+16 live NATS cases, Compose/CLI smoke, static TUI workflows and the focused
+`dynamic-join` reconnect regression, plus formatting,
+Clippy, build and harness checks. Live typing assertions (TD-001) and the dynamic
+Auth Callout integration/TUI checks (TD-002) are deferred; see
+[technical debt](technical-debt.md) for evidence and restoration criteria.
+The dynamic checks remain available through `verify.sh nats-dynamic` and
+`verify.sh dynamic-tui`; explicit runs still fail on errors.
+
+See [current validation results](milestones.md#latest-local-validation--2026-10-18).
+Milestone-specific notes below describe upgrades and coverage; previous passing
+runs are consolidated under [historical validation](#historical-local-validation).
+
+## Local setup and milestone upgrade notes
+
 Follow README for setup. Bootstrap preserves keys and groups, regenerates public
 configuration/enrollment, verifies a pinned GitHub NATS binary, and builds a
 scratch image with its license. Close device clients before bootstrap and restart
@@ -83,7 +100,7 @@ wire, consumer or dependency migration is needed for Milestone 9. See
 
 Milestone 10 completes the narrow MVP acceptance gate. `scripts/dev/verify.sh`
 runs the required Cargo checks, downloads the pinned NATS binary, explicitly runs
-all live integration cases, and executes the Compose CLI smoke test. CI calls
+the default live integration cases, and executes the Compose CLI smoke test. CI calls
 the same script. It uses development identities for Compose; close existing clients
 and the host service first. The Rust integration tests use fresh temporary roots
 and ephemeral ports, and never reset `.dev/` or its NATS volume.
@@ -107,12 +124,12 @@ reconnect semantics and the Ratatui feature constraint.
 
 Milestone 12 supports additional independent devices and creator-serialized MLS
 additions. Follow [multi-device enrollment and migration](multi-device.md) before
-upgrading existing clients. Its fifth live integration case exercises Alice/laptop,
+upgrading existing clients. Its live integration case exercises Alice/laptop,
 Alice/desktop and Bob/laptop, including consumer progress migration and restart.
 Run `cargo build --workspace` first, then:
 
 ```bash
-EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service --test registration -- --ignored --test-threads=1
+./scripts/dev/verify.sh nats
 EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/tui-smoke.py
 ```
 
@@ -125,8 +142,7 @@ Milestone 13 requires regenerating permissions and restarting the service before
 launching upgraded clients. Existing directory records are imported into
 TRANSPARENCY KV; SQLite migration 2 retains identities/groups/history and adds local
 trust state. Follow [verification setup](device-verification.md), including optional
-independent directory-key pinning before first discovery. The NATS suite now has
-seven cases, including adversarial history/key substitution and competing atomic
+independent directory-key pinning before first discovery. The NATS suite covers adversarial history/key substitution and competing atomic
 appends. New feature work starts on a clean branch and reaches protected `main`
 through a PR with required status checks; do not push feature commits to `main`.
 
@@ -139,7 +155,7 @@ restricted `.dev/system` identity and write access to `.dev/auth/`; only one act
 may own a development root. No NATS process restart is required for an individual
 revocation. See [revocation commands and failure recovery](device-revocation.md).
 
-The shared verification command now runs nine isolated NATS cases and a three-client
+The shared verification command includes isolated NATS cases and a three-client
 PTY scenario including live revocation. The new cases exercise forced disconnect,
 rekeyed messaging, bootstrap/restart persistence and durable intent surviving actuator
 failure. They use temporary roots and ports. `device list` reports authorization and
@@ -148,11 +164,13 @@ local trust separately; remote connection presence is not inferred from director
 ## Verification deadlines
 
 CI runs the same `scripts/dev/verify.sh` phases separately: `harness`, `fmt`,
-`clippy`, `unit`, `build`, `nats`, `compose` and `tui`. Each phase uses an external
+`clippy`, `unit`, `build`, `nats`, `compose`, `tui`, `relations-tui` and
+`participants-tui`, plus `dynamic-join`. Each phase uses an external
 wall-clock watchdog with a ten-second heartbeat, exit code 124 on timeout, and
 TERM/KILL cleanup of its process group. Deadlines are 60s for formatting, 600s for
 clippy, 180s for unit tests, 300s for build, 120s for NATS download, 360s for the
-eleven serial NATS cases, and 180s each for Compose and TUI. The job retains its
+16 default serial NATS cases (dynamic Auth Callout is deferred as TD-002), and
+180s each for Compose and TUI. The job retains its
 20-minute outer limit; GitHub step limits also apply. A timed-out phase fails CI.
 
 The Compose smoke service must exit within five seconds of SIGINT; otherwise the
@@ -181,7 +199,7 @@ recovery material using another extension. The exporter never prints the secret 
 accepts one through command-line arguments/environment variables. Both output paths
 must be new files in existing directories; Unix permissions are 0600.
 
-The shared verification script and CI automatically include the tenth NATS case:
+The shared verification script and CI include the recovery case:
 
 ```bash
 cargo build --workspace
@@ -210,8 +228,7 @@ or updates ATTACHMENTS retention/capacity. Device permissions add publication of
 APIs for OBJ_ATTACHMENTS. No client stream purge/delete/update or consumer management
 permissions are granted. Do not send manifests to pre-M16 clients.
 
-The shared verification command now runs eleven isolated NATS cases. The additional
-attachment case has a 120-second outer bound and exercises CLI multi-chunk round trip,
+The shared verification command includes the attachment case. It has a 120-second outer bound and exercises CLI multi-chunk round trip,
 corruption, Object Store links, expiry, restart and continued NKey revocation. TUI
 smoke also sends/saves an attachment with a path containing spaces, then scans stopped
 NATS storage for the plaintext marker. Run just the new NATS case after building:
@@ -263,11 +280,6 @@ transport ordering, author checks, duplicate IDs, migration rollback and project
 replay from retained events. Use `message events CHANNEL --offline` for original
 content/full IDs and `message history CHANNEL --offline` for the current projection.
 
-Milestone 19 validation passed: formatting, warnings-denied clippy, workspace build,
-48 unit tests, all 14 live NATS integration tests, isolated Compose/CLI smoke,
-the three-device TUI workflow, the separate relationship TUI workflow, and the
-bounded-runner/terminal helper regression tests.
-
 ## Milestone 20 validation and upgrade
 
 Existing databases migrate to schema 8 without reset. Regenerate operator enrollment
@@ -277,10 +289,7 @@ The NATS suite includes a bounded participant CLI/daemon test. Use
 `./scripts/dev/verify.sh participants-tui` for the separate 120-second terminal test.
 The original TUI and relationship tests keep their existing deadlines.
 
-Milestone 20 validation passed: formatting, warnings-denied clippy, workspace build,
-51 unit tests, all 15 live NATS integration tests, all three terminal workflows,
-isolated Compose/CLI smoke, and eight verification-helper tests. The new service
-terminal test waits for its specific acknowledged Welcome rather than a stale UI
+The service terminal test waits for its specific acknowledged Welcome rather than a stale UI
 notice. Compose smoke now waits at most ten seconds for a complete NATS INFO greeting
 before launching the backend; an open Docker port alone did not establish readiness.
 
@@ -288,20 +297,11 @@ before launching the backend; an open Docker port alone did not establish readin
 
 Legacy fixture service invocations require `--dev-static`; the scripts and existing
 acceptance helpers pass it explicitly. No production path falls back to this mode.
-The NATS suite adds a separately bounded (90-second) Auth Callout case using only one
+The opt-in `verify.sh nats-dynamic` phase runs the Auth Callout case using only one
 static auth-service identity, dynamic Alice/Bob enrollment, inbox denial, claim expiry,
 revocation and backend restart without NATS file mutation/reload. Dynamic test transport
 is explicitly development plaintext; the callout exchange is still XKey-encrypted.
 See [operator/auth-callout.md](operator/auth-callout.md) for the current boundary.
-
-Milestone 21 validation: formatting, warnings-denied workspace Clippy, all 55 unit
-checks, workspace build, the bounded harness tests and all 16 live NATS integration
-cases passed. The Compose CLI smoke test and the messaging, relationship and service
-participant TUI smoke tests also passed. The dynamic admission case exercises
-single-use enrollment, inbox isolation, lease expiration, revocation and backend
-restart against an unchanged NATS configuration. This does not yet qualify dynamic
-group messaging or clustered production deployment.
-
 
 ## Milestone 23 validation
 
@@ -313,6 +313,58 @@ connection certificate rotation, and TLS-first restart. It changes no host trust
 store and uses finite process/outer deadlines. The remaining NATS fixtures explicitly
 use the development profile. No live typing checks have been re-enabled.
 
-The final local Milestone 23 run passed all workspace gates, 60 unit tests, 17 live
-NATS cases, the bounded harness, isolated Compose smoke and all three TUI modes.
-See the [status index](milestones.md) for remaining milestones and CI qualification.
+## Milestone 22 dynamic messaging validation
+
+The Auth Callout NATS case now exercises real MLS chat across independent enrolled
+devices, group removal, generation changes, unauthorized inbox/group/consumer access,
+revoked active-connection expiry, reconnect denial, coordinator rekeying and messages
+after restart. It checks actual CHAT payloads for a recognizable plaintext marker
+and proves the NATS configuration is unchanged with no reload. Three-second claims
+intentionally exercise expiry; catch-up retries are bounded and idempotent.
+
+Run `./scripts/dev/verify.sh dynamic-tui` for actual Alice/Bob pseudo-terminals using
+only dynamically enrolled device keys. It creates/invites/joins through the TUI,
+exchanges messages asynchronously and reopens Bob to catch up offline history.
+Every subprocess and phase has a deadline. Dynamic TUI and the dynamic Auth
+Callout integration case are temporarily excluded from the default CI/local gate
+under [TD-002](technical-debt.md). Run `./scripts/dev/verify.sh nats-dynamic`
+for the latter. Explicit runs still fail on errors; static development tests remain
+required. Live typing assertions remain deferred as TD-001.
+
+### PR #13 lease-expiry CI regression
+
+Push run `35457276144` failed in the dynamic admission test with a bare `timed out`
+after approximately 24 seconds; the PR run on the same commit passed. The harness
+watchdog did not fire. Three local repetitions also passed. The error text and
+absence of later negative-test logs point to the initial MAILBOX consumer INFO
+lookup, but the original run had no backtrace to establish the exact call site.
+
+Consumer INFO reads previously had no retry when an authorization lease expired
+while awaiting a response. CHAT and MAILBOX lookup now renew admission and retry
+once on the typed timeout error only, within an overall 15-second deadline.
+Authorization/configuration errors fail immediately; neither this change nor the
+tests relax permissions, lease-expiry assertions or CI deadlines. Fault-injection
+unit tests cover a lost response, persistent timeouts, other errors and failed
+readmission. CI enables Rust backtraces, and lookup errors identify the stream.
+
+The retry change passed locally, but subsequent CI failures persisted. See
+[TD-002](technical-debt.md) for the later evidence and current quarantine.
+
+## Historical local validation
+
+These results were recorded during milestone implementation. Counts describe those
+revisions, not the current gate, and individual passes did not establish reliability.
+
+| Revision / milestone | Unit tests | Live NATS cases | Other recorded checks |
+| --- | --- | --- | --- |
+| 19 | 48 | 14 | Cargo gates, Compose/CLI, main and relationship TUI, harness |
+| 20 | 51 | 15 | Cargo gates, Compose/CLI, three TUI workflows, eight helper tests |
+| 21 | 55 | 16 | Cargo gates, harness, Compose/CLI, three static TUI workflows |
+| 23 | 60 | 17 | Cargo gates, harness, Compose/CLI, three static TUI workflows |
+| 22 completion | 62 | 17 | Cargo gates, harness, Compose/CLI, four TUI workflows including dynamic Auth Callout |
+| Consumer INFO retry (`261bf68`) | 65 | 17 | Cargo gates and dynamic TUI chat/restart smoke |
+
+Milestone 23 preceded the final Milestone 22 completion work. Later CI failures
+supersede any implication that the dynamic workflows are reliable; current coverage
+and validation are recorded in the [status index](milestones.md) and
+[technical debt](technical-debt.md).

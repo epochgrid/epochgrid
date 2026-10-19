@@ -2,8 +2,9 @@
 
 Current scope and deployment qualification: [milestone status](milestones.md).
 Milestone 23 provides the shared [TLS profile](operator/tls.md); Milestone 22
-normal-client and durable-consumer integration remains incomplete. The full
-messaging flows described below currently run in explicit development fixtures.
+integrates dynamic authorization with the normal CLI/TUI messaging path. Legacy
+static fixtures remain available explicitly for development. Dynamic Object Store
+permissions and the remaining alpha release gates are not yet qualified.
 
 EpochGrid (https://epochgrid.org) uses NATS for
 transport, authentication, authorization, request/reply and persistence. OpenMLS

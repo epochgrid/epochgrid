@@ -54,13 +54,21 @@ impl Drop for Worker {
         }
     }
 }
+struct PendingJoin {
+    user: String,
+    device: String,
+    deadline: Instant,
+    retry: Instant,
+}
+
 struct Session {
     store: IdentityStore,
     server: String,
     selected: Option<String>,
     before: Option<u64>,
     client: Option<async_nats::Client>,
-    ephemeral: Option<async_nats::Subscriber>,
+    ephemeral: Option<futures_util::stream::SelectAll<async_nats::Subscriber>>,
+    ephemeral_groups: Vec<String>,
     typing: TypingState,
     receipt_poll: Instant,
     receipt_cursor: usize,
@@ -68,6 +76,7 @@ struct Session {
     delay: u64,
     status: String,
     notice: String,
+    pending_join: Option<PendingJoin>,
     send_count: u64,
     send_error: Option<String>,
 }
@@ -82,6 +91,7 @@ impl Session {
             before: None,
             client: None,
             ephemeral: None,
+            ephemeral_groups: Vec::new(),
             typing: TypingState::default(),
             receipt_poll: Instant::now(),
             receipt_cursor: 0,
@@ -89,6 +99,7 @@ impl Session {
             delay: 1,
             status: "Offline — connecting".into(),
             notice: "Type /help for commands".into(),
+            pending_join: None,
             send_count: 0,
             send_error: None,
         })
@@ -184,7 +195,11 @@ impl Session {
                     if let Err(error) = self.command(command).await { self.notice = format!("Action failed: {error:#}"); }
                 }
                 _ = tick.tick() => {
-                    self.network().await;
+                    if self.pending_join.is_some() {
+                        self.resume_join().await;
+                    } else {
+                        self.network().await;
+                    }
                     // Staged data remains usable even when a network ACK/connection fails.
                     for group in self.store.groups()? { self.store.process_history(&group.name)?; }
                 }
@@ -192,6 +207,77 @@ impl Session {
             updates.send_replace(self.snapshot()?);
         }
     }
+    async fn resume_join(&mut self) {
+        let Some(mut pending) = self.pending_join.take() else {
+            return;
+        };
+        let now = Instant::now();
+        if now >= pending.deadline {
+            self.notice =
+                "Action failed: connection unavailable; join timed out, retry /join".into();
+            return;
+        }
+        if now < pending.retry {
+            self.pending_join = Some(pending);
+            return;
+        }
+        // Begin with a fresh admission lease instead of reusing the connection
+        // whose expiry may have interrupted the preceding background sync.
+        let remaining = pending.deadline.saturating_duration_since(now);
+        let connection = tokio::time::timeout(
+            remaining.min(Duration::from_secs(3)),
+            transport::connect(&self.server, &self.store),
+        )
+        .await
+        .map_err(anyhow::Error::from)
+        .and_then(|result| result);
+        let client = match connection {
+            Ok(client) => client,
+            Err(error) => {
+                let transient = error.is::<tokio::time::error::Elapsed>()
+                    || error
+                        .downcast_ref::<async_nats::ConnectError>()
+                        .is_some_and(|error| {
+                            matches!(
+                                error.kind(),
+                                async_nats::ConnectErrorKind::Io
+                                    | async_nats::ConnectErrorKind::Dns
+                                    | async_nats::ConnectErrorKind::TimedOut
+                            )
+                        });
+                if transient {
+                    pending.retry = Instant::now() + Duration::from_secs(1);
+                    self.pending_join = Some(pending);
+                    self.notice = "Waiting for connection to join channel".into();
+                } else {
+                    self.notice = format!("Action failed: {error:#}");
+                }
+                return;
+            }
+        };
+        let remaining = pending.deadline.saturating_duration_since(Instant::now());
+        let result = tokio::time::timeout(
+            remaining.min(Duration::from_secs(8)),
+            delivery::join_next(&self.store, &client, &pending.user, &pending.device),
+        )
+        .await
+        .context("join timed out; retry to acknowledge any redelivery")
+        .and_then(|result| result);
+        self.client = Some(client);
+        self.ephemeral = None;
+        match result {
+            Ok(group) => {
+                self.selected = Some(group.name);
+                self.before = None;
+                self.notice = "Channel joined".into();
+            }
+            // Do not replay an operation after Welcome acceptance or hide
+            // authentication errors. Existing idempotent redelivery supports
+            // an explicit retry if completion was interrupted.
+            Err(error) => self.notice = format!("Action failed: {error:#}"),
+        }
+    }
+
     async fn network(&mut self) {
         if self.client.is_none() && Instant::now() < self.retry {
             return;
@@ -201,12 +287,23 @@ impl Session {
                 self.client = Some(transport::connect(&self.server, &self.store).await?);
             }
             let client = self.client.as_ref().context("connection missing")?;
-            if self.ephemeral.is_none() {
-                self.ephemeral = Some(client.subscribe("epochgrid.v1.group.*.ephemeral").await?);
-                client.flush().await?;
-            }
             epochgrid_core::transparency::audit(client, &self.store).await?;
             delivery::flush_outbox(&self.store, client).await?;
+            let subjects: Vec<_> = self
+                .store
+                .groups()?
+                .iter()
+                .map(|g| g.subject("ephemeral"))
+                .collect();
+            if self.ephemeral.is_none() || self.ephemeral_groups != subjects {
+                let mut subscriptions = Vec::new();
+                for subject in &subjects {
+                    subscriptions.push(client.subscribe(subject.clone()).await?);
+                }
+                client.flush().await?;
+                self.ephemeral = Some(futures_util::stream::select_all(subscriptions));
+                self.ephemeral_groups = subjects;
+            }
             if let Some(group) = self.store.groups()?.first() {
                 history::catch_up(&self.store, client, &group.name).await?;
                 for group in self.store.groups()? {
@@ -444,19 +541,15 @@ impl Session {
                 self.notice = "Invitation delivered".into();
             }
             Action::Join { user, device } => {
-                let client = self
-                    .client
-                    .as_ref()
-                    .context("offline; retry join when connected")?;
-                let group = tokio::time::timeout(
-                    Duration::from_secs(8),
-                    delivery::join_next(&self.store, client, &user, &device),
-                )
-                .await
-                .context("join timed out; retry to acknowledge any redelivery")??;
-                self.selected = Some(group.name);
-                self.before = None;
-                self.notice = "Channel joined".into();
+                anyhow::ensure!(self.pending_join.is_none(), "a join is already pending");
+                let now = Instant::now();
+                self.pending_join = Some(PendingJoin {
+                    user,
+                    device,
+                    deadline: now + Duration::from_secs(20),
+                    retry: now,
+                });
+                self.notice = "Waiting for connection to join channel".into();
             }
         }
         Ok(())
@@ -466,6 +559,64 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn offline_join_is_retained_without_duplicate_or_extended_deadline() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let mut store = IdentityStore::open(dir.path())?;
+        store.init("bob", "laptop")?;
+        let mut session = Session::new(store, "tls://127.0.0.1:1".into())?;
+        session
+            .command(Action::Join {
+                user: "alice".into(),
+                device: "laptop".into(),
+            })
+            .await?;
+        let deadline = session.pending_join.as_ref().unwrap().deadline;
+        session.resume_join().await;
+        assert_eq!(session.pending_join.as_ref().unwrap().deadline, deadline);
+        assert!(
+            session
+                .snapshot()?
+                .notice
+                .contains("Waiting for connection")
+        );
+        assert!(
+            session
+                .command(Action::Join {
+                    user: "other".into(),
+                    device: "laptop".into()
+                })
+                .await
+                .is_err()
+        );
+        assert_eq!(session.pending_join.as_ref().unwrap().user, "alice");
+        session.pending_join.as_mut().unwrap().deadline = Instant::now();
+        session.resume_join().await;
+        assert!(session.pending_join.is_none());
+        assert!(session.snapshot()?.notice.contains("join timed out"));
+        assert!(session.store.groups()?.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn invalid_join_connection_is_not_retried() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let mut store = IdentityStore::open(dir.path())?;
+        store.init("bob", "laptop")?;
+        let mut session = Session::new(store, "not a valid server address".into())?;
+        session
+            .command(Action::Join {
+                user: "alice".into(),
+                device: "laptop".into(),
+            })
+            .await?;
+        session.resume_join().await;
+        assert!(session.pending_join.is_none());
+        assert!(session.snapshot()?.notice.starts_with("Action failed:"));
+        assert!(session.store.groups()?.is_empty());
+        Ok(())
+    }
+
     #[test]
     fn trust_warnings_override_routine_notices_after_restart() -> Result<()> {
         let dir = tempfile::tempdir()?;

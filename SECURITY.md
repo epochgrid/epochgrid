@@ -144,7 +144,8 @@ reconciles the signed revocation log before allowing devices. Enrollment tokens 
 single-device bearer credentials; interception before enrollment can hijack admission.
 Use TLS and secure token delivery. Callout account/issuer/XKey compromise is highly
 privileged. This does not replace manual MLS identity verification or transparency.
-Dynamic group permissions and the rest of the alpha release gates remain unfinished.
+Dynamic group permissions and filtered durable delivery are implemented. Local
+secret protection and the remaining alpha release gates are unfinished.
 
 
 Milestone 23 makes production TLS mandatory for every shipped NATS connection,
@@ -156,8 +157,12 @@ endpoints still verify certificates in that profile. Leaf rotation is verified o
 reconnect; trust-store rotation requires process restart. TLS authenticates the
 fabric, not the human, and does not protect against a compromised trusted service.
 
-Milestone 22 policy grants are implemented, but normal-client policy synchronization,
-filtered consumers, Welcome relay and complete MLS/NATS convergence remain unfinished.
+Milestone 22 synchronizes policy with the client MLS outbox, restricts CHAT consumers
+to current membership, and relays signed opaque Welcome envelopes. Restart repairs
+consumer policy before opening admission. Existing claims remain usable until
+lease expiry; MLS rekeying waits for an active coordinator. The operator-managed
+control-service connection renews on a fixed 60-second lease; it is not a device.
+Protect it and rotate its configured key deliberately.
 Local private state and transcripts remain unencrypted pending Milestones 24–25.
 Typing UI is unreliable and deferred as TD-001. See [current status](docs/milestones.md)
 and [TLS operational requirements](docs/operator/tls.md); no alpha release gate

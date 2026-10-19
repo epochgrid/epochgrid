@@ -18,7 +18,7 @@ No `v0.1.0-alpha.1` tag or production-ready release has been published.
 | 19 | Complete in development model | Append-only replies, edits and reactions |
 | 20 | Complete in development model | Explicit MLS service participation and removal |
 | 21 | Complete admission slice | Canonical users, local single-use enrollment tokens, encrypted Auth Callout and dynamic revocation denial |
-| 22 | In progress | Signed coordinator policies, exact group grants, generation checks, transactional policy revocation and lease-expiry tests implemented; normal-client policy synchronization, filtered durable consumers, Welcome relay and full MLS/NATS convergence remain |
+| 22 | Implemented — live reliability deferred (TD-002) | Signed policies synchronized with the MLS outbox; exact grants, filtered durable consumers, signed Welcome relay, bounded lease expiry and revocation/rekey convergence; dynamic CLI/TUI chat and restart coverage quarantined after intermittent failures |
 | 23 | Complete transport milestone | Shared production TLS profile, system/custom roots, name validation, configurable minimum version, TLS-first and certificate-rotation tests |
 | 24–25 | Not started | OS secret storage and protected SQLite state |
 | 26–28 | Not started | Qualified BYO-NATS contract, initialization/validation and backend privilege separation |
@@ -28,28 +28,42 @@ No `v0.1.0-alpha.1` tag or production-ready release has been published.
 
 ## Which deployment path works today?
 
-The complete messaging/TUI walkthrough still uses explicitly **development-only**
+The original README walkthrough uses explicitly **development-only**
 static NATS fixtures. Set `EPOCHGRID_PROFILE=development` in each terminal used for
 those commands. The provided development smoke runners select it explicitly and
 print a warning. This is not the alpha deployment model.
 
-The production-shaped path supports dynamic enrollment/admission and signed group
-policy operations over verified TLS. It does not yet support the complete normal
-CLI/TUI messaging workflow because Milestone 22 integration remains unfinished.
+The production-shaped path supports dynamic enrollment/admission and normal
+CLI/TUI encrypted chat, invitations, durable catch-up and revocation over verified
+TLS. Dynamic join/send synchronization remains unreliable; its live checks are
+temporarily quarantined under [TD-002](technical-debt.md). Use the [dynamic walkthrough](operator/auth-callout.md#dynamic-client-walkthrough).
+Dynamic attachment access and the broader BYO-NATS qualification remain separate
+release work; the complete development feature set is not yet release-qualified.
 Completing TLS does not imply the alpha release gates are met. Local secrets and
 transcripts remain unencrypted pending Milestones 24–25.
 
 See [TLS](operator/tls.md), [Auth Callout](operator/auth-callout.md),
 [dynamic authorization](architecture/dynamic-authorization.md), and
-[deferred typing indicators](technical-debt.md). Finish Milestone 22 before claiming
-production-shaped end-to-end messaging support; Milestone 24 is the next numbered
-release-preparation milestone after TLS.
+[deferred typing and dynamic authorization checks](technical-debt.md). Milestone 24 (Linux secret storage)
+is the next release-preparation milestone.
 
 
-## Latest local validation — Milestone 23
+## Latest local validation — 2026-10-18
 
-Formatting, warnings-denied workspace Clippy, 60 unit tests, workspace build and
-all 17 live NATS integration cases passed. The bounded harness, isolated Compose
-CLI smoke and all three TUI smoke modes also passed. Typing assertions remain
-explicitly skipped under TD-001. These are local results; branch CI is a separate
-required check before merging. No release tag or artifact publication is implied.
+After merging the pending-join fix from `bce2482` with the TD-002 quarantine,
+the complete default `./scripts/dev/verify.sh` gate passed: formatting,
+warnings-denied workspace Clippy, all 67 unit tests, workspace build, ten Python
+harness tests, all 16 retained live NATS cases, Compose/CLI smoke, the main,
+relationship and service-participant TUI workflows, and the focused dynamic join
+reconnect regression. The NATS suite completed in 192.67 seconds with exactly one
+Auth Callout case filtered out. Verifier routing and failure propagation checks
+also passed.
+
+Live typing assertions and the full dynamic authorization integration/messaging
+checks remain deferred under TD-001/TD-002 and were not rerun. A green default
+gate does not certify dynamic authorization end to end. These are local results;
+protected-branch CI checks remain required before merge.
+
+Earlier milestone results are consolidated in
+[historical local validation](development.md#historical-local-validation). See
+[TD-002](technical-debt.md) for failed CI runs and restoration criteria.

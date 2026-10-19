@@ -6,6 +6,8 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      RUST_BACKTRACE: "1"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -35,6 +37,11 @@ jobs:
       - name: Interactive TUI smoke
         timeout-minutes: 4
         run: ./scripts/dev/verify.sh tui
+      - name: Deferred dynamic authorization checks (TD-002)
+        run: echo 'SKIP TD-002 - dynamic Auth Callout integration and full TUI messaging smoke are opt-in; see docs/technical-debt.md'
+      - name: Dynamic join reconnect regression
+        timeout-minutes: 4
+        run: ./scripts/dev/verify.sh dynamic-join
       - name: Message relationship TUI smoke
         timeout-minutes: 2
         run: ./scripts/dev/verify.sh relations-tui

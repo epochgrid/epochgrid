@@ -27,16 +27,16 @@ inside MLS group IDs, public credentials/KeyPackages, or traffic analysis.
 The explicitly selected development Compose profile has no TLS and binds loopback.
 NKeys do not encrypt transport. Milestone 23 requires verified TLS by default for
 all shipped network paths; [TLS configuration](operator/tls.md) explains trust,
-minimum version and rotation. Production-shaped messaging remains blocked by
-unfinished Milestone 22 integration and later release gates.
+minimum version and rotation. Dynamic CLI/TUI chat is implemented; later release
+gates, including local secret protection, remain unfinished.
 
 Development group permissions use namespace wildcards, so enrolled devices can
 observe unrelated lab ciphertext or inject invalid traffic. MLS rejects invalid
-content. Dynamic policy grants enforce exact group subjects, but normal-client
-and durable-consumer integration is not yet complete. Clients
-can publish to peer inboxes but cannot read them. A malicious enrolled client can
-reserve a peer's initial KeyPackage or block its mailbox with unwanted traffic.
-Availability and request flooding are not protected in this slice.
+content. Dynamic CLI/TUI clients use exact group grants and backend-owned filtered
+consumers. They cannot publish to another inbox, read another consumer or create
+consumers; signed Welcome relay checks current group membership. Static fixtures
+still permit peer-inbox publication. KeyPackage reservation abuse, request flooding
+and broader availability controls remain work for the resource-limits milestone.
 
 Endpoint compromise can expose private keys and the retained plaintext transcript.
 MLS key erasure does not erase the separately retained local plaintext history.
@@ -224,7 +224,8 @@ reconciles the signed revocation log before allowing devices. Enrollment tokens 
 single-device bearer credentials; interception before enrollment can hijack admission.
 Use TLS and secure token delivery. Callout account/issuer/XKey compromise is highly
 privileged. This does not replace manual MLS identity verification or transparency.
-Dynamic group permissions and the rest of the alpha release gates remain unfinished.
+Dynamic group permissions and filtered durable delivery are implemented. Local
+secret protection and the remaining alpha release gates are unfinished.
 
 Milestone 22 policy projection: an active coordinator can sign public transport
 membership updates. The service checks admission, policy generation and MLS epoch
@@ -232,8 +233,14 @@ monotonicity, but cannot validate private MLS group state from this metadata alo
 Transport membership is therefore defense in depth, not proof of MLS membership.
 Revocation atomically removes projected access and selects the lowest remaining
 leaf as coordinator. Existing NATS claims expire before changed permissions take
-effect; MLS rekeying remains a separate required client operation. Durable consumer
-and normal-client integration are not yet complete.
+effect; MLS rekeying is performed by an active client coordinator during sync.
+Durable consumer filters are reconciled before new admission. Changed filters
+replay matching ciphertext and retain local deduplication; already delivered bytes
+cannot be recalled. Policy metadata cannot prove that a malicious coordinator
+performed the corresponding MLS transition. Signed Welcome relay checks current
+coordinator, recipient membership and epoch; it provides no plaintext bypass.
+The operator-managed control credential renews on a fixed 60-second lease, outside
+the device revocation model, and must be protected and rotated by the operator.
 
 
 TLS authenticates a server name under the configured CA trust, not the EpochGrid

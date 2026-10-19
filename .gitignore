@@ -8,3 +8,5 @@
 
 *.egrecovery
 *.egsecret
+
+__pycache__/

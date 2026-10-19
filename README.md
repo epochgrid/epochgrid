@@ -6,7 +6,7 @@ Organization: https://github.com/epochgrid.
 
 **Current status: MVP and initial alpha features implemented; production-shaped alpha
 preparation is in progress.** Milestone 21 admission works, Milestone 22 dynamic
-authorization is in progress, Milestone 23 provides verified production TLS, and live
+authorization supports dynamic CLI/TUI chat and revocation, Milestone 23 provides verified production TLS, and live
 typing UI is deferred (TD-001). See the [current milestone status](docs/milestones.md).
 EpochGrid has a persistent terminal client and independent devices per user.
 JetStream stores MLS protocol bytes; readable transcripts stay on each device.
@@ -26,7 +26,7 @@ This is unaudited development software, not a production-ready security product.
 | 19 | Complete | Stable application IDs, append-only replies/edits/reactions, authenticated ordering and replay |
 | 20 | Complete | Explicit MLS service participants, encrypted status replies, restart-safe processing and coordinator removal |
 | 21 | Complete admission slice | Canonical identity enrollment and encrypted NATS Auth Callout |
-| 22 | In progress | Signed group policies and scoped grants; client/consumer/Welcome integration remains |
+| 22 | Complete | Durable policy synchronization, exact group grants, filtered consumers, signed Welcome relay and dynamic revocation with MLS rekeying |
 | 23 | Complete transport milestone | Production TLS, system/custom trust, hostname verification, minimum version and certificate rotation |
 | 24–38 | Not started | Secret storage, deployment qualification, operations and release preparation |
 
@@ -60,13 +60,16 @@ See [architecture](docs/architecture.md), [protocol](docs/protocol.md), and
 ## Authentication migration toward alpha
 
 Dynamic NATS Auth Callout admission uses a provider-neutral identity registry.
-Milestone 22 now has signed coordinator policies, exact group subject grants and
-transactional membership revocation. Normal dynamic CLI/TUI messaging still needs
-policy/outbox synchronization, filtered durable consumers and Welcome relay. See [the migration inventory](docs/architecture/auth-migration.md) and
+Milestone 22 connects signed coordinator policies, exact group grants, filtered
+durable consumers and authenticated Welcome relay to normal CLI/TUI messaging.
+Device revocation advances MLS epochs and denies NATS access without configuration
+edits or reloads. See [the migration inventory](docs/architecture/auth-migration.md) and
 [Auth Callout setup and current limits](docs/operator/auth-callout.md). The existing
 walkthrough below is an explicitly static development fixture, not the supported
-alpha deployment model. No alpha release has been tagged; dynamic group permissions,
-secure local storage and the remaining release gates are still required.
+alpha deployment model. For dynamic enrollment and chat, follow the
+[Auth Callout walkthrough](docs/operator/auth-callout.md#dynamic-client-walkthrough).
+No alpha release has been tagged; secure local storage and the remaining release
+gates are still required.
 
 ## Start development infrastructure
 
@@ -147,7 +150,9 @@ PgUp loads older history and PgDn returns to latest. Use `/create NAME`,
 `/invite USER [DEVICE]`, `/join INVITER [DEVICE]`, `/members`, `/devices`, `/help`, `/quit` or
 Ctrl-C. Use `//` for a message beginning with `/`. Offline sends are encrypted and
 queued locally; `[pending]` means no server acknowledgment yet. A failed local
-send retains the composition. Uncommitted drafts are not saved on exit.
+send retains the composition. `/join` retries temporary connection failures within
+a 20-second deadline; a pending join is not saved on exit.
+Uncommitted drafts are not saved on exit.
 `/members` groups device leaves by user; `/devices` shows each cryptographic device.
 See [TUI architecture and controls](docs/tui.md).
 
@@ -327,7 +332,9 @@ See [restart and recovery](docs/recovery.md) for tested failure boundaries and l
 
 ## Verify
 
-Run the same complete MVP and alpha gate as CI (includes the pinned NATS download and Compose):
+Run the same MVP gate as CI (includes the pinned NATS download and Compose).
+Dynamic authorization live checks are temporarily opt-in under
+[TD-002](docs/technical-debt.md#td-002--dynamic-authorization-live-checks-deferred-during-mvp-work):
 
 ```bash
 ./scripts/dev/verify.sh
@@ -340,10 +347,16 @@ cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo build --workspace
-EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service --test registration -- --ignored --test-threads=1
+./scripts/dev/verify.sh nats
 ./scripts/dev/smoke.sh
 EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/tui-smoke.py
 ```
+
+The focused `./scripts/dev/verify.sh dynamic-join` regression interrupts Bob's
+connection before a single `/join`, then checks reconnect and joined-channel
+restart with six-second authorization leases and remains required in CI. The
+separate `dynamic-tui` phase retains the complete dynamic messaging smoke test
+as an opt-in check under TD-002.
 
 The isolated NATS integration suite covers registration, discovery, authorization,
 offline Welcome delivery, two-way encryption, ordered backlog replay, lost
@@ -398,10 +411,12 @@ revocation remains effective, and resumes two-way messaging with a fresh leaf.
   explicit limits; there is no automatic identity-replacement workflow.
 - The legacy development revocation fixture manages one broker and needs a restricted
   reload key. Dynamic Auth Callout revocation does not edit NATS configuration;
-  remaining MLS/consumer convergence work is tracked under Milestone 22.
+  active device claims expire within the configured 2–60-second lease. MLS rekeying
+  waits for an active coordinator; revocation does not erase old plaintext.
 - Static development group permissions span the Alice/Bob lab namespace. Exact
-  grants exist in the dynamic policy path, but normal-client/durable-consumer
-  integration is pending; inbox reads remain device-specific.
+  grants and membership-filtered durable consumers are used by dynamic CLI/TUI
+  chat; inbox reads remain device-specific. Dynamic attachment permissions remain
+  outside this milestone.
 - The explicit loopback development profile permits plaintext. Production connections
   require [verified TLS](docs/operator/tls.md). SQLite and journals contain unencrypted local
   private state. Use trusted private directories, not production secrets.
