@@ -45,3 +45,5 @@ pub mod identity_model;
 pub mod auth_callout;
 
 pub mod tls;
+
+pub mod secrets;

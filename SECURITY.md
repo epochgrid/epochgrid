@@ -12,7 +12,8 @@ email or response-time commitment has been established.
 
 Never attach NATS seeds, credentials, recovery secrets/packages, SQLite databases
 or real private messages.
-Local SQLite now retains unencrypted message history as well as private keys.
+Local SQLite retains unencrypted message history and MLS private state; standalone
+NATS credentials use Linux Secret Service.
 See [the threat model](docs/threat-model.md) for implemented boundaries and gaps.
 
 The Milestones 0–10 MVP has automated acceptance coverage for the two-device flow,
@@ -75,8 +76,9 @@ Recovery preserves trust evidence only as of export time. A valid older archive
 cannot be detected as stale offline. The service cannot decrypt the package, but
 endpoint compromise, co-located secret/package storage, swap and crash dumps remain
 risks. Keep recovery secrets outside the device and apart from archives. Local
-restored state is unencrypted development SQLite; no hardware-keystore or guaranteed
-secure-erasure claim is made. See [recovery boundaries](docs/encrypted-recovery.md).
+restored identity credentials use Linux Secret Service; restored trust metadata
+remains in unencrypted SQLite. No hardware-keystore or guaranteed secure-erasure
+claim is made. See [recovery boundaries](docs/encrypted-recovery.md).
 
 
 Milestone 16 protects attachments with client-side AES-256-GCM and puts the key,
@@ -163,7 +165,9 @@ consumer policy before opening admission. Existing claims remain usable until
 lease expiry; MLS rekeying waits for an active coordinator. The operator-managed
 control-service connection renews on a fixed 60-second lease; it is not a device.
 Protect it and rotate its configured key deliberately.
-Local private state and transcripts remain unencrypted pending Milestones 24–25.
+Standalone NATS device/backend credentials use Linux Secret Service; there is no
+plaintext runtime fallback. MLS private state and transcripts remain unencrypted
+pending Milestone 25. See [secret storage](docs/secret-storage.md) for the exact boundary.
 Typing UI is unreliable and deferred as TD-001. See [current status](docs/milestones.md)
 and [TLS operational requirements](docs/operator/tls.md); no alpha release gate
 should be inferred from historical milestone validation paragraphs alone.

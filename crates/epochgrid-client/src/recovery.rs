@@ -21,7 +21,7 @@ pub enum Command {
         #[arg(long)]
         secret_file: PathBuf,
     },
-    /// Restore identity administration into an empty home; messaging needs a fresh device.
+    /// Restore administration into a fresh or interrupted-restore home; never restore messaging.
     Restore {
         #[arg(long)]
         input: PathBuf,
@@ -126,11 +126,29 @@ pub fn run(home: &Path, command: Command) -> Result<()> {
             )?;
             let archive = RecoveryArchive::decrypt(&bytes, &secret)?;
             // Validate/authenticate first: malformed input never creates a database.
+            // An interrupted restore may have public metadata and an empty database.
+            // The core transaction rejects initialized or nonempty identity/trust state.
             if home.exists() {
-                ensure!(
-                    home.is_dir() && std::fs::read_dir(home)?.next().is_none(),
-                    "restore requires an empty home; choose a new --home directory"
-                );
+                for entry in std::fs::read_dir(home)? {
+                    let entry = entry?;
+                    let name = entry.file_name();
+                    let name = name.to_string_lossy();
+                    ensure!(
+                        entry.file_type()?.is_file()
+                            && matches!(
+                                name.as_ref(),
+                                "device.lock"
+                                    | "identity.sqlite"
+                                    | "identity.sqlite-journal"
+                                    | "identity.sqlite-wal"
+                                    | "identity.sqlite-shm"
+                                    | "credentials.lock"
+                                    | "credentials.json"
+                                    | "credentials.pending"
+                            ),
+                        "restore requires a fresh home or an interrupted restore home"
+                    );
+                }
             }
             let store = IdentityStore::open(home)?;
             archive.restore(&store)?;

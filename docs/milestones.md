@@ -20,7 +20,8 @@ No `v0.1.0-alpha.1` tag or production-ready release has been published.
 | 21 | Complete admission slice | Canonical users, local single-use enrollment tokens, encrypted Auth Callout and dynamic revocation denial |
 | 22 | Implemented — live reliability deferred (TD-002) | Signed policies synchronized with the MLS outbox; exact grants, filtered durable consumers, signed Welcome relay, bounded lease expiry and revocation/rekey convergence; dynamic CLI/TUI chat and restart coverage quarantined after intermittent failures |
 | 23 | Complete transport milestone | Shared production TLS profile, system/custom roots, name validation, configurable minimum version, TLS-first and certificate-rotation tests |
-| 24–25 | Not started | OS secret storage and protected SQLite state |
+| 24 | Implemented; locally validated | Linux Secret Service credentials, no plaintext fallback, fresh installs only |
+| 25 | Not started | Apply protected secret storage to SQLite encryption |
 | 26–28 | Not started | Qualified BYO-NATS contract, initialization/validation and backend privilege separation |
 | 29–31 | Not started | Resource bounds, operational diagnostics and structured audit events |
 | 32–34 | Not started | Official Linux artifacts, GHCR runtime image and release supply chain |
@@ -39,25 +40,29 @@ TLS. Dynamic join/send synchronization remains unreliable; its live checks are
 temporarily quarantined under [TD-002](technical-debt.md). Use the [dynamic walkthrough](operator/auth-callout.md#dynamic-client-walkthrough).
 Dynamic attachment access and the broader BYO-NATS qualification remain separate
 release work; the complete development feature set is not yet release-qualified.
-Completing TLS does not imply the alpha release gates are met. Local secrets and
-transcripts remain unencrypted pending Milestones 24–25.
+Completing TLS does not imply the alpha release gates are met. Standalone NATS credentials use [Linux Secret Service](secret-storage.md). MLS
+private state and transcripts remain unencrypted pending Milestone 25.
 
 See [TLS](operator/tls.md), [Auth Callout](operator/auth-callout.md),
 [dynamic authorization](architecture/dynamic-authorization.md), and
-[deferred typing and dynamic authorization checks](technical-debt.md). Milestone 24 (Linux secret storage)
+[deferred typing and dynamic authorization checks](technical-debt.md). Milestone 25 (protected SQLite state)
 is the next release-preparation milestone.
 
 
 ## Latest local validation — 2026-10-18
 
-After merging the pending-join fix from `bce2482` with the TD-002 quarantine,
-the complete default `./scripts/dev/verify.sh` gate passed: formatting,
-warnings-denied workspace Clippy, all 67 unit tests, workspace build, ten Python
-harness tests, all 16 retained live NATS cases, Compose/CLI smoke, the main,
-relationship and service-participant TUI workflows, and the focused dynamic join
-reconnect regression. The NATS suite completed in 192.67 seconds with exactly one
-Auth Callout case filtered out. Verifier routing and failure propagation checks
-also passed.
+Milestone 24 passed formatting, warnings-denied workspace Clippy, all 74 unit
+tests, workspace build, ten Python harness tests, all 16 retained live NATS
+cases, Compose/CLI smoke, the main, relationship and service-participant TUI
+workflows, and the focused dynamic join/reconnect regression. The NATS suite
+completed in 206.70 seconds with the existing TD-002 case filtered out.
+
+Protected-credential validation also passed: two explicit live Secret Service
+tests and CLI/backend lifecycle checks covering restart, encrypted recovery,
+missing/locked/duplicate credentials, binding mismatch, unavailable and stalled
+D-Bus sessions, interrupted initialization, and scans for plaintext seeds in
+application files. Tests use disposable password-protected keyrings; Compose
+smoke removes its temporary stack and volume without replacing developer state.
 
 Live typing assertions and the full dynamic authorization integration/messaging
 checks remain deferred under TD-001/TD-002 and were not rerun. A green default

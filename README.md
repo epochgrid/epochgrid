@@ -28,7 +28,8 @@ This is unaudited development software, not a production-ready security product.
 | 21 | Complete admission slice | Canonical identity enrollment and encrypted NATS Auth Callout |
 | 22 | Complete | Durable policy synchronization, exact group grants, filtered consumers, signed Welcome relay and dynamic revocation with MLS rekeying |
 | 23 | Complete transport milestone | Production TLS, system/custom trust, hostname verification, minimum version and certificate rotation |
-| 24–38 | Not started | Secret storage, deployment qualification, operations and release preparation |
+| 24 | Implemented; locally validated | Linux Secret Service for device and backend credentials; fresh installs only |
+| 25–38 | Not started | Protected SQLite state, deployment qualification, operations and release preparation |
 
 Invite the reference `@status [service]` participant and send `/status` in the TUI.
 See [service setup, trust and removal](docs/service-participants.md). The metadata
@@ -75,9 +76,12 @@ gates are still required.
 
 Prerequisites: rustup (Rust 1.98.1 is pinned), a C toolchain for bundled SQLite,
 Docker Engine with Compose v2, Bash, Python 3, OpenSSL (for TLS integration tests),
-curl, tar and sha256sum.
-The development image supports Linux amd64/arm64, including Linux Docker on macOS.
-Host integration tests require Linux or a native NATS server via `NATS_SERVER`.
+curl, tar and sha256sum. Linux clients and services also require an unlocked
+Secret Service keyring in their session; see [secret storage setup](docs/secret-storage.md).
+For Debian/Ubuntu test hosts, install `dbus-daemon gnome-keyring libsecret-tools`.
+The development image supports Linux amd64/arm64. Host clients/services currently
+require Linux Secret Service; Docker on a non-Linux host does not supply that
+credential backend to host binaries.
 
 Production is the default transport profile. In **every terminal** used for the
 local plaintext walkthrough below, explicitly select development:
@@ -94,10 +98,10 @@ builds a local scratch image tagged `ghcr.io/epochgrid/nats-dev:2.14.5`. No Dock
 Hub dependency or publishing is involved. Configuration must exist before the
 first Compose start; subsequent starts can use `docker compose up -d`.
 
-When upgrading from earlier milestones, close clients, re-run bootstrap and
-restart the service to apply the updated NATS permissions and durable consumers. Bootstrap recreates the NATS
-container so regenerated permissions take effect; persistent volumes are retained.
-Existing identities and group state are retained.
+Pre-Milestone-24 homes, backend configs and recovery archives are unsupported.
+Start with fresh state and enroll again; there is no migration or automatic reset.
+Within Milestone 24, bootstrap retains identities and groups and regenerates public
+NATS configuration. Keep both the keyring and the home directory across restarts.
 
 Start the host service in a separate terminal:
 
@@ -345,11 +349,12 @@ Or run its Cargo and live checks individually after downloading NATS:
 ```bash
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
+./scripts/dev/verify.sh unit
 cargo build --workspace
 ./scripts/dev/verify.sh nats
-./scripts/dev/smoke.sh
-EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/tui-smoke.py
+./scripts/dev/verify.sh secrets
+./scripts/dev/verify.sh compose
+./scripts/dev/verify.sh tui
 ```
 
 The focused `./scripts/dev/verify.sh dynamic-join` regression interrupts Bob's

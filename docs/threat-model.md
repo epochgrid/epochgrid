@@ -40,9 +40,12 @@ and broader availability controls remain work for the resource-limits milestone.
 
 Endpoint compromise can expose private keys and the retained plaintext transcript.
 MLS key erasure does not erase the separately retained local plaintext history.
-SQLite and journals are unencrypted; Unix directories/files use 0700/0600 and an OS file lock.
+Standalone NATS device/backend credentials use Linux Secret Service with encrypted
+D-Bus sessions and checked public-key bindings. SQLite and journals still contain
+unencrypted MLS private state and transcripts; Unix directories/files use 0700/0600
+and an OS file lock. See [secret storage](secret-storage.md) for the keyring boundary.
 Use a dedicated private directory on a trusted filesystem. Windows ACL integration
-is not implemented. Future adapters should support Linux Secret Service, macOS
+is not implemented. Future adapters may support macOS
 Keychain/Secure Enclave, Windows CNG/TPM and mobile secure keystores.
 
 Local transactions couple OpenMLS changes to the ciphertext outbox and deduplication

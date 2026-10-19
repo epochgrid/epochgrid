@@ -1,5 +1,11 @@
 # Encrypted recovery — Milestone 15
 
+Milestone 24 requires Linux Secret Service for the source and destination
+credentials. Recovery archives from earlier milestones are unsupported. Export
+reads the NKey from the keyring; restore places it in the destination keyring and
+stores only its public reference locally. An interrupted restore may be retried
+against the same uninitialized home. See [secret storage](secret-storage.md).
+
 Current deployment and milestone status: [status index](milestones.md). Local
 plaintext examples require `EPOCHGRID_PROFILE=development`; the complete messaging
 walkthrough still uses development fixtures. See [production TLS](operator/tls.md)
@@ -28,7 +34,7 @@ members survive, the group cannot be recovered; create a new group.
 ## Package and secret
 
 The file format is independently versioned: an authenticated fixed header identifies
-EpochGrid recovery v1 and AES-256-GCM, followed by a random 96-bit nonce and AEAD
+EpochGrid recovery v2 and AES-256-GCM, followed by a random 96-bit nonce and AEAD
 ciphertext with its 128-bit tag. All account metadata, timestamps, group hints and
 trust evidence are encrypted. Each export generates an independent uniform 256-bit
 secret using the existing OpenMLS RustCrypto random provider. The secret is encoded
@@ -94,14 +100,15 @@ a different Alice/laptop identity before restoring.
 ./target/debug/epochgrid --home .dev/alice device fingerprint bob laptop --offline
 ```
 
-Restore authenticates before opening the home. It refuses a nonempty directory;
-core restoration also rejects existing identity/trust/message state. After an I/O
-failure inspect the destination; use another empty home if no restore committed.
+Restore authenticates before opening the home. It accepts a fresh home or the
+known files from an interrupted restore; core restoration rejects existing
+identity/trust/message state. After an I/O or keyring failure, correct the cause
+and retry against the same uninitialized destination.
 A crash while writing two output files can leave incomplete files. Keep the previous
 backup, verify a new package with a restore into a separate temporary home, and use
 new output filenames on retry. File sync is used, but no filesystem power-loss
-atomicity across the pair is claimed. Windows users must secure directories with
-appropriate ACLs; automated 0600 enforcement is Unix-specific.
+atomicity across the pair is claimed. Supported credential storage currently
+requires Linux Secret Service; portable recovery files still need separate protection.
 
 For messaging, initialize an independent replacement and record its public NKey:
 

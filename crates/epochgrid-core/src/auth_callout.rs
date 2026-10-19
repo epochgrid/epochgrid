@@ -1,4 +1,5 @@
 //! NATS Auth Callout adapter. Registry/policy own identity; NATS enforces grants.
+use crate::secrets::{Kind, SecretRef};
 use crate::{
     identity_model::{AuthRegistry, now},
     wire,
@@ -8,11 +9,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use nats_jwt_rs::{Claim, Claims, authorization::AuthResponse, user::User};
 use nkeys::{KeyPair, KeyPairType, XKey};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{collections::BTreeMap, path::Path, time::Duration};
 use zeroize::Zeroizing;
 
 pub const SUBJECT: &str = "$SYS.REQ.USER.AUTH";
@@ -21,9 +18,9 @@ pub const ENROLL: &str = "epochgrid.v1.identity.enroll";
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub version: u16,
-    pub issuer_seed: PathBuf,
-    pub encryption_seed: PathBuf,
-    pub connection_seed: PathBuf,
+    pub issuer: SecretRef,
+    pub encryption: SecretRef,
+    pub connection: SecretRef,
     pub target_account: String,
     pub control_nkey: String,
     pub authorization_ttl_seconds: u64,
@@ -31,9 +28,14 @@ pub struct Config {
 }
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
-        let mut config: Self = serde_json::from_slice(&std::fs::read(path)?)?;
+        let value: serde_json::Value = serde_json::from_slice(&std::fs::read(path)?)?;
         ensure!(
-            config.version == 1,
+            value.get("version").and_then(|v| v.as_u64()) == Some(2),
+            "pre-Milestone-24 or unsupported callout configuration; initialize a fresh backend"
+        );
+        let config: Self = serde_json::from_value(value)?;
+        ensure!(
+            config.version == 2,
             "unsupported callout configuration version"
         );
         ensure!(
@@ -49,16 +51,12 @@ impl Config {
                     .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'),
             "invalid target account name"
         );
-        let parent = path.parent().context("configuration parent")?;
-        for key in [
-            &mut config.issuer_seed,
-            &mut config.encryption_seed,
-            &mut config.connection_seed,
-        ] {
-            if key.is_relative() {
-                *key = parent.join(&*key);
-            }
-        }
+        ensure!(
+            config.issuer.kind == Kind::Account
+                && config.encryption.kind == Kind::XKey
+                && config.connection.kind == Kind::User,
+            "invalid callout credential types"
+        );
         Ok(config)
     }
     pub fn check_transport(&self, url: &str) -> Result<()> {
@@ -76,7 +74,7 @@ impl Config {
     }
     pub async fn connect(&self, url: &str) -> Result<async_nats::Client> {
         self.check_transport(url)?;
-        let seed = read_seed(&self.connection_seed)?;
+        let seed = self.connection.read()?;
         Ok(crate::tls::TlsConfig::from_env()?
             .apply(
                 url,
@@ -87,11 +85,6 @@ impl Config {
             .connect(url)
             .await?)
     }
-}
-pub fn read_seed(path: &Path) -> Result<Zeroizing<String>> {
-    Ok(Zeroizing::new(
-        std::fs::read_to_string(path)?.trim().to_owned(),
-    ))
 }
 // Deliberately no Debug: CONNECT can contain enrollment secrets.
 #[derive(Clone, Serialize, Deserialize)]
@@ -133,12 +126,12 @@ pub struct Callout {
 }
 impl Callout {
     pub fn new(config: Config) -> Result<Self> {
-        let issuer = KeyPair::from_seed(&read_seed(&config.issuer_seed)?)?;
+        let issuer = KeyPair::from_seed(&config.issuer.read()?)?;
         ensure!(
             issuer.key_pair_type() == KeyPairType::Account,
             "callout issuer must be an account key"
         );
-        let encryption = XKey::from_seed(&read_seed(&config.encryption_seed)?)?;
+        let encryption = XKey::from_seed(&config.encryption.read()?)?;
         Ok(Self {
             issuer,
             encryption,

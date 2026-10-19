@@ -1,3 +1,4 @@
+use crate::secrets::{Kind, SecretRef, Vault};
 use crate::wire::{DeviceRegistration, RegistrationPayload, VERSION, validate_id};
 use anyhow::{Context, Result, anyhow, ensure};
 use openmls::prelude::tls_codec::{Deserialize as _, Serialize as _};
@@ -8,6 +9,7 @@ use openmls_sqlite_storage::{Codec, SqliteStorageProvider};
 use openmls_traits::OpenMlsProvider;
 use rusqlite::Connection;
 use serde::{Serialize, de::DeserializeOwned};
+use std::cell::RefCell;
 use std::{
     fs::{File, OpenOptions},
     path::Path,
@@ -45,14 +47,27 @@ impl OpenMlsProvider for Provider {
         &self.storage
     }
 }
-/// Development-only key boundary. The private directory contains unencrypted SQLite.
+/// NKeys live in Secret Service; MLS private state and history remain in SQLite
+/// until Milestone 25. Standalone credentials are represented by public references.
 pub struct IdentityStore {
     pub(crate) connection: Rc<Connection>,
     _lock: File,
+    pub(crate) vault: Vault,
+    key: RefCell<Option<nkeys::KeyPair>>,
     pub provider: Provider,
 }
 impl IdentityStore {
     pub fn open(dir: &Path) -> Result<Self> {
+        let existing = dir.join("identity.sqlite");
+        if existing.exists() {
+            let db =
+                Connection::open_with_flags(&existing, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            let legacy: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('local_identity') WHERE name='seed')", [], |r| r.get(0))?;
+            ensure!(
+                !legacy,
+                "pre-Milestone-24 home is unsupported; choose a fresh home and enroll again"
+            );
+        }
         std::fs::create_dir_all(dir)?;
         #[cfg(unix)]
         {
@@ -76,7 +91,7 @@ impl IdentityStore {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
         }
-        connection.execute_batch("CREATE TABLE IF NOT EXISTS local_identity (id INTEGER PRIMARY KEY CHECK(id=1), seed TEXT NOT NULL, registration BLOB NOT NULL);")?;
+        connection.execute_batch("CREATE TABLE IF NOT EXISTS local_identity (id INTEGER PRIMARY KEY CHECK(id=1), secret_ref TEXT NOT NULL, registration BLOB NOT NULL);")?;
         let mut storage = SqliteStorageProvider::<JsonCodec, _>::new(connection);
         storage.run_migrations()?;
         // Migrate before sharing the connection: OpenMLS and application writes
@@ -103,6 +118,8 @@ impl IdentityStore {
         let store = Self {
             connection,
             _lock: lock,
+            vault: Vault::new(dir),
+            key: RefCell::new(None),
             provider: Provider {
                 crypto: RustCrypto::default(),
                 storage,
@@ -164,9 +181,6 @@ impl IdentityStore {
         }
     }
     pub fn init(&mut self, user: &str, device: &str) -> Result<DeviceRegistration> {
-        self.transaction(|| self.initialize(user, device))
-    }
-    fn initialize(&self, user: &str, device: &str) -> Result<DeviceRegistration> {
         validate_id(user)?;
         validate_id(device)?;
         ensure!(
@@ -176,7 +190,28 @@ impl IdentityStore {
                 == 0,
             "identity already initialized"
         );
-        let nkey = nkeys::KeyPair::new_user();
+        let reference = self.vault.provision("device", Kind::User)?;
+        let nkey = nkeys::KeyPair::from_seed(&reference.read()?)?;
+        let registration = self.transaction(|| self.initialize(user, device, &reference, &nkey))?;
+        *self.key.borrow_mut() = Some(nkey);
+        Ok(registration)
+    }
+    fn initialize(
+        &self,
+        user: &str,
+        device: &str,
+        reference: &SecretRef,
+        nkey: &nkeys::KeyPair,
+    ) -> Result<DeviceRegistration> {
+        validate_id(user)?;
+        validate_id(device)?;
+        ensure!(
+            self.connection
+                .query_row("SELECT COUNT(*) FROM local_identity", [], |r| r
+                    .get::<_, i64>(0))?
+                == 0,
+            "identity already initialized"
+        );
         let signer = SignatureKeyPair::new(SUITE.signature_algorithm())
             .map_err(|e| anyhow!("MLS signing key: {e:?}"))?;
         let credential: Credential =
@@ -214,7 +249,10 @@ impl IdentityStore {
         };
         self.connection.execute(
             "INSERT INTO local_identity VALUES(1, ?1, ?2)",
-            rusqlite::params![nkey.seed()?, postcard::to_allocvec(&registration)?],
+            rusqlite::params![
+                serde_json::to_string(reference)?,
+                postcard::to_allocvec(&registration)?
+            ],
         )?;
         Ok(registration)
     }
@@ -230,12 +268,23 @@ impl IdentityStore {
         Ok(postcard::from_bytes(&bytes)?)
     }
     pub fn nkey(&self) -> Result<nkeys::KeyPair> {
-        let seed: String =
-            self.connection
-                .query_row("SELECT seed FROM local_identity WHERE id=1", [], |r| {
-                    r.get(0)
-                })?;
-        Ok(nkeys::KeyPair::from_seed(&seed)?)
+        if let Some(key) = self.key.borrow().as_ref() {
+            return Ok(key.clone());
+        }
+        let encoded: String = self.connection.query_row(
+            "SELECT secret_ref FROM local_identity WHERE id=1",
+            [],
+            |r| r.get(0),
+        )?;
+        let reference: SecretRef = serde_json::from_str(&encoded)?;
+        ensure!(
+            reference.kind == Kind::User
+                && reference.public_key == self.registration()?.payload.nats_public_key,
+            "identity credential binding mismatch"
+        );
+        let key = nkeys::KeyPair::from_seed(&reference.read()?)?;
+        *self.key.borrow_mut() = Some(key.clone());
+        Ok(key)
     }
 }
 pub fn verify_signature(registration: &DeviceRegistration) -> Result<()> {
