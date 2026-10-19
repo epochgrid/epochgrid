@@ -150,7 +150,9 @@ PgUp loads older history and PgDn returns to latest. Use `/create NAME`,
 `/invite USER [DEVICE]`, `/join INVITER [DEVICE]`, `/members`, `/devices`, `/help`, `/quit` or
 Ctrl-C. Use `//` for a message beginning with `/`. Offline sends are encrypted and
 queued locally; `[pending]` means no server acknowledgment yet. A failed local
-send retains the composition. Uncommitted drafts are not saved on exit.
+send retains the composition. `/join` retries temporary connection failures within
+a 20-second deadline; a pending join is not saved on exit.
+Uncommitted drafts are not saved on exit.
 `/members` groups device leaves by user; `/devices` shows each cryptographic device.
 See [TUI architecture and controls](docs/tui.md).
 
@@ -349,6 +351,12 @@ cargo build --workspace
 ./scripts/dev/smoke.sh
 EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/tui-smoke.py
 ```
+
+The focused `./scripts/dev/verify.sh dynamic-join` regression interrupts Bob's
+connection before a single `/join`, then checks reconnect and joined-channel
+restart with six-second authorization leases and remains required in CI. The
+separate `dynamic-tui` phase retains the complete dynamic messaging smoke test
+as an opt-in check under TD-002.
 
 The isolated NATS integration suite covers registration, discovery, authorization,
 offline Welcome delivery, two-way encryption, ordered backlog replay, lost

@@ -30,7 +30,9 @@ a timing-sensitive smoke test passes once.
 
 The default CI/local gate temporarily excludes exactly
 `auth_callout::dynamic_enrollment_inbox_isolation_revocation_without_reload`
-and `dynamic-tui-smoke.py`. This is a coverage quarantine, not a runtime fix.
+and the full messaging mode of `dynamic-tui-smoke.py` (`dynamic-tui`). The focused
+`dynamic-join` reconnect regression remains required. This is a coverage quarantine,
+not a runtime fix.
 All other 16 NATS integration cases, unit tests, static TUI modes, Compose,
 formatting, Clippy and build checks remain required. Both exclusions print a
 notice. A green gate does not certify dynamic enrollment, authorization expiry,
@@ -85,5 +87,6 @@ cold CI runs covering short leases, reconnect, offline history and revocation.
 Separate compilation from the integration execution budget or isolate the dynamic
 case in its own bounded phase before restoring it. Remove the NATS skip filter,
 restore dynamic TUI in both CI and the default verifier, and update these docs.
-The latest inspected remote commit was `bce2482`; this checkout is `261bf68`.
-The later pending-join change was inspected in CI logs, not imported here.
+The later pending-join fix from remote commit `bce2482` has been merged with this
+quarantine. Its two unit tests and focused `dynamic-join` reconnect regression
+remain enabled; the broader dynamic messaging failure is still unresolved.

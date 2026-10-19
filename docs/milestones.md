@@ -50,15 +50,19 @@ is the next release-preparation milestone.
 
 ## Latest local validation — 2026-10-18
 
-After the TD-002 quarantine, formatting, warnings-denied workspace Clippy, all 65
-unit tests, workspace build and all ten Python harness tests passed. The 16 retained
-live NATS cases passed in 192.56 seconds, with exactly one dynamic Auth Callout
-case filtered out. Verifier routing and failure propagation checks also passed.
+After merging the pending-join fix from `bce2482` with the TD-002 quarantine,
+the complete default `./scripts/dev/verify.sh` gate passed: formatting,
+warnings-denied workspace Clippy, all 67 unit tests, workspace build, ten Python
+harness tests, all 16 retained live NATS cases, Compose/CLI smoke, the main,
+relationship and service-participant TUI workflows, and the focused dynamic join
+reconnect regression. The NATS suite completed in 192.67 seconds with exactly one
+Auth Callout case filtered out. Verifier routing and failure propagation checks
+also passed.
 
-Compose and static TUI workflows remain required by CI but were not rerun during
-this change. The quarantined dynamic checks were not rerun. Hosted CI has not
-been rerun for these local changes; protected-branch checks remain required before
-merge. A green default gate does not certify dynamic authorization end to end.
+Live typing assertions and the full dynamic authorization integration/messaging
+checks remain deferred under TD-001/TD-002 and were not rerun. A green default
+gate does not certify dynamic authorization end to end. These are local results;
+protected-branch CI checks remain required before merge.
 
 Earlier milestone results are consolidated in
 [historical local validation](development.md#historical-local-validation). See

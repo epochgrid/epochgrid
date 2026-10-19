@@ -8,8 +8,9 @@ OpenSSL for temporary test certificates. See [TLS configuration](operator/tls.md
 
 ## Current verification
 
-Run `./scripts/dev/verify.sh` for the default CI gate. It includes 65 unit tests,
-16 live NATS cases, Compose/CLI smoke and the static TUI workflows, plus formatting,
+Run `./scripts/dev/verify.sh` for the default CI gate. It includes 67 unit tests,
+16 live NATS cases, Compose/CLI smoke, static TUI workflows and the focused
+`dynamic-join` reconnect regression, plus formatting,
 Clippy, build and harness checks. Live typing assertions (TD-001) and the dynamic
 Auth Callout integration/TUI checks (TD-002) are deferred; see
 [technical debt](technical-debt.md) for evidence and restoration criteria.
@@ -164,7 +165,7 @@ local trust separately; remote connection presence is not inferred from director
 
 CI runs the same `scripts/dev/verify.sh` phases separately: `harness`, `fmt`,
 `clippy`, `unit`, `build`, `nats`, `compose`, `tui`, `relations-tui` and
-`participants-tui`. Each phase uses an external
+`participants-tui`, plus `dynamic-join`. Each phase uses an external
 wall-clock watchdog with a ten-second heartbeat, exit code 124 on timeout, and
 TERM/KILL cleanup of its process group. Deadlines are 60s for formatting, 600s for
 clippy, 180s for unit tests, 300s for build, 120s for NATS download, 360s for the

@@ -21,6 +21,7 @@ phase() {
     compose) python3 scripts/dev/run-bounded.py 180 ./scripts/dev/smoke.sh ;;
     tui) NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 180 python3 scripts/dev/tui-smoke.py ;;
     dynamic-tui) NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 180 python3 scripts/dev/dynamic-tui-smoke.py ;;
+    dynamic-join) NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 180 python3 scripts/dev/dynamic-tui-smoke.py --disconnect-before-join ;;
     relations-tui) NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 90 python3 scripts/dev/tui-smoke.py --relationships-only ;;
     participants-tui) NATS_SERVER="$PWD/.dev/nats-image/nats-server" python3 scripts/dev/run-bounded.py 120 python3 scripts/dev/tui-smoke.py --participants-only ;;
     harness) python3 scripts/dev/run-bounded.py 30 python3 scripts/dev/test-bounded.py
@@ -32,7 +33,7 @@ phase() {
 if [[ $# -gt 0 ]]; then
   phase "$1"
 else
-  echo 'SKIP TD-002: dynamic TUI smoke; run verify.sh dynamic-tui explicitly; see docs/technical-debt.md'
-  for check in harness fmt clippy unit build nats compose tui relations-tui participants-tui; do phase "$check"; done
+  echo 'SKIP TD-002: full dynamic TUI messaging smoke; run verify.sh dynamic-tui explicitly; see docs/technical-debt.md'
+  for check in harness fmt clippy unit build nats compose tui dynamic-join relations-tui participants-tui; do phase "$check"; done
   printf 'EpochGrid MVP and identity alpha verification passed\n'
 fi
