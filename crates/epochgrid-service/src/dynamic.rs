@@ -67,6 +67,7 @@ pub fn init(home: &Path) -> Result<()> {
         control_nkey: control.nkey()?.public_key(),
         authorization_ttl_seconds: 30,
         development_plaintext: false,
+        operator_jwt: None,
     };
     let snippet = format!(
         r#"# Reference only: integrate with operator-owned configuration; do not replace it.

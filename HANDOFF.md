@@ -1,60 +1,70 @@
-# Milestone 25 handoff
+# Milestone 26 handoff
 
 ## State
 
-Milestone 25 is complete and locally validated. The follow-up repository cleanup
-prepares this work for a PR on `feature/milestone-25-encrypted-state`, based on
-current `origin/main` (`b21c25d`). Milestone 26 remains out of scope.
+Milestone 25 PR #15 merged as `4be5cc4e62914ecdda72461a3ca1049722cdd93c`.
+Milestone 26 implementation is on `feature/milestone-26-byo-nats`, based on that
+merged `origin/main`. The user approved configuration-mode and operator-JWT,
+standalone and three-node cluster qualification. Implementation and local validation
+are complete; no commit, push, PR or release has been performed for milestone 26.
 
-## Decisions and implementation
+Preserve the existing TD-003 post-MVP test-reliability documentation changes. They
+were carried from the milestone 25 review and are included in this working tree.
+TD-001 typing and TD-002 short-lease dynamic messaging remain deferred; this work
+adds no quarantine and does not resolve those debts.
 
-- SQLCipher through rusqlite's bundled SQLCipher/vendored OpenSSL feature.
-- Independent random 256-bit Secret Service keys for client identity.sqlite,
-  backend auth.sqlite and backend control/identity.sqlite; no plaintext fallback.
-- Shared core database opener checks SQLCipher, applies a raw key through the C
-  API before schema access, validates role/item binding and keeps SQL temp data
-  in memory. Only opaque references/fingerprints are persisted outside encryption.
-- Durable pending/ready database metadata and provisioning locks support retries
-  without replacing committed keys or resetting missing/corrupt established state.
-- Existing plaintext homes/registries are rejected unchanged. Milestone 24 v2
-  administration archives remain supported into a new encrypted home/key, without
-  adding history/MLS backup. Offline database reads now require the keyring.
-- SQLite-managed read-only format probes preserve process-wide POSIX locks.
-  A cross-process regression protects registry readers across external writes.
-- TUI tests use a read-only Rust example inspector, keeping keys off command lines.
-  Dynamic fixture failures now report bounded diagnostic tails.
+## Implementation and boundaries
 
-## Changed files
+- Optional `auth.json.operator_jwt` contains authentication-account public NKey and
+  signed, non-bearer auth-service user JWT. Configuration mode remains compatible.
+- Validate JWT signature, type/version, connection-key/account binding, expiry and
+  not-before. NATS checks the operator's delegated signing authority.
+- Operator-mode requests bind the authentication account; user grants carry the
+  application's `issuer_account`, signed by the existing generated issuer key
+  delegated as an unscoped application-account signing key. All private EpochGrid
+  keys stay in Secret Service; no operator/account root seed enters runtime config.
+- The pinned NATS 2.14.5 `default_sentinel` routes device NKey connections into
+  encrypted Auth Callout. No device-side JWT or static device allow-list is needed.
+- Four isolated production-TLS qualification cases cover configuration/operator JWT
+  on R1 standalone and R3 clusters. Routes use mutual TLS. Operator fixtures own
+  configuration, account JWTs and pre-provisioned stream/KV replication settings.
+- Exercise enrollment, messaging, negative TLS/admission/permission checks, account
+  isolation, broker leader loss, offline history, backend restart, revocation,
+  replica catch-up and preservation of operator config/resource settings.
+- `byo-build` compiles separately. `byo-nats [CASE]` runs bounded cases; the default
+  local verifier includes them and CI has four independent matrix jobs. Original
+  16 NATS cases retain their existing phase/budget; the four new cases run separately.
+- Deployment contract: `docs/operator/byo-nats.md`. Other versions/topologies,
+  scoped JWT signers, dynamic attachments and backend HA are not qualified.
+  Initialization/validation tooling is milestone 27; privilege separation is 28.
+  Preserve milestone 25's fresh encrypted-state policy and SQLite-managed probes.
 
-Cargo manifests/lockfile; new core database.rs and database/tests.rs; core secrets,
-identity and identity_model; affected schema-inspection tests; client recovery
-allowlist; encrypted-query example; verification/CLI/TUI smoke scripts and CI label;
-storage, recovery, security and feature documentation.
+## Final local validation — 2026-10-20 (America/New_York)
 
-## Final validation — 2026-10-19
+Passed: formatting/patch whitespace, 85 workspace unit tests, warnings-denied Clippy, binaries/examples
+build, ten harness regressions, protected credential/database lifecycle checks,
+all 16 retained NATS cases (252.26 seconds), Compose/CLI, main/relationship/participant
+TUI, focused dynamic join/reconnect and all four BYO-NATS configurations. Two
+consecutive final fresh-state matrix passes succeeded (eight case executions,
+roughly 26–43 seconds per case). Local documentation file links and verifier shell
+syntax also pass. No new runtime synchronization fix was needed for this matrix.
 
-Passed: 84 unit tests, workspace binaries/examples build, warnings-denied Clippy,
-formatting, ten Python harness tests, two live Secret Service tests, CLI/backend
-lifecycle checks, focused dynamic join, relationship TUI and participant TUI.
-Final reruns of all 16 retained NATS tests (253.24 seconds), Compose/CLI and main
-three-device TUI also passed after the format-probe fix. The resolved feature graph
-confirms bundled SQLCipher with vendored OpenSSL and one libsqlite3-sys dependency.
+Useful retained logs: `/tmp/epochgrid-m26-byo-final.log`,
+`/tmp/epochgrid-m26-byo-repeat-{1,2}.log`, `/tmp/epochgrid-m26-clippy.log`, and
+`/tmp/epochgrid-m26-{secrets,nats,compose,tui,dynamic-join,relations-tui,participants-tui}.log`.
+The unit suite passed but emitted SQLCipher mlock warnings under concurrent local
+load; no memory-lock guarantee is established by these tests.
 
-Logs are in /tmp/epochgrid-m25. Fixtures use disposable keyrings; none uses the
-operator's login keyring. TD-001 typing and TD-002 full dynamic checks stay deferred.
-
-An initial ordinary-file format probe broke SQLite's POSIX locks and caused a
-reproducible dynamic enrollment failure. It was replaced with a SQLite-managed
-probe; cross-process registry and focused dynamic-join tests pass. Temporary
-admission logging was removed. No new validation exclusion was added.
+Two test-design findings were corrected during implementation: async-nats can
+return a connection on INFO before a later auth rejection (negative tests now
+require explicit authorization errors); and each JetStream stream/consumer elects
+its own leader (failover readiness now checks all relevant resources). No runtime
+membership-sync bypass or assertion-suppressing retry was added.
 
 ## Next steps
 
-Milestone 25 has no remaining local implementation/validation work. Review these
-changes; protected-branch CI is still required before any merge. Start
-a fresh thread for milestone 26 only when requested. Preserve the approved
-fresh-state policy. The original milestone 24 merge `2e2fe9c` has the same tree as
-`b21c25d`; the milestone 25 branch starts directly from `b21c25d` to keep the PR
-history focused. Cleanup rechecked formatting and patch whitespace and inspected
-the retained validation logs. Publication and required PR CI remain next steps;
-no push or release was performed.
+Review the diff and run cold GitHub CI on the
+feature branch before merge. Local fresh-state repetitions are not cold-runner CI
+evidence. Ensure the new matrix jobs are included in merge review; adding jobs to
+workflow YAML does not itself update protected-branch required-check settings.
+Milestone 27 is not started. Do not claim the complete alpha release is qualified.

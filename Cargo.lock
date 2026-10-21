@@ -1123,6 +1123,7 @@ dependencies = [
  "clap",
  "epochgrid-core",
  "futures-util",
+ "nats-jwt-rs",
  "nkeys",
  "openmls",
  "openmls_traits",

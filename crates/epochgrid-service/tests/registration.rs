@@ -633,4 +633,5 @@ mod participants;
 
 mod auth_callout;
 
+mod byo_nats;
 mod tls;

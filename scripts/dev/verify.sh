@@ -12,9 +12,22 @@ phase() {
              env DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/epochgrid-test-bus python3 scripts/dev/run-bounded.py 30 cargo test --locked -p epochgrid-core secrets::tests::live_unavailable_bus_is_bounded -- --ignored --exact
              keyring python3 scripts/dev/run-bounded.py 60 python3 scripts/dev/test-secrets-live.py ;;
     build) python3 scripts/dev/run-bounded.py 300 cargo build --locked --workspace --examples --bins ;;
+    byo-build) python3 scripts/dev/run-bounded.py 600 cargo build --locked --workspace --examples --bins
+               python3 scripts/dev/run-bounded.py 300 cargo test --locked -p epochgrid-service --test registration --no-run ;;
+    byo-nats)
+          local cases=(configuration_standalone configuration_cluster operator_jwt_standalone operator_jwt_cluster)
+          if [[ $# -gt 1 ]]; then
+            case "$2" in
+              configuration_standalone|configuration_cluster|operator_jwt_standalone|operator_jwt_cluster) cases=("$2") ;;
+              *) echo 'Unknown BYO-NATS qualification case' >&2; return 2 ;;
+            esac
+          fi
+          for testcase in "${cases[@]}"; do
+            env -u EPOCHGRID_TLS_CA_PATH -u EPOCHGRID_TLS_FIRST -u EPOCHGRID_TLS_MIN_VERSION EPOCHGRID_PROFILE=production NATS_SERVER="$PWD/.dev/nats-image/nats-server" ./scripts/dev/with-test-keyring.sh python3 scripts/dev/run-bounded.py 260 cargo test --locked -p epochgrid-service --test registration "byo_nats::$testcase" -- --ignored --exact --nocapture
+          done ;;
     nats|nats-dynamic)
           local dynamic_case=auth_callout::dynamic_enrollment_inbox_isolation_revocation_without_reload
-          local selection=(--skip "$dynamic_case")
+          local selection=(--skip "$dynamic_case" --skip byo_nats::)
           if [[ "$1" == nats-dynamic ]]; then
             selection=(--exact "$dynamic_case")
           else
@@ -35,9 +48,9 @@ phase() {
   esac
 }
 if [[ $# -gt 0 ]]; then
-  phase "$1"
+  phase "$@"
 else
   echo 'SKIP TD-002: full dynamic TUI messaging smoke; run verify.sh dynamic-tui explicitly; see docs/technical-debt.md'
-  for check in harness fmt clippy unit build secrets nats compose tui dynamic-join relations-tui participants-tui; do phase "$check"; done
+  for check in harness fmt clippy unit build secrets nats compose tui dynamic-join relations-tui participants-tui byo-build byo-nats; do phase "$check"; done
   printf 'EpochGrid MVP and identity alpha verification passed\n'
 fi

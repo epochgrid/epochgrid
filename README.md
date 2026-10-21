@@ -29,8 +29,9 @@ This is unaudited development software, not a production-ready security product.
 | 22 | Complete | Durable policy synchronization, exact group grants, filtered consumers, signed Welcome relay and dynamic revocation with MLS rekeying |
 | 23 | Complete transport milestone | Production TLS, system/custom trust, hostname verification, minimum version and certificate rotation |
 | 24 | Implemented; locally validated | Linux Secret Service for device and backend credentials; fresh installs only |
-| 25 | Implemented; locally validated | SQLCipher state with independent Secret Service keys; fresh encrypted homes only |
-| 26–38 | Not started | Deployment qualification, operations and release preparation |
+| 25 | Merged (#15) | SQLCipher state with independent Secret Service keys; fresh encrypted homes only |
+| 26 | Implemented; locally validated | BYO-NATS contract; configuration/operator-JWT and standalone/R3 cluster qualification |
+| 27–38 | Not started | Deployment tooling, operations and release preparation |
 
 Invite the reference `@status [service]` participant and send `/status` in the TUI.
 See [service setup, trust and removal](docs/service-participants.md). The metadata
@@ -352,12 +353,18 @@ Or run its Cargo and live checks individually after downloading NATS:
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ./scripts/dev/verify.sh unit
-cargo build --workspace
+./scripts/dev/verify.sh build
 ./scripts/dev/verify.sh nats
 ./scripts/dev/verify.sh secrets
 ./scripts/dev/verify.sh compose
 ./scripts/dev/verify.sh tui
+./scripts/dev/verify.sh byo-build
+./scripts/dev/verify.sh byo-nats
 ```
+
+The [BYO-NATS qualification matrix](docs/operator/byo-nats.md) covers configuration
+and operator-JWT authentication on standalone and three-node R3 fabrics. CI runs
+these four cases separately, with compilation outside their execution deadlines.
 
 The focused `./scripts/dev/verify.sh dynamic-join` regression interrupts Bob's
 connection before a single `/join`, then checks reconnect and joined-channel

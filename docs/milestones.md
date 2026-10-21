@@ -21,8 +21,9 @@ No `v0.1.0-alpha.1` tag or production-ready release has been published.
 | 22 | Implemented — live reliability deferred (TD-002) | Signed policies synchronized with the MLS outbox; exact grants, filtered durable consumers, signed Welcome relay, bounded lease expiry and revocation/rekey convergence; dynamic CLI/TUI chat and restart coverage quarantined after intermittent failures |
 | 23 | Complete transport milestone | Shared production TLS profile, system/custom roots, name validation, configurable minimum version, TLS-first and certificate-rotation tests |
 | 24 | Implemented; locally validated | Linux Secret Service credentials, no plaintext fallback, fresh installs only |
-| 25 | Implemented; locally validated | SQLCipher client/backend state, independent Secret Service keys, fresh encrypted homes only |
-| 26–28 | Not started | Qualified BYO-NATS contract, initialization/validation and backend privilege separation |
+| 25 | Merged (#15) | SQLCipher client/backend state, independent Secret Service keys, fresh encrypted homes only |
+| 26 | Implemented; locally validated | BYO-NATS contract, operator-JWT adapter, standalone/R3 cluster qualification; cold CI pending |
+| 27–28 | Not started | Initialization/validation and backend privilege separation |
 | 29–31 | Not started | Resource bounds, operational diagnostics and structured audit events |
 | 32–34 | Not started | Official Linux artifacts, GHCR runtime image and release supply chain |
 | 35–38 | Not started | Broader adversarial suite, protocol/configuration freeze, first-run UX and operator documentation set |
@@ -38,8 +39,9 @@ The production-shaped path supports dynamic enrollment/admission and normal
 CLI/TUI encrypted chat, invitations, durable catch-up and revocation over verified
 TLS. Dynamic join/send synchronization remains unreliable; its live checks are
 temporarily quarantined under [TD-002](technical-debt.md). Use the [dynamic walkthrough](operator/auth-callout.md#dynamic-client-walkthrough).
-Dynamic attachment access and the broader BYO-NATS qualification remain separate
-release work; the complete development feature set is not yet release-qualified.
+Dynamic attachment access remains separate release work. The
+[BYO-NATS contract](operator/byo-nats.md) defines the milestone 26 qualification
+matrix; the complete development feature set is not yet release-qualified.
 Completing TLS does not imply the alpha release gates are met. Standalone NATS credentials use [Linux Secret Service](secret-storage.md). MLS
 private state, transcripts and backend registry data use SQLCipher with independent
 Secret Service keys. Existing plaintext homes/registries require fresh enrollment;
@@ -48,10 +50,39 @@ offline database access also requires the keyring.
 See [TLS](operator/tls.md), [Auth Callout](operator/auth-callout.md),
 [dynamic authorization](architecture/dynamic-authorization.md), and
 [deferred typing and dynamic authorization checks](technical-debt.md). Milestone 25 (protected SQLite state)
-is locally complete. Milestone 26 (BYO-NATS qualification) is next.
+is merged. Milestone 26 (BYO-NATS qualification) is locally validated; milestone 27
+initialization/validation tooling is next.
+
+Post-MVP delivery includes a dedicated test and CI reliability focus under
+[TD-003](technical-debt.md#td-003--test-and-ci-reliability-post-mvp-delivery-focus),
+covering execution budgets, fixture synchronization and disconnect/send races.
 
 
-## Latest local validation — 2026-10-19
+## Latest local validation — 2026-10-20
+
+Milestone 26 passes formatting, warnings-denied workspace Clippy, binaries/examples
+build, 85 unit tests, ten harness regressions, both explicit live Secret Service
+tests and protected credential/database lifecycle checks. All 16 retained NATS
+cases pass in 252.26 seconds; Compose/CLI, main TUI, relationship TUI, participant
+TUI and focused dynamic join/reconnect also pass.
+
+The four BYO-NATS cases pass, including two consecutive final fresh-state matrix
+runs (eight case executions). They cover configuration/operator-JWT authentication,
+standalone/R3 cluster storage, verified client TLS and mutually authenticated routes,
+enrollment and messaging, explicit admission/permission denials, account isolation,
+broker leader loss, durable catch-up, backend restart, revocation, restored replica
+convergence and unchanged operator configuration/resources. Each case takes roughly
+26–43 seconds locally with prebuilt binaries and the default 30-second device lease.
+
+The [deployment contract](operator/byo-nats.md) pins NATS 2.14.5 and documents the
+operator-JWT default-sentinel/delegated-signing setup and unsupported configurations.
+New CI matrix jobs separate compilation from execution. These are local fresh-state
+results, not cold GitHub runner evidence; required CI/review remains before merge.
+TD-001/TD-002 remain open, and post-MVP TD-003 reliability work is unchanged.
+Validation logs are retained under `/tmp/epochgrid-m26-*.log`; see HANDOFF.md for
+the specific files and implementation boundaries. No release has been published.
+
+## Milestone 25 local validation — 2026-10-19
 
 Milestone 25 passed formatting, warnings-denied workspace Clippy, all 84 unit
 tests, workspace binaries/examples build, ten Python harness tests, all 16 retained

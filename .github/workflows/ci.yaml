@@ -54,3 +54,27 @@ jobs:
       - name: Service participant TUI smoke
         timeout-minutes: 3
         run: ./scripts/dev/verify.sh participants-tui
+  byo-nats:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [configuration_standalone, configuration_cluster, operator_jwt_standalone, operator_jwt_cluster]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Install isolated keyring dependencies
+        timeout-minutes: 3
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dbus-daemon gnome-keyring libsecret-tools
+      - name: Compile qualification binaries
+        timeout-minutes: 16
+        run: ./scripts/dev/verify.sh byo-build
+      - name: Download pinned NATS
+        timeout-minutes: 3
+        run: python3 scripts/dev/run-bounded.py 120 ./scripts/dev/download-nats.sh
+      - name: Qualify operator-owned NATS
+        timeout-minutes: 5
+        run: ./scripts/dev/verify.sh byo-nats "${{ matrix.case }}"

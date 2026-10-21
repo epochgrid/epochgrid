@@ -23,7 +23,7 @@ fn production(command: &mut Command, ca: Option<&Path>, first: bool) {
         command.env("EPOCHGRID_TLS_CA_PATH", path);
     }
 }
-async fn run(command: &mut Command, input: &[u8]) -> Result<Output> {
+pub(super) async fn run(command: &mut Command, input: &[u8]) -> Result<Output> {
     let mut stdin = tempfile::tempfile()?;
     stdin.write_all(input)?;
     stdin.seek(SeekFrom::Start(0))?;
@@ -67,7 +67,7 @@ async fn openssl(root: &Path, args: &[&str]) -> Result<()> {
     );
     Ok(())
 }
-async fn certificates(root: &Path) -> Result<()> {
+pub(super) async fn certificates(root: &Path) -> Result<()> {
     openssl(
         root,
         &[
@@ -166,7 +166,7 @@ async fn certificates(root: &Path) -> Result<()> {
     }
     Ok(())
 }
-fn cli(root: &Path, url: &str, name: &str, ca: Option<&Path>, first: bool) -> Command {
+pub(super) fn cli(root: &Path, url: &str, name: &str, ca: Option<&Path>, first: bool) -> Command {
     let binary = Path::new(env!("CARGO_BIN_EXE_epochgrid-service")).with_file_name("epochgrid");
     let mut command = Command::new(binary);
     command
@@ -176,7 +176,7 @@ fn cli(root: &Path, url: &str, name: &str, ca: Option<&Path>, first: bool) -> Co
     production(&mut command, ca, first);
     command
 }
-fn backend(root: &Path, url: &str, ca: Option<&Path>, first: bool) -> Command {
+pub(super) fn backend(root: &Path, url: &str, ca: Option<&Path>, first: bool) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_epochgrid-service"));
     command
         .arg("--home")
@@ -186,7 +186,7 @@ fn backend(root: &Path, url: &str, ca: Option<&Path>, first: bool) -> Command {
     production(&mut command, ca, first);
     command
 }
-fn daemon(mut command: Command, log: &Path) -> Result<Process> {
+pub(super) fn daemon(mut command: Command, log: &Path) -> Result<Process> {
     let log = File::options().create(true).append(true).open(log)?;
     Ok(Process(
         command.stdout(log.try_clone()?).stderr(log).spawn()?,
@@ -218,7 +218,7 @@ async fn ready(port: u16, process: &mut Process) -> Result<()> {
     .await
     .context("TLS listener did not start")?
 }
-fn success(output: Output) -> Result<()> {
+pub(super) fn success(output: Output) -> Result<()> {
     ensure!(
         output.status.success(),
         "production TLS command failed: {}",
