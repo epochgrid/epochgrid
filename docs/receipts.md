@@ -29,7 +29,7 @@ state. Device records remain separate even when UI labels collapse users.
 
 Migration 6 adds a ciphertext reference index and a compact receipt table; existing
 transcripts are backfilled without changing ciphertext or ratchets. Local receipt
-state is unencrypted metadata like the existing transcript. It is excluded from
+state is SQLCipher-encrypted alongside the transcript as of Milestone 25. It is excluded from
 recovery. No schema reset is required. Read markers predate this migration; old
 markers mean the older client presented the message according to its then-current
 behavior.

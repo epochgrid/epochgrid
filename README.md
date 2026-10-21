@@ -29,7 +29,8 @@ This is unaudited development software, not a production-ready security product.
 | 22 | Complete | Durable policy synchronization, exact group grants, filtered consumers, signed Welcome relay and dynamic revocation with MLS rekeying |
 | 23 | Complete transport milestone | Production TLS, system/custom trust, hostname verification, minimum version and certificate rotation |
 | 24 | Implemented; locally validated | Linux Secret Service for device and backend credentials; fresh installs only |
-| 25–38 | Not started | Protected SQLite state, deployment qualification, operations and release preparation |
+| 25 | Implemented; locally validated | SQLCipher state with independent Secret Service keys; fresh encrypted homes only |
+| 26–38 | Not started | Deployment qualification, operations and release preparation |
 
 Invite the reference `@status [service]` participant and send `/status` in the TUI.
 See [service setup, trust and removal](docs/service-participants.md). The metadata
@@ -74,7 +75,7 @@ gates are still required.
 
 ## Start development infrastructure
 
-Prerequisites: rustup (Rust 1.98.1 is pinned), a C toolchain for bundled SQLite,
+Prerequisites: rustup (Rust 1.98.1 is pinned), a C toolchain, make and Perl for bundled SQLCipher/OpenSSL,
 Docker Engine with Compose v2, Bash, Python 3, OpenSSL (for TLS integration tests),
 curl, tar and sha256sum. Linux clients and services also require an unlocked
 Secret Service keyring in their session; see [secret storage setup](docs/secret-storage.md).
@@ -98,9 +99,10 @@ builds a local scratch image tagged `ghcr.io/epochgrid/nats-dev:2.14.5`. No Dock
 Hub dependency or publishing is involved. Configuration must exist before the
 first Compose start; subsequent starts can use `docker compose up -d`.
 
-Pre-Milestone-24 homes, backend configs and recovery archives are unsupported.
+Pre-Milestone-25 plaintext homes and registries are unsupported. Milestone 24 v2
+administration recovery archives can be restored into fresh encrypted homes.
 Start with fresh state and enroll again; there is no migration or automatic reset.
-Within Milestone 24, bootstrap retains identities and groups and regenerates public
+Within Milestone 25, bootstrap retains identities and groups and regenerates public
 NATS configuration. Keep both the keyring and the home directory across restarts.
 
 Start the host service in a separate terminal:
@@ -308,8 +310,8 @@ JetStream and decryptable with local MLS state. Messages already processed by
 Milestone 7 clients have no saved plaintext; history marks those entries
 unavailable. Restoring old keys or replaying ciphertext cannot recover erased keys.
 
-**Local transcripts are unencrypted development storage**, alongside private MLS
-state. Retaining plaintext means endpoint compromise can expose historical content
+**Local transcripts and private MLS state are encrypted with SQLCipher**, using
+independent Secret Service keys. An unlocked endpoint can expose historical content
 even after MLS ratchet keys have been erased. NATS still receives no application
 plaintext. Deleting server or local data independently is not a recovery method.
 
@@ -423,8 +425,9 @@ revocation remains effective, and resumes two-way messaging with a fresh leaf.
   chat; inbox reads remain device-specific. Dynamic attachment permissions remain
   outside this milestone.
 - The explicit loopback development profile permits plaintext. Production connections
-  require [verified TLS](docs/operator/tls.md). SQLite and journals contain unencrypted local
-  private state. Use trusted private directories, not production secrets.
+  require [verified TLS](docs/operator/tls.md). SQLite and journal/WAL page payloads
+  are encrypted in both profiles; use trusted private directories and preserve the
+  matching keyring and metadata. See [storage boundaries](docs/secret-storage.md).
 - Recovery restores identity administration only; no old MLS state or transcript is
   backed up. Messaging needs operator enrollment and a surviving group coordinator.
   Lost recovery secrets and already revoked credentials require operator assistance.

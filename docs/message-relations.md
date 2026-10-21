@@ -101,7 +101,7 @@ change is required. No backend flag or environment variable is added.
 
 The full canonical application event is retained in the local event log so projection
 replay does not require erased MLS ratchet keys. This log, like the original transcript,
-is unencrypted local storage and excluded from recovery packages. Replaying means
+is SQLCipher-encrypted local storage as of Milestone 25 and excluded from recovery packages. Replaying means
 folding retained authenticated application events, not decrypting old ciphertext again
 after its keys have been erased. The event log must not be discarded as a cache.
 

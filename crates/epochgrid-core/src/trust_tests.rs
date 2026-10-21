@@ -189,7 +189,7 @@ fn migration_preserves_state_and_rolls_back_on_failure() -> Result<()> {
         CREATE TRIGGER fail_migration BEFORE INSERT ON epochgrid_migrations WHEN NEW.version=2 BEGIN SELECT RAISE(ABORT,'injected migration failure'); END;")?;
     drop(local);
     assert!(IdentityStore::open(dir.path()).is_err());
-    let connection = rusqlite::Connection::open(dir.path().join("identity.sqlite"))?;
+    let connection = crate::database::open(dir.path(), "identity")?;
     let tables: u64 = connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('device_trust','transparency_state','trust_alert')", [], |r| r.get(0))?;
     assert_eq!(tables, 0, "partial migration rolled back");
     connection.execute_batch("DROP TRIGGER fail_migration")?;

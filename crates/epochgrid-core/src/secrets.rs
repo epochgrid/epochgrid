@@ -1,6 +1,7 @@
-//! Standalone credentials only. MLS/SQLite encryption belongs to Milestone 25.
+//! Standalone credentials and database keys in Linux Secret Service.
 //! Metadata is public; secret bytes never enter EpochGrid's persistent files.
 use anyhow::{Context, Result, ensure};
+use openmls_traits::random::OpenMlsRand;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -17,6 +18,7 @@ pub enum Kind {
     User,
     Account,
     XKey,
+    Database,
 }
 impl Kind {
     fn generate(self) -> Result<Zeroizing<String>> {
@@ -24,9 +26,30 @@ impl Kind {
             Self::User => nkeys::KeyPair::new_user().seed()?,
             Self::Account => nkeys::KeyPair::new_account().seed()?,
             Self::XKey => nkeys::XKey::new().seed()?,
+            Self::Database => {
+                let bytes = Zeroizing::new(
+                    openmls_rust_crypto::RustCrypto::default()
+                        .random_array::<32>()
+                        .map_err(|_| anyhow::anyhow!("database randomness unavailable"))?,
+                );
+                data_encoding::HEXLOWER.encode(bytes.as_ref())
+            }
         }))
     }
     fn public(self, secret: &str) -> Result<String> {
+        if self == Self::Database {
+            ensure!(
+                secret.len() == 64
+                    && secret
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+                "invalid database key"
+            );
+            // A fingerprint of a uniformly random key, not an asymmetric public key.
+            return Ok(
+                data_encoding::HEXLOWER.encode(&crate::transparency::hash(secret.as_bytes())?)
+            );
+        }
         if self == Self::XKey {
             return nkeys::XKey::from_seed(secret)
                 .map(|key| key.public_key())
@@ -60,7 +83,7 @@ pub enum Error {
     Backend,
 }
 
-/// Opaque item ID plus independently checked public binding. Contains no secret.
+/// Opaque item ID plus checked public key (or random database-key fingerprint).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SecretRef {
@@ -309,7 +332,7 @@ impl Vault {
         Ok(reference)
     }
 }
-fn private_file(path: &Path, truncate: bool) -> Result<File> {
+pub(crate) fn private_file(path: &Path, truncate: bool) -> Result<File> {
     let mut options = OpenOptions::new();
     options
         .read(true)
@@ -323,7 +346,7 @@ fn private_file(path: &Path, truncate: bool) -> Result<File> {
     }
     Ok(options.open(path)?)
 }
-fn save(path: &Path, metadata: &Metadata) -> Result<()> {
+pub(crate) fn save(path: &Path, metadata: &impl Serialize) -> Result<()> {
     let temporary = path.with_extension("pending");
     let mut file = private_file(&temporary, true)?;
     file.write_all(&serde_json::to_vec(metadata)?)?;

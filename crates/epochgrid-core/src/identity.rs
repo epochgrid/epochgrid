@@ -47,8 +47,8 @@ impl OpenMlsProvider for Provider {
         &self.storage
     }
 }
-/// NKeys live in Secret Service; MLS private state and history remain in SQLite
-/// until Milestone 25. Standalone credentials are represented by public references.
+/// Credentials and database keys live in Secret Service; MLS state and history
+/// are protected by SQLCipher. On-disk references contain no secret values.
 pub struct IdentityStore {
     pub(crate) connection: Rc<Connection>,
     _lock: File,
@@ -58,16 +58,7 @@ pub struct IdentityStore {
 }
 impl IdentityStore {
     pub fn open(dir: &Path) -> Result<Self> {
-        let existing = dir.join("identity.sqlite");
-        if existing.exists() {
-            let db =
-                Connection::open_with_flags(&existing, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-            let legacy: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('local_identity') WHERE name='seed')", [], |r| r.get(0))?;
-            ensure!(
-                !legacy,
-                "pre-Milestone-24 home is unsupported; choose a fresh home and enroll again"
-            );
-        }
+        crate::database::reject_plaintext(&dir.join("identity.sqlite"))?;
         std::fs::create_dir_all(dir)?;
         #[cfg(unix)]
         {
@@ -84,20 +75,14 @@ impl IdentityStore {
         let lock = options.open(dir.join("device.lock"))?;
         lock.try_lock()
             .context("device is already in use by another process")?;
-        let path = dir.join("identity.sqlite");
-        let connection = Connection::open(&path)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-        }
+        let connection = crate::database::open(dir, "identity")?;
         connection.execute_batch("CREATE TABLE IF NOT EXISTS local_identity (id INTEGER PRIMARY KEY CHECK(id=1), secret_ref TEXT NOT NULL, registration BLOB NOT NULL);")?;
         let mut storage = SqliteStorageProvider::<JsonCodec, _>::new(connection);
         storage.run_migrations()?;
         // Migrate before sharing the connection: OpenMLS and application writes
         // then participate in the same SQLite transaction.
         drop(storage);
-        let connection = Rc::new(Connection::open(path)?);
+        let connection = Rc::new(crate::database::open(dir, "identity")?);
         connection.execute_batch("CREATE TABLE IF NOT EXISTS groups (name TEXT PRIMARY KEY, gid TEXT NOT NULL UNIQUE, mls_id BLOB NOT NULL UNIQUE);")?;
         connection.execute_batch("CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY, subject TEXT NOT NULL, payload BLOB NOT NULL UNIQUE, sent INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS welcomes (payload BLOB PRIMARY KEY, name TEXT NOT NULL);

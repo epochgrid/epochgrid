@@ -142,6 +142,14 @@ def run(disconnect_before_join=False):
             assert (root / 'nats.conf').read_text() == nats_config
             tui.finish(root, [alice, bob], processes, secrets)
             print('EpochGrid dynamic TUI create/invite/join, bidirectional MLS chat, restart/offline history and ciphertext-only storage passed')
+        except Exception as error:
+            if isinstance(error, subprocess.CalledProcessError):
+                print('Failed command stderr:', (error.stderr or b'').decode(errors='replace'), flush=True)
+            for name in ('backend.log', 'nats.log'):
+                path = root / name
+                if path.exists():
+                    print(f'{name} (last 4000 characters):\n{path.read_text(errors="replace")[-4000:]}', flush=True)
+            raise
         finally:
             if proxy:
                 proxy.close()

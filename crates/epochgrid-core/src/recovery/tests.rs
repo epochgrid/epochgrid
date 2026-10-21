@@ -170,7 +170,7 @@ fn restore_and_migration_are_atomic_and_preserve_existing_state() -> Result<()> 
     )?;
     drop(alice);
     assert!(IdentityStore::open(&root.path().join("alice")).is_err());
-    let connection = rusqlite::Connection::open(root.path().join("alice/identity.sqlite"))?;
+    let connection = crate::database::open(&root.path().join("alice"), "identity")?;
     let tables: u64 = connection.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE name='recovery_metadata'",
         [],

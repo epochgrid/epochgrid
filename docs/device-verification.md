@@ -148,8 +148,9 @@ that polling cycle until corrected. A successful audit clears a transient audit
 warning, but never clears changed-device state. Existing local history stays visible
 and offline composition remains possible. Milestone 14 also audits revocations in the online scripting chat/message path
 and reconciles revoked MLS leaves before new encryption. Creator membership
-policy and MLS authentication remain the group boundary. NATS metadata and local
-unencrypted private state/transcripts have the same exposure as before.
+policy and MLS authentication remain the group boundary. NATS metadata remains
+observable. Milestone 25 separately encrypts local private state and transcripts;
+an unlocked endpoint still has access to that content.
 
 ## Validation
 

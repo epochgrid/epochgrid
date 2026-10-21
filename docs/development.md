@@ -17,21 +17,22 @@ Auth Callout integration/TUI checks (TD-002) are deferred; see
 The dynamic checks remain available through `verify.sh nats-dynamic` and
 `verify.sh dynamic-tui`; explicit runs still fail on errors.
 
-See [current validation results](milestones.md#latest-local-validation--2026-10-18).
+See [current validation results](milestones.md#latest-local-validation--2026-10-19).
 Milestone-specific notes below describe upgrades and coverage; previous passing
 runs are consolidated under [historical validation](#historical-local-validation).
 
 Credential-using phases now run in isolated disposable Secret Service sessions;
 install `dbus-daemon gnome-keyring libsecret-tools` on Debian/Ubuntu. See
-[Milestone 24 secret storage](secret-storage.md) for setup, fresh-state requirements,
-and the separate Milestone 25 database-encryption boundary. `verify.sh compose`
+[protected storage](secret-storage.md) for setup, fresh encrypted-state requirements,
+and the Milestone 25 database-encryption boundary. `verify.sh compose`
 uses temporary homes and its own Compose project; it leaves the developer's `.dev`
 state and stack alone, but needs port 4222 free.
 
 ## Historical local setup and milestone upgrade notes
 
 The upgrade notes below describe pre-Milestone-24 development. They do not provide
-an upgrade path into Milestone 24: earlier homes/configs/archives are unsupported.
+an upgrade path into Milestone 25: plaintext homes/registries are unsupported.
+Milestone 24 v2 administration archives can be restored into fresh encrypted homes.
 
 Follow README for setup. Bootstrap preserves keys and groups, regenerates public
 configuration/enrollment, verifies a pinned GitHub NATS binary, and builds a
@@ -190,10 +191,19 @@ limits; the deliberate crash-test pause has a 30-second failsafe. Test CLI outpu
 uses temporary files to avoid pipe-buffer deadlocks while awaiting process exit.
 The timeout harness tests normal failure exit codes, hung descendants and cancellation.
 
-TUI smoke inspections open read-only SQLite connections and close them explicitly.
+TUI smoke inspections use the read-only `encrypted-query` Rust example (built by
+`verify.sh build`), which loads the database key from the isolated keyring. Keys
+are never passed on the command line. The plaintext Python inspector is used only
+for standalone harness fixtures. Connections close after each inspection.
 Only SQLITE_BUSY/SQLITE_LOCKED is retried, for at most five seconds per read; persistent
 locks and all other SQL errors fail. The harness regression tests exercise a real
 exclusive writer lock, successful retry, deadline expiry, and read-only enforcement.
+
+Encrypted-storage regression tests include separate-process registry writers while
+existing readers remain open. Never inspect an active database with ordinary file
+opens/closes inside the application process: that can release SQLite's POSIX locks.
+The format probe uses SQLite-managed read-only connections and marker scans run in
+a separate process. See [SQLite's locking explanation](https://www.sqlite.org/howtocorrupt.html#posix_advisory_locks_canceled_by_a_separate_thread_doing_close_).
 
 
 ## Milestone 15 recovery validation

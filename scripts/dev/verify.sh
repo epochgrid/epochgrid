@@ -11,7 +11,7 @@ phase() {
     secrets) keyring python3 scripts/dev/run-bounded.py 120 cargo test --locked -p epochgrid-core secrets::tests::live_keyring_restart_binding_duplicate_and_lock -- --ignored --exact
              env DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/epochgrid-test-bus python3 scripts/dev/run-bounded.py 30 cargo test --locked -p epochgrid-core secrets::tests::live_unavailable_bus_is_bounded -- --ignored --exact
              keyring python3 scripts/dev/run-bounded.py 60 python3 scripts/dev/test-secrets-live.py ;;
-    build) python3 scripts/dev/run-bounded.py 300 cargo build --locked --workspace ;;
+    build) python3 scripts/dev/run-bounded.py 300 cargo build --locked --workspace --examples --bins ;;
     nats|nats-dynamic)
           local dynamic_case=auth_callout::dynamic_enrollment_inbox_isolation_revocation_without_reload
           local selection=(--skip "$dynamic_case")

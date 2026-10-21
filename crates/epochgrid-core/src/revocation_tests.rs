@@ -263,7 +263,7 @@ fn revocation_signatures_prefixes_wire_and_migration() -> Result<()> {
     bob.connection.execute_batch("DROP TABLE revoked_devices; DROP TABLE revocation_checkpoint; DROP TABLE blocked_outbox; DROP TABLE group_coordinators; DELETE FROM epochgrid_migrations WHERE version=3; CREATE TRIGGER fail_revocation_migration BEFORE INSERT ON epochgrid_migrations WHEN NEW.version=3 BEGIN SELECT RAISE(ABORT,'injected failure'); END;")?;
     drop(bob);
     assert!(IdentityStore::open(&path).is_err());
-    let db = rusqlite::Connection::open(path.join("identity.sqlite"))?;
+    let db = crate::database::open(&path, "identity")?;
     let partial: u64 = db.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('revoked_devices','revocation_checkpoint','blocked_outbox','group_coordinators')", [], |r|r.get(0))?;
     assert_eq!(partial, 0);
     db.execute_batch("DROP TRIGGER fail_revocation_migration")?;

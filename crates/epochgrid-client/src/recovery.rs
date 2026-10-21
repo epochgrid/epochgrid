@@ -138,6 +138,9 @@ pub fn run(home: &Path, command: Command) -> Result<()> {
                             && matches!(
                                 name.as_ref(),
                                 "device.lock"
+                                    | "identity.database.lock"
+                                    | "identity.database.json"
+                                    | "identity.database.pending"
                                     | "identity.sqlite"
                                     | "identity.sqlite-journal"
                                     | "identity.sqlite-wal"
