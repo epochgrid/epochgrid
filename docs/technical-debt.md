@@ -90,3 +90,66 @@ restore dynamic TUI in both CI and the default verifier, and update these docs.
 The later pending-join fix from remote commit `bce2482` has been merged with this
 quarantine. Its two unit tests and focused `dynamic-join` reconnect regression
 remain enabled; the broader dynamic messaging failure is still unresolved.
+
+## TD-003 — Test and CI reliability (post-MVP delivery focus)
+
+Schedule a dedicated reliability pass after MVP delivery. Cover execution budgets,
+fixture synchronization, disconnect/send behavior and failure diagnostics. This
+item adds no exclusions and does not change existing release gates or the separate
+TD-001/TD-002 restoration requirements.
+
+### Evidence inspected on 2026-10-20
+
+Milestone 25 [PR #15](https://github.com/epochgrid/epochgrid/pull/15), head
+`d24e69b53b82a3cf11245982ed98f4a790d3ce38`, has seven CI attempts across its
+push and pull-request runs: four NATS watchdog failures, one TUI assertion
+failure, one cancellation, and one successful run.
+
+- Push run [39315384951](https://github.com/epochgrid/epochgrid/actions/runs/39315384951)
+  attempts 1, 2 and 5, and PR run
+  [39315459339 attempt 1](https://github.com/epochgrid/epochgrid/actions/runs/39315459339/attempts/1),
+  exit 124 at the verifier's 360-second NATS deadline. The preceding cases pass;
+  the suite is still executing the live revocation case when killed. This is
+  neither an individual assertion failure nor the workflow's nine-minute step
+  limit. Compilation consumes about 25–26 seconds of the same budget.
+- [PR attempt 2](https://github.com/epochgrid/epochgrid/actions/runs/39315459339/attempts/2)
+  passes the complete default gate; NATS execution takes 254.72 seconds after
+  18.05 seconds compiling. Push attempt 3 also passes all 16 retained NATS cases
+  in 241.73 seconds. Slow attempts show broadly longer case durations, consistent
+  with runner/resource or local dependency latency. The logs do not isolate CPU,
+  disk, keyring or scheduling costs, and do not establish a GitHub outage or an
+  SQLCipher correctness regression. The fixed combined budget is demonstrably
+  unreliable across these executions; a passing rerun does not repair it.
+- [Push attempt 3](https://github.com/epochgrid/epochgrid/actions/runs/39315384951/attempts/3)
+  fails the main TUI assertion `offline encrypted queue` after its 25-second wait,
+  before the 180-second phase watchdog. Alice's screen retains the unsent draft
+  and reports `sync before send timed out; retry after reconnect`. The harness
+  kills/waits for the broker and immediately sends, without waiting for client
+  disconnect detection. `Action::Send` checks connection state and attempts a
+  three-second membership sync when still connected; failure deliberately retains
+  the draft instead of encrypting/persisting it. This exposes a disconnect/send
+  timing race and a mismatch between the test's unconditional queue expectation
+  and the application's failure behavior. A longer assertion wait cannot submit
+  the retained draft. This static TUI case is distinct from quarantined TD-002.
+- Push attempt 4 is cancelled; its job log returns `BlobNotFound`. Its cause is
+  unclassified and is not counted as another proven timeout.
+
+### Work and completion criteria
+
+- Separate integration compilation from bounded test execution. Measure per-case
+  and whole-job durations on cold runners, budget for observed variance, and split
+  long phases where useful. Keep finite watchdogs and descendant cleanup; do not
+  use blanket retries or additional skips to manufacture a green gate.
+- Make established-offline queue tests wait for an observable offline state.
+  Separately exercise sending during disconnect detection deterministically, with
+  an explicit contract for retained drafts, user retry, persistence and exactly-once
+  delivery. Preserve membership/revocation synchronization safety; do not bypass
+  pre-send checks merely to satisfy the smoke assertion.
+- Audit fixed sleeps, nested deadlines, readiness predicates and SQLCipher/Secret
+  Service polling costs. Retain bounded, sanitized diagnostics identifying the
+  case, operation, connection state and elapsed time at failure; distinguish
+  assertion, operation timeout, phase watchdog and runner cancellation.
+- Validate repeated cold CI runs and injected disconnect/latency cases. Record
+  first-attempt failure rates and duration distributions before/after changes,
+  with an agreed sample size and reliability target. Close only with repeatable
+  evidence and regression coverage for the identified race, not one green rerun.

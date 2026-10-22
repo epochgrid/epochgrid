@@ -14,6 +14,13 @@ use zeroize::Zeroizing;
 
 pub const SUBJECT: &str = "$SYS.REQ.USER.AUTH";
 pub const ENROLL: &str = "epochgrid.v1.identity.enroll";
+/// Operator-owned public JWT configuration. Private signing keys stay in Secret Service.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OperatorJwt {
+    pub auth_account: String,
+    pub connection_jwt: String,
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -25,6 +32,8 @@ pub struct Config {
     pub control_nkey: String,
     pub authorization_ttl_seconds: u64,
     pub development_plaintext: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator_jwt: Option<OperatorJwt>,
 }
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
@@ -57,6 +66,40 @@ impl Config {
                 && config.connection.kind == Kind::User,
             "invalid callout credential types"
         );
+        if let Some(operator) = &config.operator_jwt {
+            for account in [&operator.auth_account, &config.target_account] {
+                ensure!(
+                    KeyPair::from_public_key(account)?.key_pair_type() == KeyPairType::Account,
+                    "operator mode requires account public keys"
+                );
+            }
+            ensure!(
+                operator.auth_account != config.target_account,
+                "authentication and application accounts must be separate"
+            );
+            let jwt = Claims::<User>::decode(&operator.connection_jwt)
+                .context("invalid auth service user JWT")?;
+            ensure!(
+                matches!(
+                    jwt.nats.generic_fields.claim_type,
+                    nats_jwt_rs::ClaimType::User
+                ) && jwt.nats.generic_fields.version == 2,
+                "expected a version-2 user JWT"
+            );
+            ensure!(
+                jwt.sub == config.connection.public_key
+                    && jwt.nats.issuer_account.as_ref().unwrap_or(&jwt.iss)
+                        == &operator.auth_account
+                    && jwt.nats.permissions.bearer_token != Some(true),
+                "auth service JWT must bind the connection key and authentication account"
+            );
+            let timestamp = now()?;
+            ensure!(
+                jwt.exp.is_none_or(|expiry| expiry > timestamp)
+                    && jwt.nbf.is_none_or(|start| start <= timestamp),
+                "auth service JWT is not current"
+            );
+        }
         Ok(config)
     }
     pub fn check_transport(&self, url: &str) -> Result<()> {
@@ -75,10 +118,18 @@ impl Config {
     pub async fn connect(&self, url: &str) -> Result<async_nats::Client> {
         self.check_transport(url)?;
         let seed = self.connection.read()?;
+        let mut options = async_nats::ConnectOptions::with_nkey(seed.to_string());
+        if let Some(operator) = &self.operator_jwt {
+            let key = std::sync::Arc::new(KeyPair::from_seed(&seed)?);
+            options = options.jwt(operator.connection_jwt.clone(), move |nonce| {
+                let key = key.clone();
+                async move { key.sign(&nonce).map_err(async_nats::AuthError::new) }
+            });
+        }
         Ok(crate::tls::TlsConfig::from_env()?
             .apply(
                 url,
-                async_nats::ConnectOptions::with_nkey(seed.to_string())
+                options
                     .connection_timeout(Duration::from_secs(5))
                     .request_timeout(Some(Duration::from_secs(2))),
             )?
@@ -158,7 +209,13 @@ impl Callout {
         let expires = request.exp.context("missing request expiry")?;
         ensure!(
             request.aud.as_deref() == Some("nats-authorization-request")
-                && request.sub == self.issuer.public_key(),
+                && request.sub
+                    == self
+                        .config
+                        .operator_jwt
+                        .as_ref()
+                        .map(|operator| operator.auth_account.clone())
+                        .unwrap_or_else(|| self.issuer.public_key()),
             "invalid callout audience/subject"
         );
         ensure!(
@@ -213,7 +270,11 @@ impl Callout {
             )?;
             let mut user =
                 User::new_claims("EpochGrid device".into(), request.nats.user_nkey.clone());
-            user.aud = Some(self.config.target_account.clone());
+            if self.config.operator_jwt.is_some() {
+                user.nats.issuer_account = Some(self.config.target_account.clone());
+            } else {
+                user.aud = Some(self.config.target_account.clone());
+            }
             user.exp = Some(timestamp + self.config.authorization_ttl_seconds as i64);
             user.nats.generic_fields.version = 2;
             user.nats.permissions.permissions.subscribe.allow =

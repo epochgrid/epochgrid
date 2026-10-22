@@ -19,6 +19,7 @@ tracing-subscriber.workspace = true
 epochgrid-core = { path = "../epochgrid-core" }
 
 [dev-dependencies]
+nats-jwt-rs.workspace = true
 async-nats.workspace = true
 nkeys.workspace = true
 tempfile = "3"

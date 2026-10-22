@@ -35,6 +35,7 @@ impl Fixture {
             target_account: "EPOCHGRID".into(),
             authorization_ttl_seconds: 30,
             development_plaintext: true,
+            operator_jwt: None,
         };
         let mut registry = AuthRegistry::open(&root.path().join("registry"))?;
         let token = registry.invite("alice", 60)?;
@@ -214,5 +215,54 @@ fn control_role_lease_is_bounded_independently_of_device_ttl() -> Result<()> {
         .exp
         .context("control role must not receive an unlimited lease")?;
     assert!((now()? + 59..=now()? + 60).contains(&expiry));
+    Ok(())
+}
+
+#[test]
+fn operator_account_binding_and_signed_service_credential() -> Result<()> {
+    let mut f = Fixture::new()?;
+    let auth = KeyPair::new_account();
+    let target = KeyPair::new_account();
+    let mut service = User::new_claims(
+        "auth service".into(),
+        f.config.connection.public_key.clone(),
+    );
+    service.nats.generic_fields.version = 2;
+    f.config.target_account = target.public_key();
+    f.config.operator_jwt = Some(OperatorJwt {
+        auth_account: auth.public_key(),
+        connection_jwt: service.encode(&auth)?,
+    });
+    let path = f._root.path().join("auth.json");
+    std::fs::write(&path, serde_json::to_vec(&f.config)?)?;
+    f.callout = Callout::new(Config::load(&path)?)?;
+    let mut request = f.request()?;
+    // Configuration-mode issuer is not the operator-mode request subject.
+    assert!(f.send(&request, true).is_err());
+    request.sub = auth.public_key();
+    let response = f.send(&request, true)?;
+    let admitted = Claims::<User>::decode(&response.nats.jwt)?;
+    assert_eq!(admitted.nats.issuer_account, Some(target.public_key()));
+    assert!(admitted.aud.is_none());
+    assert_eq!(admitted.iss, f.config.issuer.public_key);
+    assert_eq!(admitted.sub, request.nats.user_nkey);
+    let mut other_account = f.request()?;
+    other_account.sub = KeyPair::new_account().public_key();
+    assert!(f.send(&other_account, true).is_err());
+    for kind in ["wrong-key", "wrong-account", "expired", "future", "bearer"] {
+        let mut bad = service.clone();
+        let mut signer = &auth;
+        match kind {
+            "wrong-key" => bad.sub = KeyPair::new_user().public_key(),
+            "wrong-account" => signer = &target,
+            "expired" => bad.exp = Some(now()? - 1),
+            "future" => bad.nbf = Some(now()? + 60),
+            "bearer" => bad.nats.permissions.bearer_token = Some(true),
+            _ => unreachable!(),
+        }
+        f.config.operator_jwt.as_mut().unwrap().connection_jwt = bad.encode(signer)?;
+        std::fs::write(&path, serde_json::to_vec(&f.config)?)?;
+        assert!(Config::load(&path).is_err(), "{kind}");
+    }
     Ok(())
 }

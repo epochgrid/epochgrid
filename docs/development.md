@@ -11,13 +11,18 @@ OpenSSL for temporary test certificates. See [TLS configuration](operator/tls.md
 Run `./scripts/dev/verify.sh` for the default CI gate. It includes workspace unit tests,
 16 live NATS cases, Compose/CLI smoke, static TUI workflows and the focused
 `dynamic-join` reconnect regression, dedicated protected-credential checks, plus formatting,
-Clippy, build and harness checks. Live typing assertions (TD-001) and the dynamic
+Clippy, build and harness checks. Four additional BYO-NATS cases run in a separate
+bounded phase and CI matrix: configuration/operator-JWT authentication on
+standalone and three-node replicated fabrics with client and route TLS. Run
+`verify.sh byo-build` before `verify.sh byo-nats`; the latter also accepts one
+case name. See the [BYO-NATS contract](operator/byo-nats.md).
+Live typing assertions (TD-001) and the dynamic
 Auth Callout integration/TUI checks (TD-002) are deferred; see
 [technical debt](technical-debt.md) for evidence and restoration criteria.
 The dynamic checks remain available through `verify.sh nats-dynamic` and
 `verify.sh dynamic-tui`; explicit runs still fail on errors.
 
-See [current validation results](milestones.md#latest-local-validation--2026-10-19).
+See [current validation results](milestones.md#latest-local-validation--2026-10-20).
 Milestone-specific notes below describe upgrades and coverage; previous passing
 runs are consolidated under [historical validation](#historical-local-validation).
 
@@ -183,6 +188,12 @@ clippy, 180s for unit tests, 300s for build, 120s for NATS download, 360s for th
 16 default serial NATS cases (dynamic Auth Callout is deferred as TD-002), and
 180s each for Compose and TUI. The job retains its
 20-minute outer limit; GitHub step limits also apply. A timed-out phase fails CI.
+
+The four BYO-NATS jobs each have a separate 35-minute outer limit: `byo-build`
+bounds binary compilation at 600s and integration-test compilation at 300s, then
+`byo-nats CASE` bounds execution at 260s (240s inside the test). They are excluded
+from the original 360s NATS phase because they have their own CI jobs,
+not because they are quarantined. The complete local verifier runs all four.
 
 The Compose smoke service must exit within five seconds of SIGINT; otherwise the
 test reports failure and forces termination. Signal handling is registered before

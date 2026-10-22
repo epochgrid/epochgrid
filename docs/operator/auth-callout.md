@@ -1,8 +1,10 @@
 # Auth Callout contract — Milestones 21–22
 
 Dynamic enrollment, authorization, CLI/TUI chat and revocation are implemented.
-This is not yet the complete alpha deployment quickstart: local secret protection,
-operational hardening and release gates remain. Do not deploy the static development bootstrap as production authentication.
+Local secrets and state are protected by Secret Service and SQLCipher. Operational
+hardening and release gates remain. Do not deploy the static development bootstrap
+as production authentication. See the [BYO-NATS contract](byo-nats.md) for milestone
+26 configuration-mode and operator-JWT qualification.
 
 NATS Auth Callout is the production admission model. Operators integrate the callout
 in an isolated authentication account and delegate only the EpochGrid application
@@ -43,8 +45,9 @@ provides compatible XKey encryption with the `xkeys` feature.
 
 ## Commands and configuration
 
-The current tested configuration-mode integration uses NATS Server 2.14.5. Operator
-JWT mode and clustered deployment remain to be validated by the BYO-NATS milestone.
+The qualification target is NATS Server 2.14.5. The [BYO-NATS contract](byo-nats.md)
+defines the standalone/clustered and configuration/operator-JWT test matrix and
+the additional operator-owned setup required for JWT mode.
 Only the fixed auth-service NKey is a static NATS user; the fixed backend integration
 NKey is admitted by the configured auth component, never by a device allow-list.
 Both are service credentials, separate from arbitrary enrolled devices.
