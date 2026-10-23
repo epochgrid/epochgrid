@@ -265,6 +265,19 @@ struct Ui {
     scroll: u16,
 }
 impl Ui {
+    fn finish_send(&mut self, state: &Snapshot, pending: &mut Option<(u64, String)>) {
+        if let Some((count, draft)) = &*pending
+            && state.send_count > *count
+        {
+            if let Some(error) = &state.send_error {
+                self.notice = format!("Send failed; draft retained: {error}").into();
+            } else if &self.input == draft {
+                self.input.clear();
+            }
+            *pending = None;
+        }
+    }
+
     fn key(&mut self, key: KeyEvent, state: &Snapshot) -> Result<Option<Action>> {
         if key.kind == KeyEventKind::Release {
             return Ok(None);
@@ -561,16 +574,7 @@ pub fn run(home: PathBuf, server: String) -> Result<()> {
         if let Some(error) = &state.fatal {
             anyhow::bail!("{error}");
         }
-        if let Some((count, draft)) = &pending
-            && state.send_count > *count
-        {
-            if let Some(error) = &state.send_error {
-                ui.notice = format!("Send failed; draft retained: {error}").into();
-            } else if &ui.input == draft {
-                ui.input.clear();
-            }
-            pending = None;
-        }
+        ui.finish_send(&state, &mut pending);
         for action in activity.update(
             &ui.input,
             state.selected.as_deref(),

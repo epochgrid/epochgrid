@@ -387,6 +387,46 @@ impl Session {
             }
         }
     }
+    fn finish_send(
+        &mut self,
+        synced: Result<()>,
+        name: String,
+        text: String,
+        relation: Option<RelationDraft>,
+    ) -> Result<()> {
+        let result = synced.and_then(|()| {
+            use epochgrid_core::relationships::Relation;
+            let Some(relation) = relation else {
+                return self.store.encrypt_message(&name, text.as_bytes());
+            };
+            let (relation, content) = match relation {
+                RelationDraft::Reply(target) => (
+                    Relation::ReplyTo(self.store.resolve_message(&name, &target)?),
+                    text.as_bytes(),
+                ),
+                RelationDraft::Edit(target) => (
+                    Relation::Replace(self.store.resolve_message(&name, &target)?),
+                    text.as_bytes(),
+                ),
+                RelationDraft::Reaction { target, add } => (
+                    Relation::Reaction {
+                        target: self.store.resolve_message(&name, &target)?,
+                        value: text.clone(),
+                        add,
+                    },
+                    &[][..],
+                ),
+            };
+            self.store.encrypt_related(&name, relation, content)
+        });
+        self.send_count += 1;
+        self.send_error = result.as_ref().err().map(|error| format!("{error:#}"));
+        result?;
+        self.before = None;
+        self.notice = "Encrypted message saved locally; pending server acknowledgment".into();
+        Ok(())
+    }
+
     async fn command(&mut self, action: Action) -> Result<()> {
         match action {
             Action::Typing {
@@ -466,37 +506,7 @@ impl Session {
                 } else {
                     Ok(())
                 };
-                let result = synced.and_then(|()| {
-                    use epochgrid_core::relationships::Relation;
-                    let Some(relation) = relation else {
-                        return self.store.encrypt_message(&name, text.as_bytes());
-                    };
-                    let (relation, content) = match relation {
-                        RelationDraft::Reply(target) => (
-                            Relation::ReplyTo(self.store.resolve_message(&name, &target)?),
-                            text.as_bytes(),
-                        ),
-                        RelationDraft::Edit(target) => (
-                            Relation::Replace(self.store.resolve_message(&name, &target)?),
-                            text.as_bytes(),
-                        ),
-                        RelationDraft::Reaction { target, add } => (
-                            Relation::Reaction {
-                                target: self.store.resolve_message(&name, &target)?,
-                                value: text.clone(),
-                                add,
-                            },
-                            &[][..],
-                        ),
-                    };
-                    self.store.encrypt_related(&name, relation, content)
-                });
-                self.send_count += 1;
-                self.send_error = result.as_ref().err().map(|error| format!("{error:#}"));
-                result?;
-                self.before = None;
-                self.notice =
-                    "Encrypted message saved locally; pending server acknowledgment".into();
+                self.finish_send(synced, name, text, relation)?;
             }
             Action::Attach { name, path } => {
                 let client = self
@@ -562,6 +572,61 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn disconnect_sync_failure_retains_draft_until_explicit_retry() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let alice_path = dir.path().join("alice");
+        let mut alice = IdentityStore::open(&alice_path)?;
+        let mut bob = IdentityStore::open(&dir.path().join("bob"))?;
+        alice.init("alice", "laptop")?;
+        let peer = bob.init("bob", "laptop")?;
+        alice.create_group("engineering")?;
+        alice.prepare_invitation("engineering", &peer)?;
+        let mut session = Session::new(alice, "nats://127.0.0.1:1".into())?;
+        let mut ui = super::super::Ui {
+            input: "retained draft".into(),
+            ..Default::default()
+        };
+        let mut pending = Some((0, ui.input.clone()));
+        // Inject the failed sync outcome at the production send boundary, without
+        // racing broker shutdown or weakening the membership check.
+        assert!(
+            session
+                .finish_send(
+                    Err(anyhow::anyhow!(
+                        "sync before send timed out; retry after reconnect"
+                    )),
+                    "engineering".into(),
+                    ui.input.clone(),
+                    None
+                )
+                .is_err()
+        );
+        ui.finish_send(&session.snapshot()?, &mut pending);
+        assert_eq!(ui.input, "retained draft");
+        assert!(pending.is_none());
+        assert!(session.store.history("engineering", 10, None)?.is_empty());
+        // Processing the same completion again must neither clear nor submit it.
+        ui.finish_send(&session.snapshot()?, &mut pending);
+        assert_eq!(ui.input, "retained draft");
+        pending = Some((session.send_count, ui.input.clone()));
+        session
+            .command(Action::Send {
+                name: "engineering".into(),
+                text: ui.input.clone(),
+                relation: None,
+            })
+            .await?;
+        ui.finish_send(&session.snapshot()?, &mut pending);
+        assert!(ui.input.is_empty());
+        assert!(pending.is_none());
+        drop(session);
+        let reopened = IdentityStore::open(&alice_path)?;
+        let history = reopened.history("engineering", 10, None)?;
+        assert_eq!(history.len(), 1);
+        Ok(())
+    }
+
     #[tokio::test]
     async fn offline_join_is_retained_without_duplicate_or_extended_deadline() -> Result<()> {
         let dir = tempfile::tempdir()?;

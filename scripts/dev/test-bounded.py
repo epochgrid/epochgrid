@@ -71,6 +71,7 @@ class BoundedTests(unittest.TestCase):
     def test_exit_code(self):
         result = subprocess.run([sys.executable, RUNNER, '5', sys.executable, '-c', 'raise SystemExit(7)'], capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 7)
+        self.assertIn(b'"category": "command_failure"', result.stdout)
 
     def test_hung_process_and_descendant(self):
         with tempfile.TemporaryDirectory() as root:
@@ -79,6 +80,7 @@ class BoundedTests(unittest.TestCase):
             started = time.monotonic()
             result = subprocess.run([sys.executable, RUNNER, '1', sys.executable, '-c', code], capture_output=True, timeout=10)
             self.assertEqual(result.returncode, 124, result.stderr)
+            self.assertIn(b'"category": "watchdog_timeout"', result.stdout)
             self.assertLess(time.monotonic() - started, 9)
             self.assertIn(b'TIMED OUT', result.stderr)
             pid = int(pidfile.read_text())
@@ -95,7 +97,8 @@ class BoundedTests(unittest.TestCase):
         try:
             time.sleep(0.3)
             process.send_signal(signal.SIGTERM)
-            process.communicate(timeout=8)
+            stdout, _ = process.communicate(timeout=8)
+            self.assertIn(b'"category": "cancelled"', stdout)
             self.assertEqual(process.returncode, 130)
         finally:
             if process.poll() is None:

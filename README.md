@@ -346,7 +346,12 @@ See [restart and recovery](docs/recovery.md) for tested failure boundaries and l
 
 ## Verify
 
-Run the same MVP gate as CI (includes the pinned NATS download and Compose).
+The full CI gate runs on PR creation, updates and reopening, not on branch
+pushes or merges into `main`. A newer revision cancels the older run for the
+same PR. See the [CI strategy review](docs/ci-strategy.md) for runner-cost evidence,
+parallelism decisions and the next recommended changes.
+
+Run the same MVP gate locally (includes the pinned NATS download and Compose).
 Dynamic authorization live checks are temporarily opt-in under
 [TD-002](docs/technical-debt.md#td-002--dynamic-authorization-live-checks-deferred-during-mvp-work):
 
@@ -359,19 +364,23 @@ Or run its Cargo and live checks individually after downloading NATS:
 ```bash
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-./scripts/dev/verify.sh unit
 ./scripts/dev/verify.sh build
+./scripts/dev/verify.sh doctest
+./scripts/dev/verify.sh unit
 ./scripts/dev/verify.sh nats
 ./scripts/dev/verify.sh secrets
 ./scripts/dev/verify.sh compose
 ./scripts/dev/verify.sh tui
-./scripts/dev/verify.sh byo-build
 ./scripts/dev/verify.sh byo-nats
 ```
 
 The [BYO-NATS qualification matrix](docs/operator/byo-nats.md) covers configuration
 and operator-JWT authentication on standalone and three-node R3 fabrics. CI runs
-these four cases separately, with compilation outside their execution deadlines.
+these four cases separately, with compilation outside their execution deadlines. All
+execution suites consume one revision-bound runtime artifact; `build` must precede
+individual unit/live checks and must be repeated after Rust source changes.
+`byo-build` remains an alias for `build`. Doctests run explicitly through Cargo.
+See [CI strategy](docs/ci-strategy.md) for budgets, artifacts and benchmark commands.
 
 The focused `./scripts/dev/verify.sh dynamic-join` regression interrupts Bob's
 connection before a single `/join`, then checks reconnect and joined-channel
