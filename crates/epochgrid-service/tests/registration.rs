@@ -1,3 +1,4 @@
+mod role_fixture;
 use anyhow::{Result, ensure};
 use epochgrid_core::{
     identity::IdentityStore,

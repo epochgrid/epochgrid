@@ -31,11 +31,14 @@ This is unaudited development software, not a production-ready security product.
 | 24 | Implemented; locally validated | Linux Secret Service for device and backend credentials; fresh installs only |
 | 25 | Merged (#15) | SQLCipher state with independent Secret Service keys; fresh encrypted homes only |
 | 26 | Implemented; locally validated | BYO-NATS contract; configuration/operator-JWT and standalone/R3 cluster qualification |
-| 27 | Implemented; cold CI pending | Explicit initialization, artifact export, offline/online validation and production startup admission gate |
-| 28–38 | Not started | Backend privilege separation, operations and release preparation |
+| 27 | Merged (#17); subsequent hosted CI passed | Explicit initialization, artifact export, offline/online validation and production startup admission gate |
+| 28 | Implemented; locally validated | Separate authority/worker accounts, bounded local IPC, narrower runtime permissions and role validation; hosted CI pending; see [role contract](docs/backend-role-contract.md) |
+| 29–38 | Not started | Operations and release preparation |
 
 Backend operators can use [initialization and artifact export](docs/operator/auth-callout.md#commands-and-configuration)
 for explicit authentication/account/R1–R3 choices and operator-applied resources.
+Production startup now requires [authority and worker role setup](docs/backend-role-contract.md#setup-under-separate-linux-accounts)
+under distinct Linux accounts and independent Secret Service sessions.
 [Offline validation](docs/operator/validation.md) checks established local state without initialization.
 Online validation inspects supplied broker endpoints; production startup requires
 compatible pre-provisioned resources and healthy replicas before device admission.

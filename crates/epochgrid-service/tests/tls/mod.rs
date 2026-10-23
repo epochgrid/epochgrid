@@ -181,7 +181,16 @@ pub(super) fn backend(root: &Path, url: &str, ca: Option<&Path>, first: bool) ->
     command
         .arg("--home")
         .arg(root.join("backend"))
-        .args(["--server", url, "serve", "--auth-config"])
+        .args([
+            "--server",
+            url,
+            if root.join("backend/backend-roles.json").exists() {
+                "serve-authority"
+            } else {
+                "serve"
+            },
+            "--auth-config",
+        ])
         .arg(root.join("backend/auth.json"));
     production(&mut command, ca, first);
     command
@@ -378,6 +387,7 @@ async fn workflow() -> Result<()> {
     for resource in epochgrid_core::deployment::DeploymentManifest::new(1)?.resources() {
         js.create_stream(resource).await?;
     }
+    let mut worker = crate::role_fixture::Worker::setup(root, &url).await?;
     // Auth listener has exactly the same fail-closed profile as clients.
     for (endpoint, trust) in [
         (url.clone(), Some(wrong.as_path())),
@@ -409,6 +419,7 @@ async fn workflow() -> Result<()> {
         backend(root, &url, Some(&ca), false),
         &root.join("service.log"),
     )?;
+    worker.start().await?;
     let mut registry = AuthRegistry::open(&root.join("backend"))?;
     let token = registry.invite("alice", 60)?;
     let mut enrolled = false;
@@ -518,6 +529,7 @@ async fn workflow() -> Result<()> {
         .await?,
     )?;
     drop(service);
+    worker.set_running(false)?;
     drop(nats);
     // TLS-first protects INFO as well as credentials; both binaries use this mode.
     nats = broker(root, port, true, "rotated")?;
@@ -526,6 +538,8 @@ async fn workflow() -> Result<()> {
         backend(root, &url, Some(&ca), true),
         &root.join("service.log"),
     )?;
+    worker.tls_first = true;
+    worker.start().await?;
     tokio::time::timeout(Duration::from_secs(12), async {
         loop {
             let output = run(

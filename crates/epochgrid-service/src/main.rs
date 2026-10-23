@@ -1,5 +1,6 @@
 mod deployment_setup;
 mod dynamic;
+mod roles;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use epochgrid_core::{
@@ -35,6 +36,41 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum ServiceCommand {
+    /// Provision the control worker connection in this account's keyring.
+    WorkerInit,
+    /// Bind an existing backend to a separate worker account (service stopped).
+    RoleBind {
+        /// Defaults to auth.json within --home.
+        #[arg(long)]
+        auth_config: Option<PathBuf>,
+        #[arg(long)]
+        worker_uid: u32,
+        #[arg(long)]
+        worker_nkey: String,
+        #[arg(long)]
+        socket: PathBuf,
+    },
+    /// Configure the worker from public authority bindings, without private keys.
+    WorkerConfigure {
+        #[arg(long)]
+        bindings: PathBuf,
+    },
+    /// Run the isolated registry, signing and reconciliation authority.
+    ServeAuthority {
+        #[arg(long)]
+        auth_config: PathBuf,
+    },
+    /// Forward control requests using this worker's own keyring and local IPC.
+    ServeControl,
+    /// Inspect worker state without authority credentials or state initialization.
+    ValidateControl {
+        #[arg(long, required_unless_present = "online", conflicts_with = "online")]
+        offline: bool,
+        #[arg(long)]
+        online: bool,
+        #[arg(long, value_enum, default_value = "human")]
+        format: ReportFormat,
+    },
     /// Inspect established state offline or against a running backend.
     Validate {
         #[arg(long)]
@@ -69,7 +105,7 @@ enum ServiceCommand {
         #[arg(long, default_value_t = 600)]
         ttl: u64,
     },
-    /// Dynamic admission/control path. Does not read or modify NATS server config.
+    /// Legacy combined dynamic fixture, restricted to explicit development homes.
     Serve {
         #[arg(long)]
         auth_config: PathBuf,
@@ -83,6 +119,18 @@ enum ReportFormat {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    if let Some(ServiceCommand::ValidateControl { online, format, .. }) = &args.command {
+        let report = roles::validate(&args.home, true, *online, args.server.as_deref()).await;
+        match format {
+            ReportFormat::Human => print!("{}", report.human()),
+            ReportFormat::Json => println!("{}", serde_json::to_string_pretty(&report)?),
+        }
+        anyhow::ensure!(
+            report.success,
+            "worker validation failed; see the validation report"
+        );
+        return Ok(());
+    }
     // Validation owns stdout and handles malformed local inputs in its report.
     // No service initialization, Auth Callout listener or signal tasks.
     // Online validation alone performs its bounded inspection connections.
@@ -94,12 +142,17 @@ async fn main() -> Result<()> {
         ..
     }) = &args.command
     {
-        let report = if *online {
+        let mut report = if *online {
             let endpoints: Vec<_> = args.server.iter().chain(endpoint.iter()).cloned().collect();
             epochgrid_core::validation::online(&args.home, auth_config, &endpoints).await
         } else {
             epochgrid_core::validation::offline(&args.home, auth_config, args.server.as_deref())
         };
+        if *online || args.home.join(roles::BINDINGS).exists() {
+            let role = roles::validate(&args.home, false, *online, None).await;
+            report.success &= role.success;
+            report.checks.extend(role.checks);
+        }
         match format {
             ReportFormat::Human => print!("{}", report.human()),
             ReportFormat::Json => println!("{}", serde_json::to_string_pretty(&report)?),
@@ -131,7 +184,27 @@ async fn main() -> Result<()> {
     );
     if let Some(command) = args.command {
         return match command {
-            ServiceCommand::Validate { .. } => {
+            ServiceCommand::WorkerInit => roles::worker_init(&args.home),
+            ServiceCommand::RoleBind {
+                auth_config,
+                worker_uid,
+                worker_nkey,
+                socket,
+            } => roles::bind(
+                &args.home,
+                &auth_config.unwrap_or_else(|| args.home.join("auth.json")),
+                worker_uid,
+                worker_nkey,
+                socket,
+            ),
+            ServiceCommand::WorkerConfigure { bindings } => {
+                roles::worker_configure(&args.home, &bindings)
+            }
+            ServiceCommand::ServeAuthority { auth_config } => {
+                dynamic::authority(&args.home, server, &auth_config).await
+            }
+            ServiceCommand::ServeControl => roles::worker(&args.home, server).await,
+            ServiceCommand::Validate { .. } | ServiceCommand::ValidateControl { .. } => {
                 unreachable!("validation handled before runtime setup")
             }
             ServiceCommand::AuthInit(options) => dynamic::init(&args.home, &options),
@@ -153,7 +226,7 @@ async fn main() -> Result<()> {
     }
     anyhow::ensure!(
         args.dev_static,
-        "choose serve --auth-config FILE; legacy fixtures require explicit --dev-static"
+        "choose serve-authority --auth-config FILE or serve-control; legacy static fixtures require explicit --dev-static"
     );
     tracing::warn!("DEVELOPMENT ONLY: static users and broker reload actuator enabled");
     let enrollment: Enrollment = serde_json::from_slice(&std::fs::read(&args.enrollment)?)?;

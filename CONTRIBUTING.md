@@ -34,6 +34,15 @@ OCI artifacts. CI only validates; publishing is not configured.
 
 4. Run all checks before submitting a PR:
 
+   Build the disposable separate-user test image once on local Ubuntu hosts
+   (`--build-arg UBUNTU_VERSION=24.04` for Ubuntu 24.04; default 26.04). Production
+   TLS/BYO tests need this image to run the authority and worker under distinct
+   UIDs and keyrings. See the [role verification environment](docs/backend-role-contract.md#verification-environment).
+
+   ```bash
+   docker build -f scripts/dev/roles.Dockerfile -t epochgrid-role-tests:local .
+   ```
+
    ```bash
    ./scripts/dev/verify.sh    # Runs all quality gates (fmt, clippy, unit, etc.)
    ```

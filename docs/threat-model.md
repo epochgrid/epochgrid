@@ -22,6 +22,17 @@ and metadata, but not message confidentiality. A signature proves key possession
 not human identity. Milestone 13 adds the bounded directory protections described
 below; first contact and cross-client split views remain significant limitations.
 
+Milestone 28 separates the network control worker from the authorization authority
+using distinct Linux UIDs, private homes/keyrings and peer-authenticated local IPC.
+The worker can read forwarded metadata/tokens, disrupt requests and forge replies,
+but has no issuer/signing key, authorization database key, or JetStream/KV mutation
+grant. The authority independently validates original requests and performs
+consumer reconciliation. New admission also requires a current worker lease.
+Authority compromise remains authorization compromise; OS/root compromise and
+process-memory protection are outside this boundary. See the
+[role contract](backend-role-contract.md) for exact capabilities and qualification
+status. This separation does not grant either role MLS content access.
+
 Not hidden: subjects, timing, sizes, connection metadata, usernames, group names
 inside MLS group IDs, public credentials/KeyPackages, or traffic analysis.
 The explicitly selected development Compose profile has no TLS and binds loopback.
