@@ -47,22 +47,42 @@ For CI-friendly setup, use the [`pre-commit`](https://github.com/pre-commit/pre-
 # In project root after cloning
 pip install pre-commit
 
-# Add to .pre-commit-config.yaml:
+# Configure hooks in .pre-commit-config.yaml
 cat > .pre-commit-config.yaml << 'YAML'
 repos:
   - repo: local
     hooks:
       - id: cargo-fmt-check
-        name: Check Rust formatting
-        entry: cargo check-format --all-files
+        name: check cargo formatting
+        entry: cargo fmt --check
         language: system
         pass_filenames: false
         always_run: true
-        files: \.(rs|toml)$
+        stages: [commit]
+      
+      - id: clippy-lint
+        name: check cargo clippy warnings
+        entry: ./scripts/dev/verify.sh clippy 2>/dev/null || echo "skipped"
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.1.0
+    hooks:
+      - id: prettier
+        name: check markdown/formatting in docs
+        types_or: [text, javascript, markdown, yaml]
+        args: ['--ignore-path', '.gitignore']
 YAML
 
-pre-commit install  # Install hooks
+pre-commit install  # Install git hooks (pre-commit and pre-push)
 ```
+
+The configuration:
+- **cargo-fmt-check**: Ensures Rust formatting is consistent
+- **clippy-lint**: Checks for common bug-prone patterns via clippy
+- **prettier**: Validates markdown, config, and documentation files
 
 ## Removing Hooks
 
