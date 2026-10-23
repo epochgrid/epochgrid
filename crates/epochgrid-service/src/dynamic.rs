@@ -7,92 +7,10 @@ use epochgrid_core::{
     wire::{self, Body},
 };
 use futures_util::StreamExt;
-use std::{io::Write, path::Path, time::Duration};
+use std::{path::Path, time::Duration};
 
-fn private_file(path: &Path, bytes: &[u8]) -> Result<()> {
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let temporary = path.with_extension("pending");
-    let mut file = options.open(&temporary)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    std::fs::rename(temporary, path)?;
-    std::fs::File::open(path.parent().context("configuration directory")?)?.sync_all()?;
-    Ok(())
-}
-pub fn init(home: &Path) -> Result<()> {
-    ensure!(
-        !home.join("auth.json").exists(),
-        "authentication configuration already exists"
-    );
-    ensure!(
-        !["issuer.seed", "encryption.seed", "auth.seed"]
-            .iter()
-            .any(|name| home.join(name).exists()),
-        "pre-Milestone-24 backend is unsupported; choose a fresh home"
-    );
-    AuthRegistry::open(home)?;
-    // Serialize initialization and leave public references resumable after a crash.
-    let lock = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(home.join("auth-init.lock"))?;
-    lock.try_lock()
-        .context("authentication initialization already in progress")?;
-    ensure!(
-        !home.join("auth.json").exists(),
-        "authentication configuration already exists"
-    );
-    let vault = epochgrid_core::secrets::Vault::new(home);
-    let issuer = vault.provision("issuer", epochgrid_core::secrets::Kind::Account)?;
-    let encryption = vault.provision("encryption", epochgrid_core::secrets::Kind::XKey)?;
-    let connection = vault.provision("connection", epochgrid_core::secrets::Kind::User)?;
-    let mut control = IdentityStore::open(&home.join("control"))?;
-    if control.registration().is_err() {
-        control.init("service", "laptop")?;
-    }
-    let config = Config {
-        version: 2,
-        issuer: issuer.clone(),
-        encryption: encryption.clone(),
-        connection: connection.clone(),
-        target_account: "EPOCHGRID".into(),
-        control_nkey: control.nkey()?.public_key(),
-        authorization_ttl_seconds: 30,
-        development_plaintext: false,
-        operator_jwt: None,
-    };
-    let snippet = format!(
-        r#"# Reference only: integrate with operator-owned configuration; do not replace it.
-# Add operator-managed TLS and JetStream. No static device users.
-accounts {{
-  EPOCHGRID_AUTH {{ users: [{{nkey: "{}", permissions: {{subscribe: ["$SYS.REQ.USER.AUTH", "_INBOX.>"], publish: ["$SYS._INBOX.>"]}}}}] }}
-  EPOCHGRID {{ jetstream: enabled }}
-}}
-authorization {{
-  timeout: 2
-  auth_callout {{ issuer: "{}", xkey: "{}", account: EPOCHGRID_AUTH, auth_users: ["{}"], allowed_accounts: [EPOCHGRID] }}
-}}
-"#,
-        connection.public_key, issuer.public_key, encryption.public_key, connection.public_key
-    );
-    // Reference snippet is public and may be recreated after interrupted initialization.
-    std::fs::write(home.join("nats-reference.conf"), snippet.as_bytes())?;
-    private_file(
-        &home.join("auth.json"),
-        &serde_json::to_vec_pretty(&config)?,
-    )?;
-    println!(
-        "EpochGrid integration keys initialized; review auth.json and nats-reference.conf. NATS was not modified."
-    );
-    Ok(())
+pub fn init(home: &Path, options: &crate::deployment_setup::InitOptions) -> Result<()> {
+    crate::deployment_setup::initialize(home, options)
 }
 /// Repair durable lifecycle state before opening admission after a partial operation.
 async fn repair_state(
@@ -121,6 +39,23 @@ impl Drop for AuthTask {
     }
 }
 pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
+    let production = epochgrid_core::tls::TlsConfig::from_env()?.profile
+        == epochgrid_core::tls::Profile::Production;
+    let manifest = if production {
+        let report = epochgrid_core::validation::offline(home, path, Some(url));
+        ensure!(
+            report.success,
+            "production startup local validation failed:\n{}",
+            report.human()
+        );
+        Some(serde_json::from_slice::<
+            epochgrid_core::deployment::DeploymentManifest,
+        >(&std::fs::read(
+            home.join(epochgrid_core::deployment::MANIFEST_FILE),
+        )?)?)
+    } else {
+        None
+    };
     let config = Config::load(path)?;
     config.check_transport(url)?;
     if config.development_plaintext {
@@ -134,11 +69,11 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
         key.public_key() == config.control_nkey,
         "control identity does not match callout configuration"
     );
-    let auth_client = config.connect(url).await?;
+    let auth_client = tokio::time::timeout(Duration::from_secs(5), config.connect(url)).await??;
     let mut requests = auth_client
         .queue_subscribe(auth_callout::SUBJECT, "epochgrid-auth".into())
         .await?;
-    auth_client.flush().await?;
+    tokio::time::timeout(Duration::from_secs(5), auth_client.flush()).await??;
     let auth_registry = AuthRegistry::open(home)?;
     let admission = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let admission_worker = admission.clone();
@@ -171,11 +106,41 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
         anyhow::bail!("auth subscription ended")
     }));
     let mut registry = AuthRegistry::open(home)?;
-    let client = transport::connect(url, &identity).await?;
+    let monitor = epochgrid_core::validation::PermissionMonitor::default();
+    let client = tokio::time::timeout(
+        Duration::from_secs(5),
+        monitor
+            .configure(transport::connection_options(url, &key)?)
+            .connect(url),
+    )
+    .await??;
     drop(identity);
-    let directory = transport::provision(client.clone()).await?;
+    if let Some(manifest) = &manifest {
+        let report =
+            epochgrid_core::validation::inspect_resources(&client, manifest, &monitor).await;
+        ensure!(
+            report.success,
+            "production resource admission gate failed:\n{}",
+            report.human()
+        );
+    }
     let enrollment = registry.historical_enrollment()?;
-    let log = transparency::provision(client.clone(), &directory, &enrollment, &key).await?;
+    let (directory, log) = if production {
+        // Lookups only: never create or alter operator resources, including on errors.
+        let (directory, log) = tokio::time::timeout(Duration::from_secs(10), async {
+            Ok::<_, anyhow::Error>((
+                transport::lookup_resources(client.clone()).await?,
+                transparency::lookup_resource(client.clone()).await?,
+            ))
+        })
+        .await??;
+        transparency::reconcile(&log, &directory, &enrollment, &key).await?;
+        (directory, log)
+    } else {
+        let directory = transport::provision(client.clone()).await?;
+        let log = transparency::provision(client.clone(), &directory, &enrollment, &key).await?;
+        (directory, log)
+    };
     let registrations = transparency::read(&log).await?;
     revocation::initialize(&log, &registrations, &key).await?;
     for revoked in revocation::read(&log, &registrations).await?.keys() {

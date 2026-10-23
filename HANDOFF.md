@@ -1,4 +1,161 @@
-# Milestone 26 handoff
+# Milestone 27 handoff — online validation and startup gate implemented
+
+Work is on `feature/milestone-27-initialization`, based on merged milestone 26
+at `5256862`. The user requested implementation on 2026-10-22 using
+`docs/milestone-27-plan.md` (which was already untracked in the starting tree).
+
+The first slice implements `epochgrid_core::deployment`: a strict version-one
+R1/R3 manifest schema, deterministic public stream/KV artifact rendering, and
+non-mutating field-by-field comparison with independent unit fixtures. See
+`docs/deployment-resource-contract.md` for the comparison rules. async-nats field
+features through 2.14 are enabled to retain TTL/scheduling/counter settings during
+INFO decoding. No dependency versions or authentication schema were changed.
+
+The second slice implements offline initialization and export:
+
+- `auth-init --auth-mode configuration|operator-jwt --target-account ...
+  --auth-account ... --replicas 1|3`; no-option defaults remain configuration,
+  EPOCHGRID and R1. Inputs are validated before state/credential provisioning.
+- `auth-init.lock` serializes setup/export; public `auth-init.json` records retry
+  choices before provisioning. Existing vault metadata preserves identities.
+  Completed initialization refuses reruns. `auth.json` is committed last.
+- `deployment.json` is persisted beside `auth.json`. Public files are mode 0600;
+  bundles are staged in mode-0700 directories and atomically renamed without
+  replacement. Edited bundles are refused; `--output` permits a new destination.
+- Operator initialization retains the existing auth schema with an empty
+  `operator_jwt.connection_jwt`. Runtime loading explicitly rejects it until the
+  operator supplies a signed non-bearer service JWT. No configuration fallback.
+- `deployment-export --auth-config FILE [--replicas 1|3] [--output DIR]` resolves
+  existing credentials/control-key binding without provisioning or opening a
+  database. Existing M26 homes need explicit replicas on first export. Export
+  does not change auth.json or the legacy root nats-reference.conf.
+- All four BYO fixtures now consume generated native stream configurations and
+  configuration snippets/operator delegation specifications. The operator test
+  fixture supplies signing, administration users and TLS. Runtime does not.
+- Existing tempfile/rustix lockfile versions are now direct service dependencies
+  for durable no-clobber publication; serde is a direct dependency for setup options.
+
+The third slice implements `validate --auth-config FILE --offline [--format
+human|json]`. It runs before service runtime initialization and never connects to
+NATS. Shared TLS policy and trust roots are inspected locally; an omitted endpoint
+is explicitly not checked. Existing serve/development endpoint defaults remain.
+
+- New `database::inspection` uses existing-only SQLCipher read-only connections,
+  query-only mode and per-database read transactions. No store-opening APIs,
+  provisioning, metadata writes, permissions changes, migrations or repairs.
+- Format probes stay SQLite-managed. No ordinary database-content descriptors and
+  no immutable mode. SQLite-managed WAL/SHM bookkeeping may change, while
+  application data/schema do not. Tests cover live snapshots and writer lock safety.
+- Checks include ownership/private permissions, configuration/manifest, six
+  independent credential roles, database role/key bindings, schema histories and
+  required tables/columns, integrity, and signed control identity/config binding.
+- Version-one reports expose stable IDs, passed/failed/not_checked statuses,
+  expected/observed values, remediation and explicit network/operator coverage.
+  Raw errors, JWTs, credentials, URLs and private database rows are excluded.
+- Required checks must pass for exit zero. Invalid local TLS input still produces
+  a JSON report when requested. Pending operator JWT setup fails explicitly.
+- All four BYO cases validate before startup, during operation and after restart;
+  missing-manifest validation fails without stopping the running backend.
+- An extra isolated Secret Service test covers duplicate, swapped and locked
+  credentials through the validator. CLI tests verify no endpoint connection,
+  unchanged encrypted state, sanitized failures and missing-key refusal.
+
+See `docs/operator/validation.md` for commands, report semantics and scope.
+Final slice implements online validation against an already-running backend and
+production startup enforcement. `validate --online` combines local inspection with
+existing auth/control credential connections, authenticated JetStream requests,
+NATS 2.14.5/max-payload checks, all five stream/KV contracts and replica health.
+One to eight explicit endpoints are inspected separately with discovery/reconnect
+disabled; operations are bounded to five seconds and network phase to 60 seconds.
+Reports distinguish permission denial, authentication, timeout, missing/unavailable,
+incompatible resources/server and unhealthy replicas, with no raw server errors.
+Production startup runs local validation, bootstraps Auth Callout with admission
+closed, validates resources, then uses lookup-only transport/transparency helpers
+before existing reconciliation/readiness. Failed checks abort the temporary auth
+task. Development fixtures retain explicit provisioning. The older production TLS
+fixture now pre-provisions generated resources through its own admin credential.
+BYO coverage adds online checks at startup/restart and each supplied endpoint,
+missing/incompatible startup refusal, missing manifest with an established device,
+wrong declared replicas, subjects/retention/KV-history mismatches, unavailable
+backend/endpoint, invalid TLS identity and denied inspection permissions.
+Milestone 27 implementation and required local verification are complete. Cold CI
+for all four BYO cases is still required before merge. The user requested a
+feature-branch commit and push; the user will create the pull request. No merge
+or release publication is authorized by that request.
+
+Final-slice local evidence (2026-10-22): formatting, warnings-denied workspace
+Clippy, 107 unit tests (87 core, 13 client, 7 service), binaries/examples build,
+ten harness regressions, three isolated live Secret Service tests, protected-state
+CLI checks, all 16 retained NATS cases, Compose/CLI, main/relationship/participant
+TUI and focused dynamic join/reconnect passed. All four expanded BYO cases passed:
+configuration standalone 49.47s, configuration cluster 61.86s, operator-JWT
+standalone 60.86s and operator-JWT cluster 73.46s. Build and integration execution
+remained separate bounded phases. No automatic retry or quarantine rules were
+added. Documentation file links, shell syntax and scoped whitespace checks pass.
+
+Evidence is split across `/tmp/epochgrid-m27-finish-verify-final.log` (quality,
+unit/build and harness gates) and `/tmp/epochgrid-m27-finish-remaining.log` (final
+protected-state, retained integration/smoke and four-case BYO gates). The former
+stopped at an outdated protected-state assertion expecting the old startup error
+text; it was corrected to assert the new `credential_missing` code and the phase
+passed in the latter log. The initial missing-manifest test expectation was also
+corrected from generic manifest failure to the existing `state_missing` code.
+
+Earlier attempts encountered disposable Secret Service failures: the first full
+run passed core units but lost keyring access in service units; an isolated unit
+run then reported keyring operation failures. A disposable-keyring availability
+probe and all seven service tests passed, followed by the successful full workspace
+unit and protected-state runs above. The keyring-session failure cause was not
+established and was not hidden by retries in the test scripts. Retained logs:
+`/tmp/epochgrid-m27-finish-{verify,unit,keyring-probe}.log`. Existing SQLCipher
+mlock warnings and TD-001/TD-002/TD-003 reliability boundaries remain unchanged.
+Preserve Secret Service/SQLCipher, fresh-home-only behavior, encrypted Auth Callout,
+operator resource ownership and the existing TD-001/TD-002/TD-003 boundaries.
+Separate edits to `docs/technical-debt.md` appeared during this slice and were left
+untouched; they are not part of this implementation.
+
+Third-slice local validation on 2026-10-22: the full `./scripts/dev/verify.sh`
+passed formatting, warnings-denied Clippy, all 105 workspace unit tests,
+binaries/examples build, ten harness regressions, three isolated live Secret
+Service tests, protected-state/CLI lifecycle checks, all 16 retained NATS cases,
+Compose/CLI, main/relationship/participant TUI, focused dynamic join/reconnect,
+and all four BYO cases with offline checks before startup, during operation and
+after restart. Targeted protected-state and four-case BYO runs also passed.
+Build and final BYO execution remained separate bounded phases; no retries or
+quarantines were added. Documentation file links and verifier shell syntax pass.
+Implementation-path whitespace checks pass; the separate technical-debt edits
+were excluded. Existing SQLCipher mlock warnings remain (no memory-lock guarantee).
+
+Third-slice log: `/tmp/epochgrid-m27-offline-verify.log`; focused logs:
+`/tmp/epochgrid-m27-offline-{unit,secrets,byo,clippy,final-build}.log`.
+These local results do not replace cold CI evidence. The previous slice's
+validation follows for reference.
+
+Second-slice local validation on 2026-10-22: the complete
+`./scripts/dev/verify.sh` passed formatting, warnings-denied Clippy, 97 workspace
+unit tests (six setup tests and a new non-provisioning credential lookup test),
+binaries/examples build, ten harness regressions, protected credential/database
+checks, all 16 retained NATS cases, Compose/CLI, main/relationship/participant TUI,
+focused dynamic join/reconnect, and all four generated-artifact BYO-NATS cases.
+The new protected-state assertions confirm export preserves auth.json, credential
+metadata and encrypted database bytes, and cannot recreate a missing key.
+Setup tests cover invalid choices before state creation, locking, interrupted
+retry, overwrite/symlink refusal, private modes, binding failures, M26 export and
+operator-JWT completion. All four artifact-consuming BYO cases also passed in a
+preceding targeted run. The final full run kept build and BYO execution in separate
+bounded phases. These are local results, not cold CI evidence.
+
+Full log: `/tmp/epochgrid-m27-setup-verify.log`; targeted matrix:
+`/tmp/epochgrid-m27-setup-byo.log`. SQLCipher mlock warnings remain; this establishes
+no memory-lock guarantee. Existing quarantines remain unchanged. The first-slice
+90-unit-test regression log remains `/tmp/epochgrid-m27-verify.log` and predates
+generated-artifact BYO provisioning.
+
+No commit, push, PR or release has been performed. Cold CI evidence remains a
+merge requirement. The milestone 26 handoff below is historical and predates its
+merge; its feature-branch state and next steps are no longer current.
+
+# Historical milestone 26 handoff
 
 ## State
 

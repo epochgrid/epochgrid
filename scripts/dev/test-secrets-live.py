@@ -65,11 +65,59 @@ with tempfile.TemporaryDirectory(prefix='epochgrid-secret-test-') as directory:
     assert all(config[name]['public_key'] for name in ('issuer', 'encryption', 'connection'))
     assert not list(backend.glob('*.seed'))
     assert len(scan(backend)) == 6
+    # Export is read-only with respect to established credentials and databases.
+    public_before = (backend / 'auth.json').read_bytes()
+    credentials_before = (backend / 'credentials.json').read_bytes()
+    database_before = (backend / 'auth.sqlite').read_bytes()
+    run(SERVICE, '--home', str(backend), 'deployment-export', '--auth-config', str(backend / 'auth.json'))
+    assert (backend / 'auth.json').read_bytes() == public_before
+    assert (backend / 'credentials.json').read_bytes() == credentials_before
+    assert (backend / 'auth.sqlite').read_bytes() == database_before
+    assert json.loads((backend / 'deployment.json').read_text()) == {'version': 1, 'replicas': 1}
+    scan(backend)
+    # Validation must not connect, even when a reachable endpoint is supplied.
+    with socket.socket() as probe:
+        probe.bind(('127.0.0.1', 0))
+        probe.listen(1)
+        probe.settimeout(0.1)
+        endpoint = f'tls://127.0.0.1:{probe.getsockname()[1]}'
+        validation = run(SERVICE, '--home', str(backend), '--server', endpoint, 'validate',
+                         '--auth-config', str(backend / 'auth.json'), '--offline', '--format', 'json')
+        report = json.loads(validation.stdout)
+        assert report['version'] == 1 and report['mode'] == 'offline' and report['success']
+        assert any(check['id'] == 'coverage.network' and check['status'] == 'not_checked' for check in report['checks'])
+        try:
+            connection, _ = probe.accept()
+        except socket.timeout:
+            pass
+        else:
+            connection.close()
+            raise AssertionError('offline validation attempted a network connection')
+    assert (backend / 'auth.json').read_bytes() == public_before
+    assert (backend / 'credentials.json').read_bytes() == credentials_before
+    assert (backend / 'auth.sqlite').read_bytes() == database_before
+    invalid_env = dict(os.environ, EPOCHGRID_TLS_MIN_VERSION='PRIVATE_INVALID_TLS_INPUT')
+    failed_validation = run(SERVICE, '--home', str(backend), 'validate', '--auth-config',
+                            str(backend / 'auth.json'), '--offline', '--format', 'json', ok=False, env=invalid_env)
+    assert not json.loads(failed_validation.stdout)['success']
+    assert b'PRIVATE_INVALID_TLS_INPUT' not in failed_validation.stdout + failed_validation.stderr
+    run(SERVICE, '--home', str(backend), 'validate', '--auth-config', str(backend / 'auth.json'), ok=False)
     run(SERVICE, '--home', str(backend), 'auth-init', ok=False)
     run('secret-tool', 'clear', 'application', 'org.epochgrid.credentials.v1', 'id', config['issuer']['id'])
+    missing_export = run(SERVICE, '--home', str(backend), 'deployment-export',
+                         '--auth-config', str(backend / 'auth.json'), '--output', str(backend / 'missing-export'), ok=False)
+    assert b'credential missing from keyring' in missing_export.stderr
+    missing_validation = run(SERVICE, '--home', str(backend), 'validate', '--auth-config',
+                             str(backend / 'auth.json'), '--offline', '--format', 'json', ok=False)
+    report = json.loads(missing_validation.stdout)
+    assert not report['success']
+    assert any(check['observed'] == 'credential_missing' for check in report['checks'])
+    assert not (backend / 'missing-export').exists()
+    assert (backend / 'credentials.json').read_bytes() == credentials_before
+    assert (backend / 'auth.sqlite').read_bytes() == database_before
     denied = run(SERVICE, '--home', str(backend), '--server', 'tls://127.0.0.1:1',
                  'serve', '--auth-config', str(backend / 'auth.json'), ok=False)
-    assert b'credential missing from keyring' in denied.stderr
+    assert b'credential_missing' in denied.stderr
     assert b'service ready' not in denied.stdout + denied.stderr
     assert json.loads((backend / 'auth.json').read_text()) == config
     unavailable = dict(os.environ, DBUS_SESSION_BUS_ADDRESS='unix:path=/nonexistent/epochgrid-bus')

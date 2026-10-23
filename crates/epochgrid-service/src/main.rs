@@ -1,6 +1,7 @@
+mod deployment_setup;
 mod dynamic;
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use epochgrid_core::{
     broker_control::BrokerControl,
     identity::IdentityStore,
@@ -29,17 +30,38 @@ struct Args {
     home: PathBuf,
     #[arg(long, default_value = ".dev/enrollment.json")]
     enrollment: PathBuf,
-    #[arg(
-        long,
-        env = "EPOCHGRID_NATS_URL",
-        default_value = "nats://127.0.0.1:4222"
-    )]
-    server: String,
+    #[arg(long, env = "EPOCHGRID_NATS_URL", global = true)]
+    server: Option<String>,
 }
 #[derive(Subcommand)]
 enum ServiceCommand {
-    /// Generate EpochGrid integration keys and a reference snippet, never modify NATS.
-    AuthInit,
+    /// Inspect established state offline or against a running backend.
+    Validate {
+        #[arg(long)]
+        auth_config: PathBuf,
+        #[arg(long, required_unless_present = "online", conflicts_with = "online")]
+        offline: bool,
+        #[arg(long)]
+        online: bool,
+        /// Additional endpoints to inspect individually (online only, maximum 8 total).
+        #[arg(long, requires = "online")]
+        endpoint: Vec<String>,
+        #[arg(long, value_enum, default_value = "human")]
+        format: ReportFormat,
+    },
+    /// Initialize integration keys and public deployment artifacts; never modify NATS.
+    AuthInit(deployment_setup::InitOptions),
+    /// Export public deployment artifacts from established credentials; never provision keys.
+    DeploymentExport {
+        #[arg(long)]
+        auth_config: PathBuf,
+        /// Required for existing installations without a deployment manifest.
+        #[arg(long)]
+        replicas: Option<usize>,
+        /// New artifact directory; an identical existing bundle is accepted.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     /// Issue a local provider enrollment token to stdout; protect its delivery.
     UserInvite {
         #[arg(long)]
@@ -53,8 +75,41 @@ enum ServiceCommand {
         auth_config: PathBuf,
     },
 }
+#[derive(Clone, Copy, ValueEnum)]
+enum ReportFormat {
+    Human,
+    Json,
+}
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args = Args::parse();
+    // Validation owns stdout and handles malformed local inputs in its report.
+    // No service initialization, Auth Callout listener or signal tasks.
+    // Online validation alone performs its bounded inspection connections.
+    if let Some(ServiceCommand::Validate {
+        auth_config,
+        format,
+        online,
+        endpoint,
+        ..
+    }) = &args.command
+    {
+        let report = if *online {
+            let endpoints: Vec<_> = args.server.iter().chain(endpoint.iter()).cloned().collect();
+            epochgrid_core::validation::online(&args.home, auth_config, &endpoints).await
+        } else {
+            epochgrid_core::validation::offline(&args.home, auth_config, args.server.as_deref())
+        };
+        match format {
+            ReportFormat::Human => print!("{}", report.human()),
+            ReportFormat::Json => println!("{}", serde_json::to_string_pretty(&report)?),
+        }
+        anyhow::ensure!(
+            report.success,
+            "validation failed; see the validation report"
+        );
+        return Ok(());
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -67,7 +122,7 @@ async fn main() -> Result<()> {
     if let std::task::Poll::Ready(result) = futures_util::poll!(&mut interrupt) {
         return result.map_err(Into::into);
     }
-    let args = Args::parse();
+    let server = args.server.as_deref().unwrap_or("nats://127.0.0.1:4222");
     let tls = epochgrid_core::tls::TlsConfig::from_env()?;
     tls.warn_development();
     anyhow::ensure!(
@@ -76,7 +131,15 @@ async fn main() -> Result<()> {
     );
     if let Some(command) = args.command {
         return match command {
-            ServiceCommand::AuthInit => dynamic::init(&args.home),
+            ServiceCommand::Validate { .. } => {
+                unreachable!("validation handled before runtime setup")
+            }
+            ServiceCommand::AuthInit(options) => dynamic::init(&args.home, &options),
+            ServiceCommand::DeploymentExport {
+                auth_config,
+                replicas,
+                output,
+            } => deployment_setup::export(&args.home, &auth_config, replicas, output.as_deref()),
             ServiceCommand::UserInvite { handle, ttl } => {
                 let token = epochgrid_core::identity_model::AuthRegistry::open(&args.home)?
                     .invite(&handle, ttl)?;
@@ -84,7 +147,7 @@ async fn main() -> Result<()> {
                 Ok(())
             }
             ServiceCommand::Serve { auth_config } => {
-                dynamic::serve(&args.home, &args.server, &auth_config).await
+                dynamic::serve(&args.home, server, &auth_config).await
             }
         };
     }
@@ -95,7 +158,7 @@ async fn main() -> Result<()> {
     tracing::warn!("DEVELOPMENT ONLY: static users and broker reload actuator enabled");
     let enrollment: Enrollment = serde_json::from_slice(&std::fs::read(&args.enrollment)?)?;
     let identity = IdentityStore::open(&args.home)?;
-    let client = transport::connect(&args.server, &identity).await?;
+    let client = transport::connect(server, &identity).await?;
     let signing_key = identity.nkey()?;
     drop(identity);
     let store = transport::provision(client.clone()).await?;
@@ -116,7 +179,7 @@ async fn main() -> Result<()> {
         .enrollment
         .parent()
         .context("enrollment directory missing")?;
-    let mut control = BrokerControl::connect(root, &args.server).await?;
+    let mut control = BrokerControl::connect(root, server).await?;
     control
         .enforce(
             &revocation::read(&log, &registrations).await?,

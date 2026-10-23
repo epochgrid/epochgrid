@@ -23,7 +23,8 @@ No `v0.1.0-alpha.1` tag or production-ready release has been published.
 | 24 | Implemented; locally validated | Linux Secret Service credentials, no plaintext fallback, fresh installs only |
 | 25 | Merged (#15) | SQLCipher client/backend state, independent Secret Service keys, fresh encrypted homes only |
 | 26 | Implemented; locally validated | BYO-NATS contract, operator-JWT adapter, standalone/R3 cluster qualification; cold CI pending |
-| 27–28 | Not started | Initialization/validation and backend privilege separation |
+| 27 | Implemented; cold CI pending | Explicit initialization/export, offline/online validation, production startup admission gate and generated-artifact BYO fixtures |
+| 28 | Not started | Backend privilege separation |
 | 29–31 | Not started | Resource bounds, operational diagnostics and structured audit events |
 | 32–34 | Not started | Official Linux artifacts, GHCR runtime image and release supply chain |
 | 35–38 | Not started | Broader adversarial suite, protocol/configuration freeze, first-run UX and operator documentation set |
@@ -51,14 +52,41 @@ See [TLS](operator/tls.md), [Auth Callout](operator/auth-callout.md),
 [dynamic authorization](architecture/dynamic-authorization.md), and
 [deferred typing and dynamic authorization checks](technical-debt.md). Milestone 25 (protected SQLite state)
 is merged. Milestone 26 (BYO-NATS qualification) is locally validated; milestone 27
-initialization/validation tooling is next.
+initialization/export, offline/online validation and production startup enforcement
+are implemented. See [deployment validation](operator/validation.md) for the
+pre-provisioning requirement and coverage limits. Milestone 28 is next.
 
 Post-MVP delivery includes a dedicated test and CI reliability focus under
 [TD-003](technical-debt.md#td-003--test-and-ci-reliability-post-mvp-delivery-focus),
 covering execution budgets, fixture synchronization and disconnect/send races.
 
 
-## Latest local validation — 2026-10-20
+## Milestone 27 local validation — 2026-10-22
+
+Initialization/export, non-initializing offline inspection, bounded online
+validation and production startup enforcement are implemented. The shared resource
+contract requires explicit R1/R3 replication. Production refuses missing or
+incompatible resources and unhealthy replicas before device admission; operator
+settings are never repaired automatically. Existing encrypted M26 homes use
+explicit export/setup, without key or database migration.
+
+All required local gates passed across the final verification phases: formatting,
+warnings-denied Clippy, 107 workspace unit tests, binaries/examples, ten harness
+regressions, three isolated live Secret Service tests, protected-state CLI checks,
+16 retained NATS cases, Compose/CLI and main/relationship/participant TUI checks,
+focused dynamic join/reconnect, and all four expanded BYO cases. The latter cover
+both validation modes and startup refusal alongside retained messaging, restart,
+revocation, failover and account isolation. Builds and integration runs remained
+separate bounded phases. No automatic retry or quarantine rules were added.
+
+Earlier disposable-keyring failures and corrected error-code assertions are
+recorded in [HANDOFF.md](../HANDOFF.md), along with the final logs. The later
+workspace unit and protected-state phases passed; the initial keyring-session
+failure cause was not established. Cold CI for all four BYO cases remains required
+before merge. These results do not qualify an alpha release. See
+[deployment validation](operator/validation.md) for coverage and limitations.
+
+## Milestone 26 local validation — 2026-10-20
 
 Milestone 26 passes formatting, warnings-denied workspace Clippy, binaries/examples
 build, 85 unit tests, ten harness regressions, both explicit live Secret Service

@@ -113,6 +113,18 @@ immediately revoke it.
 
 ## Interrupted initialization and recovery
 
+Backend `auth-init` validates authentication mode, accounts and R1/R3 before
+provisioning, serializes setup/export with `auth-init.lock`, and records the
+choices in public `auth-init.json`. Retry interrupted setup with the same options.
+Public artifact bundles are staged and atomically published without overwriting
+operator edits; `auth.json` is committed last. Completed setup refuses reruns even
+when an operator-issued JWT is still pending. Use `deployment-export` to regenerate
+artifacts: it resolves existing credential references and control-key binding but
+never creates keys, opens databases, or changes `auth.json`. Use [offline validation](operator/validation.md) for non-initializing encrypted-state
+inspection, credential bindings and permissions. It uses SQLite read-only snapshots;
+SQLite-managed WAL/SHM bookkeeping may change, but application data is not repaired
+or migrated.
+
 A per-home lock serializes provisioning. EpochGrid durably records an opaque pending
 item reference before writing to Secret Service, verifies the stored value, and
 then commits its public binding. A lost create response is resolved by reading the
@@ -165,3 +177,10 @@ are not secrets, [locking may change at any time](https://specifications.freedes
 and the API [does not mandate application access control](https://specifications.freedesktop.org/secret-service/latest/ch10.html).
 The Rust adapter uses [`secret-service` 5.2](https://docs.rs/secret-service/5.2.0/secret_service/)
 with Tokio and Rust cryptography; the exact dependency resolution is in Cargo.lock.
+
+Online validation uses the same non-initializing local inspection before resolving
+existing auth-service and control credentials for bounded broker inspection. It
+never opens another Auth Callout listener or creates credentials. Production
+startup also requires successful local validation before bootstrap; resource
+compatibility and health then gate device admission. See
+[deployment validation](operator/validation.md).

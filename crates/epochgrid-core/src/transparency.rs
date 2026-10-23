@@ -264,6 +264,13 @@ pub async fn devices(
     Ok(records)
 }
 
+/// Look up the operator-provisioned log without creating or repairing its stream.
+pub async fn lookup_resource(client: async_nats::Client) -> Result<Store> {
+    Ok(async_nats::jetstream::new(client)
+        .get_key_value("TRANSPARENCY")
+        .await?)
+}
+
 pub async fn provision(
     client: async_nats::Client,
     directory: &Store,
@@ -283,8 +290,19 @@ pub async fn provision(
             .await?
         }
     };
-    initialize(&log, key).await?;
-    let existing = read(&log).await?;
+    reconcile(&log, directory, enrollment, key).await?;
+    Ok(log)
+}
+
+/// Initialize/reconcile application records only, after resource admission checks.
+pub async fn reconcile(
+    log: &Store,
+    directory: &Store,
+    enrollment: &crate::transport::Enrollment,
+    key: &nkeys::KeyPair,
+) -> Result<()> {
+    initialize(log, key).await?;
+    let existing = read(log).await?;
     // Import the existing immutable M12 directory; no device reinitialization.
     for endpoint in enrollment.keys() {
         if let Some(bytes) = directory.get(endpoint).await? {
@@ -305,15 +323,15 @@ pub async fn provision(
                     "directory projection differs from authenticated log"
                 );
             } else {
-                register(&log, directory, enrollment, key, registration).await?;
+                register(log, directory, enrollment, key, registration).await?;
             }
         }
     }
     // Repair a crash after atomic log append but before writing its directory projection.
-    for record in read(&log).await?.entries {
+    for record in read(log).await?.entries {
         crate::transport::project_registration(directory, enrollment, record).await?;
     }
-    Ok(log)
+    Ok(())
 }
 pub async fn register(
     log: &Store,

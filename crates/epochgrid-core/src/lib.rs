@@ -1,10 +1,12 @@
 pub mod authorization;
 pub mod delivery;
+pub mod deployment;
 pub mod groups;
 pub mod history;
 pub mod identity;
 pub mod messaging;
 pub mod transport;
+pub mod validation;
 pub mod wire;
 
 #[cfg(test)]
