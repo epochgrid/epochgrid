@@ -1,0 +1,3 @@
+# Git hook files - use installed versions, not committed ones
+*.sh  # Installed in .git/hooks/, skip committing to repo root
+# For pre-commit framework, use the config file instead: .pre-commit-ci-config.yaml
