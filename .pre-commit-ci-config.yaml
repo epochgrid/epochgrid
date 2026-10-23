@@ -1,0 +1,38 @@
+# Git hooks configuration for pre-commit.ci integration
+# Install: pip install pre_commit; pre-commit install
+
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt-check-rust
+        name: check formatting: rustfmt
+        entry: cargo fmt --check
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: clippy-lint-rust
+        name: linting: clippy
+        entry: cargo clippy -- -D warnings
+        language: system
+        pass_filenames: false
+        always_run: true
+      
+      - id: markdown-prettier-docs
+        name: format documentation
+        entry: npx prettier --check --ignore-path=.gitignore
+        language: node
+        pass_filenames: false
+        files: '\.(md|mdx)$'
+        always_run: true
+
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.1.0
+    hooks:
+      - id: prettier-toml
+        name: check TOML formatting
+        args: ['--ignore-path', '.gitignore']
+        additional_dependencies: [prettier@/^3.6.0/]
+
+ci:
+  autoupdate_commit_msg: 'chore: update pre-commit hooks to latest versions'
