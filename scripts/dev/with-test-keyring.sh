@@ -4,13 +4,18 @@
 set -euo pipefail
 if [[ "${1:-}" == --session ]]; then
   shift
+  # Only operation and exit status: never enumerate credentials or dump the environment.
+  operation=startup
+  trap 'status=$?; if (( status != 0 )); then echo "EpochGrid keyring: operation=$operation exit=$status" >&2; fi' EXIT
   export GNOME_KEYRING_CONTROL="$XDG_RUNTIME_DIR/keyring"
   mkdir -m 700 -p "$GNOME_KEYRING_CONTROL"
   head -c 32 /dev/urandom | base64 | timeout 10 gnome-keyring-daemon --unlock --components=secrets --control-directory="$GNOME_KEYRING_CONTROL" >/dev/null
   timeout 10 gnome-keyring-daemon --start --components=secrets --control-directory="$GNOME_KEYRING_CONTROL" >/dev/null
   # Verify readiness with a bounded operation before starting the test command.
+  operation=readiness
   timeout 10 bash -c 'printf ready | secret-tool store --label=EpochGrid-test application epochgrid-test-ready'
   timeout 10 secret-tool clear application epochgrid-test-ready
+  operation=test-command
   "$@"
   exit $?
 fi

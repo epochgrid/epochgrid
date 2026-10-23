@@ -355,6 +355,7 @@ def run(relationships_only=False, participants_only=False, check_typing=False):
             wait(lambda: receipt_is(root, 'bob', secrets[1], 'alice/laptop', 1), 'viewing upgrades delivered to read')
             broker.kill()
             broker.wait(timeout=5)
+            wait(lambda: 'Offline' in alice.screen.text, 'Alice observes disconnect before offline send')
             # Input remains responsive during failed network operations and is persisted once.
             alice.type(secrets[2] + '\r')
             wait(lambda: has(root, 'alice', secrets[2]), 'offline encrypted queue')

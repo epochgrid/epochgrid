@@ -1,80 +1,145 @@
 name: CI
-on: [push, pull_request]
+# Run the full gate once per PR revision, including the prospective merge commit.
+# Plain branch pushes and merges into main do not start another full suite.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 permissions:
   contents: read
+env:
+  RUST_BACKTRACE: "1"
+  CARGO_PROFILE_DEV_DEBUG: "1"
+  CARGO_PROFILE_TEST_DEBUG: "1"
+  EPOCHGRID_TIMING_FILE: target/ci/results.jsonl
 jobs:
-  validate:
+  build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    env:
-      RUST_BACKTRACE: "1"
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
-      - name: Timeout harness regression tests
-        timeout-minutes: 1
-        run: ./scripts/dev/verify.sh harness
-      - name: Formatting
-        timeout-minutes: 2
-        run: ./scripts/dev/verify.sh fmt
+      - name: Harness and formatting
+        timeout-minutes: 3
+        run: |
+          ./scripts/dev/verify.sh harness
+          ./scripts/dev/verify.sh fmt
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-downloads-${{ runner.os }}-${{ runner.arch }}-1.98.1-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-downloads-${{ runner.os }}-${{ runner.arch }}-1.98.1-
       - name: Clippy
         timeout-minutes: 11
         run: ./scripts/dev/verify.sh clippy
-      - name: Install isolated keyring test dependencies
-        timeout-minutes: 3
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dbus-daemon gnome-keyring libsecret-tools
-      - name: Unit tests
-        timeout-minutes: 4
-        run: ./scripts/dev/verify.sh unit
-      - name: Workspace build
-        timeout-minutes: 6
+      - name: Build runtime executables once
+        timeout-minutes: 16
         run: ./scripts/dev/verify.sh build
-      - name: Protected credentials and encrypted database lifecycle
-        timeout-minutes: 5
-        run: ./scripts/dev/verify.sh secrets
-      - name: NATS integration tests
-        timeout-minutes: 9
-        run: ./scripts/dev/verify.sh nats
-      - name: Compose and CLI smoke
+      - name: Doctests (source-based Cargo phase)
         timeout-minutes: 4
-        run: ./scripts/dev/verify.sh compose
-      - name: Interactive TUI smoke
-        timeout-minutes: 4
-        run: ./scripts/dev/verify.sh tui
-      - name: Deferred dynamic authorization checks (TD-002)
-        run: echo 'SKIP TD-002 - dynamic Auth Callout integration and full TUI messaging smoke are opt-in; see docs/technical-debt.md'
-      - name: Dynamic join reconnect regression
-        timeout-minutes: 4
-        run: ./scripts/dev/verify.sh dynamic-join
-      - name: Message relationship TUI smoke
-        timeout-minutes: 2
-        run: ./scripts/dev/verify.sh relations-tui
-      - name: Service participant TUI smoke
-        timeout-minutes: 3
-        run: ./scripts/dev/verify.sh participants-tui
-  byo-nats:
+        run: ./scripts/dev/verify.sh doctest
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-${{ github.sha }}
+          path: target/ci/runtime.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Retain sanitized timing records
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: timings-build
+          path: target/ci/results.jsonl
+          retention-days: 7
+          if-no-files-found: ignore
+  tests:
+    needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [unit, secrets, nats-0, nats-1, nats-2, nats-3, smoke]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/runtime
+      - name: Execute suite without compilation
+        shell: bash
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          case "$SUITE" in
+            nats-*) ./scripts/dev/verify.sh nats "${SUITE#nats-}" ;;
+            smoke)
+              python3 scripts/dev/run-bounded.py 120 ./scripts/dev/download-nats.sh
+              for phase in compose tui dynamic-join relations-tui participants-tui; do
+                ./scripts/dev/verify.sh "$phase"
+              done
+              echo 'SKIP TD-002: full dynamic TUI messaging smoke remains opt-in'
+              ;;
+            *) ./scripts/dev/verify.sh "$SUITE" ;;
+          esac
+      - name: Retain sanitized timing records
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: timings-tests-${{ matrix.suite }}
+          path: target/ci/results.jsonl
+          retention-days: 7
+          if-no-files-found: ignore
+  byo-nats:
+    needs: build
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
         case: [configuration_standalone, configuration_cluster, operator_jwt_standalone, operator_jwt_cluster]
     steps:
+      - name: Require successful build
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: test "$BUILD_RESULT" = success
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - run: rustup toolchain install 1.98.1 --profile minimal
-      - name: Install isolated keyring dependencies
-        timeout-minutes: 3
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dbus-daemon gnome-keyring libsecret-tools
-      - name: Compile qualification binaries
-        timeout-minutes: 16
-        run: ./scripts/dev/verify.sh byo-build
-      - name: Download pinned NATS
-        timeout-minutes: 3
-        run: python3 scripts/dev/run-bounded.py 120 ./scripts/dev/download-nats.sh
+      - uses: ./.github/actions/runtime
       - name: Qualify operator-owned NATS
-        timeout-minutes: 5
+        timeout-minutes: 8
         run: ./scripts/dev/verify.sh byo-nats "${{ matrix.case }}"
+      - name: Retain sanitized timing records
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: timings-byo-${{ matrix.case }}
+          path: target/ci/results.jsonl
+          retention-days: 7
+          if-no-files-found: ignore
+  validate:
+    needs: [build, tests, byo-nats]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every prerequisite to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          for name, job in results.items():
+              print(f"{name}: {job['result']}")
+          assert results and all(job['result'] == 'success' for job in results.values())
+          PYTHON
