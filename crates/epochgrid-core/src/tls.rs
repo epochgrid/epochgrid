@@ -92,6 +92,10 @@ impl TlsConfig {
         );
         Ok(tls)
     }
+    /// Inspect trust roots and policy without opening a network connection.
+    pub fn validate_local(&self) -> Result<()> {
+        self.client_config().map(|_| ())
+    }
     fn client_config(&self) -> Result<rustls::ClientConfig> {
         let mut roots = rustls::RootCertStore::empty();
         if let Some(path) = &self.ca_path {

@@ -53,24 +53,96 @@ NKey is admitted by the configured auth component, never by a device allow-list.
 Both are service credentials, separate from arbitrary enrolled devices.
 
 ```bash
-epochgrid-service --home ./epochgrid-state auth-init
+epochgrid-service --home ./epochgrid-state auth-init \
+  --auth-mode configuration --target-account EPOCHGRID --replicas 1
 ```
 
 Run initialization and the service under the same Linux account and provisioned
 Secret Service session. [Secret storage setup](../secret-storage.md) describes the
 unlocked-keyring prerequisite and headless service contract.
 
-Initialization writes a version-2 `auth.json`, public credential references and a
-reference NATS snippet. Credential values live in Secret Service, not seed files.
+Initialization writes a version-2 `auth.json`, public credential references,
+`deployment.json` (version 1, explicit R1/R3), and `deployment-artifacts/` containing
+five native stream configurations and integration instructions. Configuration mode
+also writes `nats-reference.conf` beside `auth.json` for existing callers.
+Credential values live in Secret Service, not seed files.
 It does not contact, write to or restart NATS. Integrate the snippet's dedicated
 auth account, application account and callout block with operator-owned config,
-including TLS. Set `auth.json.target_account` to the chosen account name.
+including TLS. `--target-account` sets the account name in both generated files.
 `issuer`, `encryption` and `connection` are typed keyring references with public-key
 bindings; `control_nkey` admits only the backend's fixed possession credential.
 The directory-signing credential is also in Secret Service; `HOME/control` keeps
 its public identity and reference. Missing/locked credentials fail startup before
 admission. Version-1 configs and plaintext seed files are unsupported; use fresh
 backend state and enrollment rather than migrating them.
+
+For operator-JWT mode, create the operator-owned authentication and application
+accounts first, then supply only their **public** account NKeys:
+
+```bash
+epochgrid-service --home ./epochgrid-state auth-init \
+  --auth-mode operator-jwt --auth-account "$AUTH_ACCOUNT_PUBLIC_NKEY" \
+  --target-account "$APP_ACCOUNT_PUBLIC_NKEY" --replicas 3
+```
+
+This writes `operator_jwt` with an empty `connection_jwt`, prints **INCOMPLETE**,
+and emits `operator-delegation.json` instead of a configuration-mode snippet.
+`serve` rejects the placeholder. Use the [operator-JWT signing steps](byo-nats.md#operator-jwt-mode)
+to sign/distribute the account delegations and issue the non-bearer service JWT,
+then put that JWT in `auth.json.operator_jwt.connection_jwt`. Do not remove
+`operator_jwt` to bypass the incomplete state. Root seeds and system-account keys
+never enter EpochGrid. Completion of local initialization is not deployment readiness.
+
+Apply the five generated resource files using your application's administrator
+context, after reviewing capacity budgets. From `deployment-artifacts/`:
+
+```bash
+for resource in CHAT MAILBOX KV_IDENTITIES KV_CHANNELS KV_TRANSPARENCY; do
+  nats --context APPLICATION_ADMIN stream add --config "$resource.json"
+done
+```
+
+These are native stream configurations, including KV backing streams. Every
+resource uses the chosen replica count. Supply server TLS, verified `tls://`
+endpoints, custom CA roots when required, `max_payload` at least 65536, and mutual
+route TLS for clusters. Existing resources need explicit operator review rather
+than blind recreation. EpochGrid does not provision administrator credentials.
+
+`auth-init` without options preserves configuration-mode/EPOCHGRID/R1 defaults.
+Completed initialization refuses reruns, including an operator setup awaiting its
+JWT. After an interrupted initialization, retry the same command and options:
+`auth-init.json` records the choices before provisioning, and credential metadata
+retains key identities. `auth.json` is published last as the local completion marker.
+
+Regenerate artifacts from established state without modifying `auth.json`, keys
+or databases:
+
+```bash
+epochgrid-service --home ./epochgrid-state deployment-export \
+  --auth-config ./epochgrid-state/auth.json
+# Existing milestone 26 homes need an explicit initial replica declaration:
+epochgrid-service --home ./epochgrid-state deployment-export \
+  --auth-config ./epochgrid-state/auth.json --replicas 3
+```
+
+Export checks existing keyring references and control-key binding without opening
+or initializing databases. It also supports pending operator configurations.
+It is not full encrypted-state validation. The auth file must reside in `--home`;
+the manifest belongs beside it. An existing manifest cannot be silently changed
+with `--replicas`. Identical bundles may be exported repeatedly; changed/incomplete
+bundles are refused. To preserve edited artifacts, use `--output ./new-artifacts`
+with a new directory whose parent already exists. Files are atomically published
+with mode 0600 and bundle directories with mode 0700. Export never overwrites the
+legacy root `nats-reference.conf`.
+
+[Offline `validate`](validation.md) now inspects established credentials, encrypted
+state, permissions and local TLS inputs without initialization or NATS access.
+Production startup now requires compatible pre-provisioned resources and healthy
+declared replicas before opening device admission. It never creates missing
+streams/buckets or changes their settings. After startup, run `validate --online`
+against each supplied endpoint; see [validation](validation.md) for deadlines,
+report codes and operator coverage limits. Existing M26 homes must export a
+manifest with explicit replicas and apply/review the generated resources first.
 
 `authorization_ttl_seconds` defaults to 30 and accepts 2–60 seconds. NATS expires
 connections on this deadline; reconnect requires a new signed, current-state grant.

@@ -3,7 +3,6 @@ use super::{Process, tls};
 use anyhow::{Context, Result, ensure};
 use epochgrid_core::{
     auth_callout::Config, identity::IdentityStore, identity_model::AuthRegistry, tls::TlsConfig,
-    transport, wire,
 };
 use nats_jwt_rs::{account::Account, operator::Operator, user::User};
 use nkeys::KeyPair;
@@ -33,6 +32,22 @@ async fn connect(
     key: &KeyPair,
     jwt: Option<&str>,
 ) -> Result<async_nats::Client> {
+    connect_monitored(
+        root,
+        url,
+        key,
+        jwt,
+        &epochgrid_core::validation::PermissionMonitor::default(),
+    )
+    .await
+}
+async fn connect_monitored(
+    root: &Path,
+    url: &str,
+    key: &KeyPair,
+    jwt: Option<&str>,
+    monitor: &epochgrid_core::validation::PermissionMonitor,
+) -> Result<async_nats::Client> {
     let mut options = async_nats::ConnectOptions::with_nkey(key.seed()?)
         .custom_inbox_prefix(format!("_INBOX.{}", key.public_key()))
         .connection_timeout(Duration::from_secs(3))
@@ -48,7 +63,7 @@ async fn connect(
         ca_path: Some(root.join("ca.pem")),
         ..Default::default()
     }
-    .apply(url, options)?
+    .apply(url, monitor.configure(options))?
     .connect(url)
     .await?;
     tokio::time::timeout(Duration::from_secs(5), client.flush())
@@ -172,6 +187,90 @@ async fn send(root: &Path, url: &str, who: &str, text: &[u8]) -> Result<()> {
     command(root, url, who, &["channel", "flush"], &[]).await
 }
 
+async fn validate_offline(root: &Path, endpoint: &str, expected_success: bool) -> Result<()> {
+    let result = tls::run(
+        Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+            .env("EPOCHGRID_TLS_CA_PATH", root.join("ca.pem"))
+            .arg("--home")
+            .arg(root.join("backend"))
+            .arg("--server")
+            .arg(endpoint)
+            .arg("validate")
+            .arg("--auth-config")
+            .arg(root.join("backend/auth.json"))
+            .args(["--offline", "--format", "json"]),
+        &[],
+    )
+    .await?;
+    let report = epochgrid_core::validation::Report::parse(&result.stdout)?;
+    ensure!(
+        report.success == expected_success && result.status.success() == expected_success,
+        "offline validation result mismatch: {}",
+        report.human()
+    );
+    ensure!(
+        report
+            .checks
+            .iter()
+            .any(|check| check.id == "coverage.network"
+                && check.status == epochgrid_core::validation::Status::NotChecked),
+        "offline report overstates network coverage"
+    );
+    Ok(())
+}
+
+async fn validate_online(
+    root: &Path,
+    endpoints: &[String],
+    expected_success: bool,
+    code: Option<&str>,
+) -> Result<()> {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_epochgrid-service"));
+    command
+        .env("EPOCHGRID_TLS_CA_PATH", root.join("ca.pem"))
+        .arg("--home")
+        .arg(root.join("backend"))
+        .arg("validate")
+        .arg("--auth-config")
+        .arg(root.join("backend/auth.json"))
+        .args(["--online", "--format", "json"]);
+    for endpoint in endpoints {
+        command.arg("--endpoint").arg(endpoint);
+    }
+    let result = tls::run(&mut command, &[]).await?;
+    let report = epochgrid_core::validation::Report::parse(&result.stdout)?;
+    ensure!(
+        report.mode == "online"
+            && report.success == expected_success
+            && result.status.success() == expected_success,
+        "online result mismatch: {}",
+        report.human()
+    );
+    if let Some(code) = code {
+        ensure!(
+            report.checks.iter().any(|c| c.observed["code"] == code),
+            "missing {code}: {}",
+            report.human()
+        );
+    }
+    Ok(())
+}
+
+async fn rejected_startup(root: &Path, url: &str, code: &str) -> Result<()> {
+    let result = tls::run(
+        &mut tls::backend(root, url, Some(&root.join("ca.pem")), false),
+        &[],
+    )
+    .await?;
+    ensure!(
+        !result.status.success() && String::from_utf8_lossy(&result.stderr).contains(code),
+        "startup should reject {code}: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    denied_admission(root, url, Some(&KeyPair::new_user())).await?;
+    Ok(())
+}
+
 async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> {
     let version = tls::run(
         Command::new(std::env::var("NATS_SERVER")?).arg("--version"),
@@ -210,18 +309,49 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
         )
         .await?,
     )?;
-    tls::success(
-        tls::run(
-            Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
-                .arg("--home")
-                .arg(root.join("backend"))
-                .arg("auth-init"),
-            &[],
-        )
-        .await?,
-    )?;
+    let auth = KeyPair::new_account();
+    let app = KeyPair::new_account();
+    let mut init = Command::new(env!("CARGO_BIN_EXE_epochgrid-service"));
+    init.arg("--home")
+        .arg(root.join("backend"))
+        .arg("auth-init")
+        .arg("--auth-mode")
+        .arg(if operator_mode {
+            "operator-jwt"
+        } else {
+            "configuration"
+        })
+        .arg("--target-account")
+        .arg(if operator_mode {
+            app.public_key()
+        } else {
+            "EPOCHGRID".into()
+        })
+        .arg("--replicas")
+        .arg(nodes.to_string());
+    if operator_mode {
+        init.arg("--auth-account").arg(auth.public_key());
+    }
+    tls::success(tls::run(&mut init, &[]).await?)?;
     let path = root.join("backend/auth.json");
-    let mut config = Config::load(&path)?;
+    let artifacts = root.join("backend/deployment-artifacts");
+    let mut config = Config::load_for_export(&path)?;
+    let manifest: epochgrid_core::deployment::DeploymentManifest =
+        serde_json::from_slice(&std::fs::read(root.join("backend/deployment.json"))?)?;
+    ensure!(
+        manifest.replicas() == nodes,
+        "explicit initialization replicas lost"
+    );
+    if operator_mode {
+        ensure!(
+            Config::load(&path).is_err(),
+            "pending JWT must reject runtime loading"
+        );
+        ensure!(
+            !artifacts.join("nats-reference.conf").exists(),
+            "operator initialization must not fall back"
+        );
+    }
     let admin_key = KeyPair::new_user();
     let other_key = KeyPair::new_user();
     let mut admin_jwt = None;
@@ -229,27 +359,28 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     let operator_config;
     if operator_mode {
         let operator = KeyPair::new_operator();
-        let auth = KeyPair::new_account();
-        let app = KeyPair::new_account();
         let sys = KeyPair::new_account();
         let other = KeyPair::new_account();
         let mut op = Operator::new_claims("qualification".into(), operator.public_key());
         op.nats.generic_fields.version = 2;
         op.nats.system_account = Some(sys.public_key());
         let mut auth_claim = account(&auth);
-        auth_claim.nats.authorization = Some(nats_jwt_rs::account::ExternalAuthorization {
-            auth_users: Some([config.connection.public_key.clone()].into()),
-            allowed_accounts: Some([app.public_key()].into()),
-            xkey: Some(config.encryption.public_key.clone()),
-        });
+        let delegation: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(artifacts.join("operator-delegation.json"))?)?;
+        ensure!(
+            delegation["authentication_account"] == auth.public_key()
+                && delegation["application_account"] == app.public_key(),
+            "delegation account mismatch"
+        );
+        auth_claim.nats.authorization = Some(serde_json::from_value(
+            delegation["external_authorization"].clone(),
+        )?);
         let mut app_claim = account(&app);
         app_claim.nats.signing_keys = Some(
-            [nats_jwt_rs::types::SigningKey {
-                key: config.issuer.public_key.clone(),
-                scope: None,
-            }]
-            .into_iter()
-            .collect(),
+            serde_json::from_value::<Vec<String>>(delegation["application_signing_keys"].clone())?
+                .into_iter()
+                .map(|key| nats_jwt_rs::types::SigningKey { key, scope: None })
+                .collect(),
         );
         app_claim.nats.limits.as_mut().unwrap().jetstream =
             Some(nats_jwt_rs::account::JetStreamLimits {
@@ -264,9 +395,15 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
             config.connection.public_key.clone(),
         );
         auth_user.nats.generic_fields.version = 2;
+        ensure!(
+            delegation["service_user"]["subject"] == config.connection.public_key
+                && delegation["service_user"]["bearer_token"] == false,
+            "invalid service signing request"
+        );
         auth_user.nats.permissions.permissions.subscribe.allow =
-            vec!["$SYS.REQ.USER.AUTH".into(), "_INBOX.>".into()];
-        auth_user.nats.permissions.permissions.publish.allow = vec!["$SYS._INBOX.>".into()];
+            serde_json::from_value(delegation["service_user"]["subscribe"].clone())?;
+        auth_user.nats.permissions.permissions.publish.allow =
+            serde_json::from_value(delegation["service_user"]["publish"].clone())?;
         config.operator_jwt = Some(epochgrid_core::auth_callout::OperatorJwt {
             auth_account: auth.public_key(),
             connection_jwt: auth_user.encode(&auth)?,
@@ -294,18 +431,53 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
         admin_jwt = Some(user(&admin_key).encode(&app)?);
         other_jwt = Some(user(&other_key).encode(&other)?);
     } else {
-        operator_config = format!(
-            "accounts {{\nAUTH {{users: [{{nkey: \"{}\", permissions: {{subscribe: [\"$SYS.REQ.USER.AUTH\", \"_INBOX.>\"], publish: [\"$SYS._INBOX.>\"]}}}}]}}\nEPOCHGRID {{jetstream: enabled, users: [{{nkey: \"{}\"}}]}}\nOTHER {{users: [{{nkey: \"{}\"}}]}}\n}}\nauthorization {{timeout: 2, auth_callout {{issuer: \"{}\", xkey: \"{}\", account: AUTH, auth_users: [\"{}\", \"{}\", \"{}\"], allowed_accounts: [EPOCHGRID]}}}}\n",
-            config.connection.public_key,
-            admin_key.public_key(),
-            other_key.public_key(),
-            config.issuer.public_key,
-            config.encryption.public_key,
-            config.connection.public_key,
-            admin_key.public_key(),
-            other_key.public_key()
-        );
+        // Integrate the generated snippet; only the fixture's administrator and
+        // unrelated account are operator additions.
+        let snippet = std::fs::read_to_string(artifacts.join("nats-reference.conf"))?;
+        operator_config = snippet
+            .replace(
+                "\"EPOCHGRID\" { jetstream: enabled }",
+                &format!(
+                    "\"EPOCHGRID\" {{ jetstream: enabled, users: [{{nkey: \"{}\"}}] }}",
+                    admin_key.public_key()
+                ),
+            )
+            .replace(
+                "accounts {",
+                &format!(
+                    "accounts {{ OTHER {{ users: [{{nkey: \"{}\"}}] }}",
+                    other_key.public_key()
+                ),
+            )
+            .replace(
+                &format!("auth_users: [\"{}\"]", config.connection.public_key),
+                &format!(
+                    "auth_users: [\"{}\", \"{}\", \"{}\"]",
+                    config.connection.public_key,
+                    admin_key.public_key(),
+                    other_key.public_key()
+                ),
+            );
     }
+    Config::load(&path)?;
+    let auth_before_export = std::fs::read(&path)?;
+    tls::success(
+        tls::run(
+            Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+                .arg("--home")
+                .arg(root.join("backend"))
+                .arg("deployment-export")
+                .arg("--auth-config")
+                .arg(&path),
+            &[],
+        )
+        .await?,
+    )?;
+    ensure!(
+        std::fs::read(&path)? == auth_before_export,
+        "export changed auth configuration"
+    );
+    validate_offline(root, "tls://localhost:1", true).await?;
     // Reserve all ports until the complete configuration is ready.
     let reservations = (0..nodes * 2)
         .map(|_| TcpListener::bind("127.0.0.1:0"))
@@ -352,41 +524,163 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
         .map(|i| broker(root, i).map(Some))
         .collect::<Result<Vec<_>>>()?;
     let admin = ready(root, &urls[0], &admin_key, admin_jwt.as_deref()).await?;
-    // Operator pre-provisions all resources; EpochGrid must reuse their replication settings.
+    // Operator pre-provisions the generated native stream specifications.
     let js = async_nats::jetstream::new(admin.clone());
     tokio::time::timeout(Duration::from_secs(25), async {
         loop {
-            if transport::provision(admin.clone()).await.is_ok() {
+            if js.query_account().await.is_ok() {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     })
     .await
-    .context("JetStream provisioning readiness")?;
-    js.create_key_value(async_nats::jetstream::kv::Config {
-        bucket: "TRANSPARENCY".into(),
-        history: 1,
-        max_value_size: wire::MAX_WIRE as i32,
-        ..Default::default()
-    })
+    .context("JetStream account readiness")?;
+    // The auth-account credential can connect but cannot inspect application resources.
+    // This must report permission denial, rather than turn a successful INFO into a pass.
+    let monitor = epochgrid_core::validation::PermissionMonitor::default();
+    let limited = connect_monitored(
+        root,
+        &urls[0],
+        &KeyPair::from_seed(&config.connection.read()?)?,
+        config
+            .operator_jwt
+            .as_ref()
+            .map(|o| o.connection_jwt.as_str()),
+        &monitor,
+    )
     .await?;
+    let denied = epochgrid_core::validation::inspect_resources(&limited, &manifest, &monitor).await;
+    ensure!(
+        !denied.success
+            && denied
+                .checks
+                .iter()
+                .any(|c| c.observed["code"] == "permission_denied"),
+        "inspection permission denial was not classified: {}",
+        denied.human()
+    );
+    drop(limited);
     let mut resource_configs = Vec::new();
     for name in STREAMS {
-        let mut stream = js.get_stream(name).await?;
-        let mut resource = stream.info().await?.config.clone();
-        resource.num_replicas = nodes;
-        js.update_stream(resource).await?;
-        resource_configs.push((
-            name,
-            js.get_stream(name).await?.info().await?.config.clone(),
-        ));
+        let resource: async_nats::jetstream::stream::Config =
+            serde_json::from_slice(&std::fs::read(artifacts.join(format!("{name}.json")))?)?;
+        ensure!(
+            resource.num_replicas == nodes,
+            "generated replication mismatch"
+        );
+        js.create_stream(resource).await?;
+        let observed = js.get_stream(name).await?.info().await?.config.clone();
+        ensure!(
+            manifest.compare(name, &observed)?.is_empty(),
+            "generated resource differs from contract: {name}"
+        );
+        if let Some(bucket) = name.strip_prefix("KV_") {
+            let store = js.get_key_value(bucket).await?;
+            ensure!(
+                store.status().await?.history() == 1,
+                "generated KV history mismatch"
+            );
+        }
+        resource_configs.push((name, observed));
     }
+    validate_online(root, &urls[..1], false, None).await?;
+    // Startup cannot create missing resources or alter incompatible operator settings.
+    js.delete_stream("MAILBOX").await?;
+    rejected_startup(root, &urls[0], "resource_missing").await?;
+    ensure!(
+        js.get_stream("MAILBOX").await.is_err(),
+        "startup created missing stream"
+    );
+    js.create_stream(
+        resource_configs
+            .iter()
+            .find(|(name, _)| *name == "MAILBOX")
+            .unwrap()
+            .1
+            .clone(),
+    )
+    .await?;
+    let mut altered = resource_configs[0].1.clone();
+    altered.subjects = vec!["operator.unrelated.>".into()];
+    js.update_stream(altered.clone()).await?;
+    rejected_startup(root, &urls[0], "resource_incompatible").await?;
+    ensure!(
+        js.get_stream("CHAT").await?.info().await?.config == altered,
+        "startup changed operator configuration"
+    );
+    js.update_stream(resource_configs[0].1.clone()).await?;
     let mut service = tls::daemon(
         tls::backend(root, &urls[0], Some(&root.join("ca.pem")), false),
         &root.join("service.log"),
     )?;
     backend_ready(root, &mut service).await?;
+    validate_offline(root, &urls[0], true).await?;
+    validate_online(root, &urls, true, None).await?;
+    validate_online(
+        root,
+        &[urls[0].replace("localhost", "127.0.0.1")],
+        false,
+        None,
+    )
+    .await?;
+    validate_online(
+        root,
+        &["tls://localhost:1".into()],
+        false,
+        Some("endpoint_unavailable"),
+    )
+    .await?;
+    for (name, field) in [
+        ("CHAT", "subjects"),
+        ("MAILBOX", "retention"),
+        ("KV_CHANNELS", "history"),
+    ] {
+        let original = resource_configs
+            .iter()
+            .find(|(n, _)| *n == name)
+            .unwrap()
+            .1
+            .clone();
+        let mut altered = original.clone();
+        match field {
+            "subjects" => altered.subjects = vec!["operator.altered.>".into()],
+            "retention" => {
+                altered.retention = async_nats::jetstream::stream::RetentionPolicy::Interest
+            }
+            _ => altered.max_messages_per_subject = 2,
+        }
+        js.update_stream(altered.clone()).await?;
+        validate_online(root, &urls[..1], false, Some("resource_incompatible")).await?;
+        ensure!(
+            service.0.try_wait()?.is_none(),
+            "online failure stopped backend"
+        );
+        ensure!(
+            js.get_stream(name).await?.info().await?.config == altered,
+            "validation changed resource"
+        );
+        js.update_stream(original).await?;
+    }
+    // Declared replica expectations must not silently degrade to the observed topology.
+    let manifest_bytes = std::fs::read(root.join("backend/deployment.json"))?;
+    std::fs::write(
+        root.join("backend/deployment.json"),
+        serde_json::to_vec(&epochgrid_core::deployment::DeploymentManifest::new(
+            if nodes == 1 { 3 } else { 1 },
+        )?)?,
+    )?;
+    validate_online(root, &urls[..1], false, Some("resource_incompatible")).await?;
+    std::fs::write(root.join("backend/deployment.json"), manifest_bytes)?;
+    let manifest_path = root.join("backend/deployment.json");
+    let saved_manifest = root.join("backend/deployment.saved");
+    std::fs::rename(&manifest_path, &saved_manifest)?;
+    validate_offline(root, &urls[0], false).await?;
+    ensure!(
+        service.0.try_wait()?.is_none(),
+        "validation failure stopped the backend"
+    );
+    std::fs::rename(saved_manifest, manifest_path)?;
     denied_admission(root, &urls[0], Some(&KeyPair::new_user()))
         .await
         .context("unregistered device")?;
@@ -601,12 +895,20 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     denied_admission(root, &urls[survivor], Some(&alice_key))
         .await
         .context("Auth Callout outage")?;
+    let manifest_path = root.join("backend/deployment.json");
+    let saved_manifest = std::fs::read(&manifest_path)?;
+    std::fs::remove_file(&manifest_path)?;
+    rejected_startup(root, &urls[survivor], "state_missing").await?;
+    denied_admission(root, &urls[survivor], Some(&alice_key)).await?;
+    std::fs::write(&manifest_path, saved_manifest)?;
     std::fs::write(root.join("service.log"), "")?;
     service = tls::daemon(
         tls::backend(root, &urls[survivor], Some(&root.join("ca.pem")), false),
         &root.join("service.log"),
     )?;
     backend_ready(root, &mut service).await?;
+    validate_offline(root, &urls[0], true).await?;
+    validate_online(root, &urls, true, None).await?;
     sync(root, &urls[survivor], "bob").await?;
     contains(root, "bob", b"after broker loss")?;
     command(

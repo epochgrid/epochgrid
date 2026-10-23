@@ -135,9 +135,16 @@ remain XKey-encrypted in both modes. No device-side JWT files are required.
 ## JetStream resource contract
 
 Use the default `$JS.API` prefix and file storage. Provision resources in the
-application account before startup, particularly for R3: automatic creation
-currently defaults to R1. Existing resources are reused, not automatically
-converted to R3. Initialization/validation tooling is milestone 27.
+application account before production startup. Missing or incompatible resources
+stop startup; existing resources are never automatically converted to R3. Milestone 27 now generates all five resources with explicit
+R1/R3 via [auth-init/deployment-export](auth-callout.md#commands-and-configuration).
+The four qualification fixtures consume these artifacts and run
+[offline validation](validation.md) before startup, during backend operation and
+after restart. Production startup requires the manifest and compatible, healthy
+pre-provisioned resources before admission. Run online validation against the
+running backend, supplying each endpoint explicitly; discovery does not certify
+uninspected brokers. Failure does not repair operator resources or stop an
+already-running backend.
 
 | Resource | Subjects / purpose | Required behavior |
 | --- | --- | --- |

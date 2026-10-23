@@ -69,6 +69,8 @@ impl Kind {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("credential public binding mismatch")]
+    Binding,
     #[error("Secret Service unavailable; start a Linux Secret Service session")]
     Unavailable,
     #[error("keyring is locked; unlock it with your OS keyring manager, then retry")]
@@ -100,7 +102,7 @@ impl SecretRef {
         let secret = backend.read(&self.id)?.ok_or(Error::Missing)?;
         ensure!(
             self.kind.public(&secret)? == self.public_key,
-            "credential public binding mismatch"
+            Error::Binding
         );
         Ok(secret)
     }
@@ -249,6 +251,32 @@ impl Vault {
     /// The per-vault file lock serializes provisioning by cooperating processes.
     pub fn provision(&self, role: &str, kind: Kind) -> Result<SecretRef> {
         self.ensure(role, kind, None)
+    }
+    /// Resolve an established role without creating metadata, locks or credentials.
+    pub fn existing(&self, role: &str, kind: Kind) -> Result<SecretRef> {
+        let metadata: Metadata = serde_json::from_slice(
+            &std::fs::read(self.root.join("credentials.json"))
+                .context("existing credential metadata required")?,
+        )?;
+        ensure!(
+            metadata.version == 1,
+            "unsupported credential metadata version"
+        );
+        let slot = metadata
+            .slots
+            .get(role)
+            .context("credential role missing")?;
+        ensure!(slot.kind == kind, "credential role type mismatch");
+        let reference = SecretRef {
+            id: slot.id.clone(),
+            kind,
+            public_key: slot
+                .public_key
+                .clone()
+                .context("credential initialization incomplete")?,
+        };
+        reference.read_with(self.backend.as_ref())?;
+        Ok(reference)
     }
     pub fn import(&self, role: &str, kind: Kind, secret: &str) -> Result<SecretRef> {
         self.ensure(role, kind, Some(secret))

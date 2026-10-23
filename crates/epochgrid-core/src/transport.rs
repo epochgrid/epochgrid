@@ -85,6 +85,15 @@ pub async fn find(
     );
     Ok(Body::Found(registration))
 }
+/// Look up established production buckets. Errors never trigger creation.
+pub async fn lookup_resources(
+    client: async_nats::Client,
+) -> Result<async_nats::jetstream::kv::Store> {
+    let js = async_nats::jetstream::new(client);
+    js.get_key_value("CHANNELS").await?;
+    Ok(js.get_key_value("IDENTITIES").await?)
+}
+
 pub async fn provision(client: async_nats::Client) -> Result<async_nats::jetstream::kv::Store> {
     let js = async_nats::jetstream::new(client);
     for (name, subjects) in [

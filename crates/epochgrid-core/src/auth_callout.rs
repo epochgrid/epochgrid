@@ -37,6 +37,14 @@ pub struct Config {
 }
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
+        Self::load_inner(path, false)
+    }
+    /// Setup/export may inspect an explicitly pending operator configuration.
+    /// Runtime callers must use `load`, which rejects an absent service JWT.
+    pub fn load_for_export(path: &Path) -> Result<Self> {
+        Self::load_inner(path, true)
+    }
+    fn load_inner(path: &Path, allow_pending: bool) -> Result<Self> {
         let value: serde_json::Value = serde_json::from_slice(&std::fs::read(path)?)?;
         ensure!(
             value.get("version").and_then(|v| v.as_u64()) == Some(2),
@@ -77,6 +85,13 @@ impl Config {
                 operator.auth_account != config.target_account,
                 "authentication and application accounts must be separate"
             );
+            if operator.connection_jwt.is_empty() {
+                ensure!(
+                    allow_pending,
+                    "operator setup incomplete: supply the signed non-bearer auth service JWT in auth.json.operator_jwt.connection_jwt"
+                );
+                return Ok(config);
+            }
             let jwt = Claims::<User>::decode(&operator.connection_jwt)
                 .context("invalid auth service user JWT")?;
             ensure!(
@@ -116,6 +131,10 @@ impl Config {
         Ok(())
     }
     pub async fn connect(&self, url: &str) -> Result<async_nats::Client> {
+        Ok(self.connection_options(url)?.connect(url).await?)
+    }
+    /// Shared credential/TLS connector; callers may restrict discovery for inspection.
+    pub fn connection_options(&self, url: &str) -> Result<async_nats::ConnectOptions> {
         self.check_transport(url)?;
         let seed = self.connection.read()?;
         let mut options = async_nats::ConnectOptions::with_nkey(seed.to_string());
@@ -126,15 +145,12 @@ impl Config {
                 async move { key.sign(&nonce).map_err(async_nats::AuthError::new) }
             });
         }
-        Ok(crate::tls::TlsConfig::from_env()?
-            .apply(
-                url,
-                options
-                    .connection_timeout(Duration::from_secs(5))
-                    .request_timeout(Some(Duration::from_secs(2))),
-            )?
-            .connect(url)
-            .await?)
+        crate::tls::TlsConfig::from_env()?.apply(
+            url,
+            options
+                .connection_timeout(Duration::from_secs(5))
+                .request_timeout(Some(Duration::from_secs(2))),
+        )
     }
 }
 // Deliberately no Debug: CONNECT can contain enrollment secrets.

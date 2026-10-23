@@ -13,6 +13,9 @@ async-nats.workspace = true
 nkeys.workspace = true
 zeroize.workspace = true
 serde_json.workspace = true
+serde.workspace = true
+tempfile = "3"
+rustix = { version = "1", features = ["fs"] }
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -22,6 +25,5 @@ epochgrid-core = { path = "../epochgrid-core" }
 nats-jwt-rs.workspace = true
 async-nats.workspace = true
 nkeys.workspace = true
-tempfile = "3"
 openmls.workspace = true
 openmls_traits.workspace = true

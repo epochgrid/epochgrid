@@ -9,6 +9,7 @@ phase() {
     clippy) python3 scripts/dev/run-bounded.py 600 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings ;;
     unit) keyring python3 scripts/dev/run-bounded.py 180 cargo test --locked --workspace ;;
     secrets) keyring python3 scripts/dev/run-bounded.py 120 cargo test --locked -p epochgrid-core secrets::tests::live_keyring_restart_binding_duplicate_and_lock -- --ignored --exact
+             keyring python3 scripts/dev/run-bounded.py 120 cargo test --locked -p epochgrid-core validation::tests::live_validation_duplicate_swapped_and_locked_credentials -- --ignored --exact
              env DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/epochgrid-test-bus python3 scripts/dev/run-bounded.py 30 cargo test --locked -p epochgrid-core secrets::tests::live_unavailable_bus_is_bounded -- --ignored --exact
              keyring python3 scripts/dev/run-bounded.py 60 python3 scripts/dev/test-secrets-live.py ;;
     build) python3 scripts/dev/run-bounded.py 300 cargo build --locked --workspace --examples --bins ;;

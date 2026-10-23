@@ -50,8 +50,8 @@ pub(super) async fn run(command: &mut Command, input: &[u8]) -> Result<Output> {
     err.seek(SeekFrom::Start(0))?;
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
-    out.take(16384).read_to_end(&mut stdout)?;
-    err.take(16384).read_to_end(&mut stderr)?;
+    out.take(131072).read_to_end(&mut stdout)?;
+    err.take(131072).read_to_end(&mut stderr)?;
     Ok(Output {
         status,
         stdout,
@@ -343,10 +343,41 @@ async fn workflow() -> Result<()> {
         )
         .await?,
     )?;
+    let admin = nkeys::KeyPair::new_user();
+    let auth_config = epochgrid_core::auth_callout::Config::load(&root.join("backend/auth.json"))?;
+    let snippet_path = root.join("backend/nats-reference.conf");
+    let snippet = std::fs::read_to_string(&snippet_path)?
+        .replace(
+            "\"EPOCHGRID\" { jetstream: enabled }",
+            &format!(
+                "\"EPOCHGRID\" {{ jetstream: enabled, users: [{{nkey: \"{}\"}}] }}",
+                admin.public_key()
+            ),
+        )
+        .replace(
+            &format!("auth_users: [\"{}\"]", auth_config.connection.public_key),
+            &format!(
+                "auth_users: [\"{}\", \"{}\"]",
+                auth_config.connection.public_key,
+                admin.public_key()
+            ),
+        );
+    std::fs::write(snippet_path, snippet)?;
     let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
     let url = format!("tls://localhost:{port}");
     let mut nats = broker(root, port, false, "server")?;
     ready(port, &mut nats).await?;
+    let admin_client = TlsConfig {
+        ca_path: Some(ca.clone()),
+        ..Default::default()
+    }
+    .apply(&url, async_nats::ConnectOptions::with_nkey(admin.seed()?))?
+    .connect(&url)
+    .await?;
+    let js = async_nats::jetstream::new(admin_client);
+    for resource in epochgrid_core::deployment::DeploymentManifest::new(1)?.resources() {
+        js.create_stream(resource).await?;
+    }
     // Auth listener has exactly the same fail-closed profile as clients.
     for (endpoint, trust) in [
         (url.clone(), Some(wrong.as_path())),
@@ -369,7 +400,8 @@ async fn workflow() -> Result<()> {
     let rejected = run(&mut backend(root, &url, Some(&ca), false), &[]).await?;
     ensure!(
         !rejected.status.success()
-            && String::from_utf8_lossy(&rejected.stderr).contains("development_plaintext requires"),
+            && String::from_utf8_lossy(&rejected.stderr)
+                .contains("development_transport_in_production"),
         "production accepted the development plaintext setting"
     );
     std::fs::write(&config_path, original)?;

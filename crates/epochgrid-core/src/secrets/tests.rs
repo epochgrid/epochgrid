@@ -309,3 +309,33 @@ fn database_key_provisioning_retries_and_rejects_replacement() -> Result<()> {
     assert!(reference.read_with(backend.as_ref()).is_err());
     Ok(())
 }
+
+#[test]
+fn existing_lookup_never_provisions_or_rewrites_metadata() -> Result<()> {
+    let (root, backend, vault) = fixture()?;
+    assert!(vault.existing("issuer", Kind::Account).is_err());
+    assert_eq!(std::fs::read_dir(root.path())?.count(), 0);
+    assert!(backend.items.lock().unwrap().is_empty());
+    let reference = vault.provision("issuer", Kind::Account)?;
+    let metadata = std::fs::read(root.path().join("credentials.json"))?;
+    assert_eq!(vault.existing("issuer", Kind::Account)?, reference);
+    assert!(vault.existing("issuer", Kind::User).is_err());
+    assert!(vault.existing("unknown", Kind::User).is_err());
+    backend.locked.store(true, Ordering::SeqCst);
+    assert!(vault.existing("issuer", Kind::Account).is_err());
+    backend.locked.store(false, Ordering::SeqCst);
+    backend
+        .items
+        .lock()
+        .unwrap()
+        .insert(reference.id.clone(), Kind::Account.generate()?);
+    assert!(vault.existing("issuer", Kind::Account).is_err());
+    backend.items.lock().unwrap().clear();
+    assert!(vault.existing("issuer", Kind::Account).is_err());
+    assert!(backend.items.lock().unwrap().is_empty());
+    assert_eq!(
+        std::fs::read(root.path().join("credentials.json"))?,
+        metadata
+    );
+    Ok(())
+}

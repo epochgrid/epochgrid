@@ -31,9 +31,7 @@ pub(crate) fn reject_plaintext(path: &Path) -> Result<()> {
     match probe.query_row("SELECT COUNT(*) FROM sqlite_master", [], |r| {
         r.get::<_, u64>(0)
     }) {
-        Ok(_) => anyhow::bail!(
-            "pre-Milestone-25 plaintext database is unsupported; use fresh state and enrollment (original database was not changed)"
-        ),
+        Ok(_) => return Err(inspection::InspectionError::Plaintext.into()),
         Err(e) if e.sqlite_error_code() == Some(rusqlite::ErrorCode::NotADatabase) => {}
         Err(e) => return Err(e).context("could not inspect database format without modification"),
     }
@@ -142,7 +140,11 @@ pub(crate) fn open(root: &Path, role: &str) -> Result<Connection> {
 }
 
 fn keyed(path: &Path, key: &str) -> Result<Connection> {
-    let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    keyed_with_flags(path, key, OpenFlags::SQLITE_OPEN_READ_WRITE)
+}
+
+fn keyed_with_flags(path: &Path, key: &str, flags: OpenFlags) -> Result<Connection> {
+    let db = Connection::open_with_flags(path, flags)?;
     let cipher: String = db
         .query_row("PRAGMA cipher_version", [], |r| r.get(0))
         .context("SQLCipher is required; refusing unencrypted SQLite")?;
@@ -158,10 +160,17 @@ fn keyed(path: &Path, key: &str) -> Result<Connection> {
     );
     db.busy_timeout(Duration::from_secs(1))?;
     db.execute_batch("PRAGMA temp_store=MEMORY; PRAGMA cipher_memory_security=ON;")?;
+    if flags.contains(OpenFlags::SQLITE_OPEN_READ_ONLY) {
+        // SQLite owns all WAL/SHM handling. Never use immutable mode or ordinary
+        // descriptors for database contents, even for the format probe.
+        db.execute_batch("PRAGMA query_only=ON; BEGIN;")?;
+    }
     db.query_row("SELECT COUNT(*) FROM sqlite_master", [], |r| r.get::<_, u64>(0))
         .context("database cannot be decrypted or is corrupt; restore matching database, metadata and keyring")?;
     Ok(db)
 }
+
+pub(crate) mod inspection;
 
 #[cfg(test)]
 mod tests;
