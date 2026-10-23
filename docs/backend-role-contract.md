@@ -111,7 +111,10 @@ The four BYO cases and the production TLS regression run the worker as Linux UID
 65534 and the authority as the normal test user, each with a disposable keyring.
 They probe access to authority files and credential IDs through both the worker's
 own session and the authority's D-Bus address. The public exchange contains no
-secret values. CI uses hosted-runner `sudo`; local runs use a disposable Docker
+secret values. It stages only the worker helper/keyring scripts, service binary
+and permission-probe executable in an authority-owned directory accessible to
+the worker. The worker runs from that directory and never needs checkout access.
+CI uses hosted-runner `sudo`; local runs use a disposable Docker
 image with read-only binary/script mounts and no external network:
 
 ```bash
@@ -120,6 +123,11 @@ docker build -f scripts/dev/roles.Dockerfile -t epochgrid-role-tests:local .
 python3 scripts/dev/test-role-isolation.py
 python3 scripts/dev/test-role-isolation.py tls
 ```
+
+The local container bootstrap makes the checkout directory private to UID 1000
+and verifies that `nobody` cannot traverse it before dropping privileges. Tests
+then run as UID 1000 and workers as `nobody`, covering hosted-runner path isolation
+without changing host checkout permissions or exposing authority state.
 
 Build the image with `--build-arg UBUNTU_VERSION=24.04` when binaries were built on
 Ubuntu 24.04. The default image matches Ubuntu 26.04 local binaries. On an isolated

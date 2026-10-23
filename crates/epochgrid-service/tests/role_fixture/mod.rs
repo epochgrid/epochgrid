@@ -47,17 +47,51 @@ impl Worker {
             public.path().join("probe.json"),
             fs::Permissions::from_mode(0o644),
         )?;
-        let helper = std::env::current_dir()?.join("scripts/dev/role-worker-fixture.py");
+        // The checkout (and any ancestor) may be private to the test runner.
+        // Stage only public executable code; never relax checkout/home permissions
+        // or copy authority state into this cross-UID exchange.
+        let runtime = public.path().join("runtime");
+        fs::create_dir(&runtime)?;
+        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755))?;
+        let examples = runtime.join("examples");
+        fs::create_dir(&examples)?;
+        fs::set_permissions(&examples, fs::Permissions::from_mode(0o755))?;
+        let binary = Path::new(env!("CARGO_BIN_EXE_epochgrid-service"));
+        let scripts = std::env::current_dir()?.join("scripts/dev");
+        for (source, destination) in [
+            (binary.to_path_buf(), runtime.join("epochgrid-service")),
+            (
+                binary
+                    .parent()
+                    .context("service binary directory")?
+                    .join("examples/backend-role-probe"),
+                examples.join("backend-role-probe"),
+            ),
+            (
+                scripts.join("role-worker-fixture.py"),
+                runtime.join("role-worker-fixture.py"),
+            ),
+            (
+                scripts.join("with-test-keyring.sh"),
+                runtime.join("with-test-keyring.sh"),
+            ),
+        ] {
+            fs::copy(&source, &destination)
+                .with_context(|| format!("stage role fixture executable {}", source.display()))?;
+            fs::set_permissions(destination, fs::Permissions::from_mode(0o755))?;
+        }
+        let helper = runtime.join("role-worker-fixture.py");
         let log = public.path().join("worker.log");
         let mut command = Command::new("sudo");
         command
+            .current_dir(&runtime)
             .args(["-n", "-u", "nobody", "--", "python3"])
             .arg(helper)
             .arg("launch")
             .arg("--exchange")
             .arg(public.path())
             .arg("--binary")
-            .arg(env!("CARGO_BIN_EXE_epochgrid-service"))
+            .arg(runtime.join("epochgrid-service"))
             .arg("--url")
             .arg(url);
         let mut process = tls::daemon(command, &log)?;

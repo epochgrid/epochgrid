@@ -1,5 +1,24 @@
 # Milestone 28 handoff — implementation and local verification
 
+PR #21 hosted CI follow-up: [run 40030107715](https://github.com/epochgrid/epochgrid/actions/runs/40030107715)
+failed in all four BYO cases and the production TLS case in `nats-1`. Every case
+failed before worker initialization: Python running as `nobody` could not read
+`scripts/dev/role-worker-fixture.py` inside the runner checkout (permission denied).
+Aggregate validation failed as a consequence; build, units, secrets, smoke and
+the other three NATS groups passed. This was a shared fixture path-access defect,
+not evidence of five independent runtime failures.
+
+The fix stages only worker helper/keyring scripts and required executables in the
+public temporary exchange and launches with that working directory. Authority
+homes/keyrings remain private. Local Docker verification now deliberately makes
+the checkout inaccessible to the worker before running the five affected cases.
+All five cases passed with the restricted checkout: TLS 12.16s, configuration R1
+52.99s, configuration R3 60.52s, operator-JWT R1 64.84s and operator-JWT R3 77.25s.
+The log is `/tmp/epochgrid-pr21-fixture-fix.log`. Formatting, warnings-denied Clippy,
+runtime build, all 12 harness checks, Python syntax and changed documentation links
+also passed. No runtime service behavior or authority permissions were changed.
+Hosted CI must verify the fix on PR #21 before merge.
+
 Current work is on `feature/milestone-28-privilege-separation`, based on `main`
 at `552daa4` (PR #20). The user authorized milestone 28 implementation after
 reviewing `docs/milestone-28-plan.md`. The plan and milestone-index edits were
