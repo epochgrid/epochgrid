@@ -39,7 +39,10 @@ failures. Each keyring operation has a five-second deadline.
 For headless operation, the operator must provision a persistent Secret Service
 session and default collection under the service account, arrange unlocking, and
 provide that account's session-bus environment to the process. Run `auth-init` and
-`serve` against the same keyring. An unattended process cannot answer desktop unlock
+`serve-authority` against the same authority keyring. Provision `worker-init` and
+run `serve-control` under a distinct Linux account and independent Secret Service
+session. Never forward the authority's bus/keyring environment into the worker.
+See the [role setup](backend-role-contract.md). An unattended process cannot answer desktop unlock
 prompts; missing/locked credentials prevent startup before admission. Containers do
 not automatically inherit a host keyring. There is no seed-file alternative or
 non-Linux adapter in this milestone.

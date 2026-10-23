@@ -175,7 +175,7 @@ necessary; this local implementation does not close TD-001, TD-002 or TD-003.
 
 `verify.sh build` runs locked workspace binary/example compilation and
 `cargo test --workspace --no-run`, then records executable paths from Cargo JSON.
-`target/ci/runtime.tar.gz` contains seven current runtime executables and the
+`target/ci/runtime.tar.gz` contains the runtime/test executables and the
 manifest, preserving modes and original relative paths. The manifest checks the
 Git revision, Rust source/Cargo input digest (including uncommitted local changes),
 checkout path, OS version, architecture, libc, file hashes and executable modes.

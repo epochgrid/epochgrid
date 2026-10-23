@@ -154,6 +154,11 @@ def run(phase, case=None):
         else:
             raise ValueError('Unknown phase')
         for name in selected:
+            isolated = name in BYO or name == 'tls::production_tls_enrollment_negative_trust_and_certificate_rotation'
+            if isolated and os.environ.get('EPOCHGRID_ROLE_NATIVE') != '1':
+                case = name.removeprefix('byo_nats::') if name in BYO else 'tls'
+                subprocess.run(['python3', 'scripts/dev/test-role-isolation.py', case], check=True)
+                continue
             bounded(260 if name in BYO else 180,
                     [str(ROOT / registration), name, '--ignored', '--exact', '--test-threads=1', '--nocapture'],
                     keyring=True, EPOCHGRID_PROFILE='production' if name in BYO else 'development',

@@ -190,6 +190,7 @@ pub struct Callout {
     encryption: XKey,
     config: Config,
     seen: BTreeMap<String, i64>,
+    worker: Option<String>,
 }
 impl Callout {
     pub fn new(config: Config) -> Result<Self> {
@@ -204,7 +205,18 @@ impl Callout {
             encryption,
             config,
             seen: BTreeMap::new(),
+            worker: None,
         })
+    }
+    /// Bind a distinct forwarding identity. Only the authority selects this key.
+    pub fn with_worker(mut self, worker: String) -> Result<Self> {
+        ensure!(
+            KeyPair::from_public_key(&worker)?.key_pair_type() == KeyPairType::User
+                && worker != self.config.control_nkey,
+            "invalid worker identity"
+        );
+        self.worker = Some(worker);
+        Ok(self)
     }
     pub fn respond(
         &mut self,
@@ -270,7 +282,9 @@ impl Callout {
                 "TLS required for device admission"
             );
             ensure!(
-                devices_ready || connect.nkey == self.config.control_nkey,
+                devices_ready
+                    || connect.nkey == self.config.control_nkey
+                    || self.worker.as_ref() == Some(&connect.nkey),
                 "revocation reconciliation pending"
             );
             let device = KeyPair::from_public_key(&connect.nkey)?;
@@ -299,6 +313,17 @@ impl Callout {
                 registry.enrollment_admission(token.as_str(), &connect.nkey)?;
                 user.name = Some("EpochGrid enrollment".into());
                 user.nats.permissions.permissions.publish.allow = vec![ENROLL.into()];
+            } else if self.worker.as_ref() == Some(&connect.nkey) {
+                user.name = Some("EpochGrid control worker".into());
+                user.exp = Some(timestamp + 60);
+                user.nats.permissions.permissions.publish.allow =
+                    crate::backend_roles::worker_publish();
+                user.nats
+                    .permissions
+                    .permissions
+                    .subscribe
+                    .allow
+                    .extend(crate::backend_roles::worker_subscribe());
             } else if connect.nkey == self.config.control_nkey {
                 user.name = Some("EpochGrid control service".into());
                 // The operator-managed control role renews on a bounded 60-second
@@ -327,6 +352,12 @@ impl Callout {
                     .subscribe
                     .allow
                     .push("epochgrid.v1.channel.*".into());
+                if self.worker.is_some() {
+                    user.nats.permissions.permissions.publish.allow =
+                        crate::backend_roles::authority_publish();
+                    user.nats.permissions.permissions.subscribe.allow =
+                        vec![format!("_INBOX.{}.>", connect.nkey)];
+                }
             } else {
                 let authorization = registry.authorize(&connect.nkey)?;
                 user.nats

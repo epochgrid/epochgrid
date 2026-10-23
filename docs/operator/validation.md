@@ -150,14 +150,23 @@ atomic snapshot. A failed validation command does not stop the backend.
 
 ## Production startup admission gate
 
-Under the production profile, `serve` requires successful local inspection before
+Under the production profile, `serve-authority` requires successful local inspection before
 opening its temporary Auth Callout bootstrap path. Device admission remains closed;
-only the existing control identity can bootstrap. The same authenticated server,
+only the bound authority and worker identities can bootstrap. The same authenticated server,
 resource-contract and replica checks must pass before reconciliation and readiness.
 Failures abort the temporary auth task and exit with admission closed. Startup
 never creates missing streams/KV buckets or changes operator settings. Once checks
 pass, existing lifecycle reconciliation may update application records and consumers.
 The explicit development profile retains its legacy fixture provisioning behavior.
+
+Milestone 28 adds [separate-account role bindings](../backend-role-contract.md).
+The authority's report includes `local.backend_role` and, online,
+`runtime.backend_role`. New device admission additionally requires a current worker
+lease. The worker runs `validate-control --offline|--online [--format json]` in its
+own account/keyring. Its online mode checks the local authority's authenticated
+status socket; it does not inspect NATS resources or connect to a supplied endpoint.
+`coverage.role_network` states this limit. No authority credential is shared with
+the worker validator. The combined `serve` command is development-only.
 
 Existing encrypted milestone 26 homes must run `deployment-export --replicas 1|3`,
 apply/review all five generated resource specifications using operator credentials,

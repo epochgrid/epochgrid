@@ -169,9 +169,11 @@ a five-second ACK wait; CHAT uses a two-second ACK wait. Preserve the backend's
 filter lifecycle and consumer replica inheritance. Clients may use INFO/NEXT/ACK
 for their own consumers, but cannot create consumers or read raw streams.
 
-The current control connection has application-account JetStream management
-authority and directory/transparency access. Full backend privilege separation is
-milestone 28; the dedicated account is the present containment boundary. Dynamic
+Milestone 28 restricts the authority connection to the documented resource and
+consumer operations and moves control subscriptions to a separate worker account.
+The worker has no JetStream/KV management or signing authority. See the
+[role contract and transition](../backend-role-contract.md); qualification is in
+progress. The application account remains an additional containment boundary. Dynamic
 Object Store attachment access is outside this contract.
 
 ## Failure and recovery contract
@@ -194,6 +196,8 @@ qualification, not a guarantee against simultaneous disk loss or loss of quorum.
 Install the existing Rust, OpenSSL and isolated keyring test dependencies, then:
 
 ```bash
+# Local separate-user fixture (choose the Ubuntu version matching your build host):
+docker build -f scripts/dev/roles.Dockerfile -t epochgrid-role-tests:local .
 ./scripts/dev/verify.sh byo-build
 python3 scripts/dev/run-bounded.py 120 ./scripts/dev/download-nats.sh
 ./scripts/dev/verify.sh byo-nats
@@ -202,9 +206,14 @@ python3 scripts/dev/run-bounded.py 120 ./scripts/dev/download-nats.sh
 ```
 
 Compilation has a separate bounded phase. Each case has a fresh keyring and state,
-a 240-second workflow deadline and a 260-second outer watchdog. CI runs the four
+a 240-second workflow deadline and a 260-second native outer watchdog (300 seconds
+inside the local isolation container). CI runs the four
 cases in independent jobs without rerun-on-failure. Readiness checks and explicit
 server permission errors distinguish test setup from authorization failures.
+Both runtime roles use distinct UIDs and keyrings. Hosted CI selects native role
+fixtures with `EPOCHGRID_ROLE_NATIVE=1`; local runs otherwise use the disposable
+container. Its mounts contain binaries, scripts and the pinned broker executable,
+not developer state or host keyrings. See [role qualification](../backend-role-contract.md#verification-environment).
 
 Upstream contracts: [Auth Callout](https://docs.nats.io/learn/security/auth-callout),
 [pinned request/response validation](https://github.com/nats-io/nats-server/blob/v2.14.5/server/auth_callout.go),

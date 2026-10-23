@@ -584,6 +584,7 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
         }
         resource_configs.push((name, observed));
     }
+    let mut worker = crate::role_fixture::Worker::setup(root, &urls[0]).await?;
     validate_online(root, &urls[..1], false, None).await?;
     // Startup cannot create missing resources or alter incompatible operator settings.
     js.delete_stream("MAILBOX").await?;
@@ -615,6 +616,8 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
         &root.join("service.log"),
     )?;
     backend_ready(root, &mut service).await?;
+    worker.start().await?;
+    crate::role_fixture::Worker::check_authority_permissions(root, &urls[0]).await?;
     validate_offline(root, &urls[0], true).await?;
     validate_online(root, &urls, true, None).await?;
     validate_online(
@@ -776,6 +779,15 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     );
     // Require explicit server permission errors, not generic request timeouts.
     let alice_key = IdentityStore::open(&root.join("alice"))?.nkey()?;
+    worker.stop().await?;
+    validate_online(root, &urls[..1], false, Some("role_not_ready")).await?;
+    denied_admission(root, &urls[0], Some(&alice_key)).await?;
+    ensure!(
+        service.0.try_wait()?.is_none(),
+        "worker loss stopped authority"
+    );
+    worker.start().await?;
+    validate_online(root, &urls[..1], true, None).await?;
     let (errors, mut observed) = tokio::sync::mpsc::unbounded_channel();
     let options = async_nats::ConnectOptions::with_nkey(alice_key.seed()?)
         .connection_timeout(Duration::from_secs(3))
@@ -891,6 +903,7 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
         brokers[killed] = Some(broker(root, killed)?);
     }
     drop(service);
+    worker.set_running(false)?;
     // An available broker with no Auth Callout service must reject fresh admission.
     denied_admission(root, &urls[survivor], Some(&alice_key))
         .await
@@ -907,6 +920,7 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
         &root.join("service.log"),
     )?;
     backend_ready(root, &mut service).await?;
+    worker.start().await?;
     validate_offline(root, &urls[0], true).await?;
     validate_online(root, &urls, true, None).await?;
     sync(root, &urls[survivor], "bob").await?;

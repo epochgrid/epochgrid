@@ -79,6 +79,34 @@ impl Fixture {
     }
 }
 #[test]
+fn isolated_worker_cannot_gain_authority_grants() -> Result<()> {
+    let mut f = Fixture::new()?;
+    let authority = KeyPair::new_user();
+    let worker = KeyPair::new_user();
+    f.config.control_nkey = authority.public_key();
+    f.callout = Callout::new(f.config.clone())?.with_worker(worker.public_key())?;
+    for (key, expected) in [
+        (&worker, crate::backend_roles::worker_publish()),
+        (&authority, crate::backend_roles::authority_publish()),
+    ] {
+        let mut request = f.request()?;
+        request.nats.connect_opts.nkey = key.public_key();
+        request.nats.connect_opts.sig = URL_SAFE_NO_PAD.encode(key.sign(b"test-challenge")?);
+        let response = f.send(&request, false)?;
+        assert!(response.nats.error.is_empty());
+        let user = Claims::<User>::decode(&response.nats.jwt)?;
+        assert_eq!(user.nats.permissions.permissions.publish.allow, expected);
+        assert!(user.exp.context("expiry")? <= now()? + 60);
+    }
+    let request = f.request()?;
+    assert!(!f.send(&request, false)?.nats.error.is_empty());
+    let mut forged = f.request()?;
+    forged.nats.connect_opts.nkey = worker.public_key();
+    assert!(!f.send(&forged, true)?.nats.error.is_empty());
+    Ok(())
+}
+
+#[test]
 fn encrypted_claim_binding_and_negative_admission() -> Result<()> {
     let mut f = Fixture::new()?;
     let request = f.request()?;

@@ -87,7 +87,7 @@ epochgrid-service --home ./epochgrid-state auth-init \
 
 This writes `operator_jwt` with an empty `connection_jwt`, prints **INCOMPLETE**,
 and emits `operator-delegation.json` instead of a configuration-mode snippet.
-`serve` rejects the placeholder. Use the [operator-JWT signing steps](byo-nats.md#operator-jwt-mode)
+`serve-authority` rejects the placeholder. Use the [operator-JWT signing steps](byo-nats.md#operator-jwt-mode)
 to sign/distribute the account delegations and issue the non-bearer service JWT,
 then put that JWT in `auth.json.operator_jwt.connection_jwt`. Do not remove
 `operator_jwt` to bypass the incomplete state. Root seeds and system-account keys
@@ -157,10 +157,24 @@ TLS-first for both service connections and clients. With `development_plaintext`
 disabled, the service also requires callout evidence that the requesting client
 used TLS. See the [current milestone status](../milestones.md) for deployment limits.
 
+Complete the [separate-account role setup](../backend-role-contract.md#setup-under-separate-linux-accounts)
+before production startup. Under the authority account and its own keyring:
+
 ```bash
 epochgrid-service --home ./epochgrid-state --server tls://nats.example.org:4222 \
-  serve --auth-config ./epochgrid-state/auth.json
+  serve-authority --auth-config ./epochgrid-state/auth.json
 ```
+
+Then, under the distinct worker account and its independent keyring:
+
+```bash
+epochgrid-service --home ./epochgrid-worker --server tls://nats.example.org:4222 \
+  serve-control
+```
+
+Both processes need the verified TLS trust settings. Device admission remains
+closed until authority reconciliation and the worker readiness handshake succeed.
+The old combined `serve` command is development-only.
 
 Issue and deliver a token through a secure channel; avoid shell arguments/logs:
 

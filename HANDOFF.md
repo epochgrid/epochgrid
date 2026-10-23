@@ -1,4 +1,79 @@
-# Milestone 27 handoff — online validation and startup gate implemented
+# Milestone 28 handoff — implementation and local verification
+
+Current work is on `feature/milestone-28-privilege-separation`, based on `main`
+at `552daa4` (PR #20). The user authorized milestone 28 implementation after
+reviewing `docs/milestone-28-plan.md`. The plan and milestone-index edits were
+already present when implementation began. Milestone 28 runtime implementation
+is complete; local verification evidence and the remaining hosted CI gate are below.
+
+Milestone 27 merged as `f8f86d0` (PR #17). The subsequent CI redesign merged as
+`60e3797` (PR #19): one shared build, isolated execution jobs, bounded NATS groups
+and an established-offline TUI readiness fix. These supersede the historical
+handoff's branch, publication and pending-CI statements below.
+
+GitHub evidence checked on 2026-10-23:
+
+- [PR #19 CI run 39895205154](https://github.com/epochgrid/epochgrid/actions/runs/39895205154)
+  passed on attempt 1, including build, unit/secrets, all four retained NATS
+  groups, smoke, all four BYO configurations and aggregate validation.
+- [PR #20 CI run 39990763601](https://github.com/epochgrid/epochgrid/actions/runs/39990763601)
+  is now completed successfully on attempt 1. The earlier review observed smoke
+  still running; the completed run supersedes that observation.
+
+This supports beginning milestone 28; it does not establish a reliability sample
+or alpha release qualification. TD-001, TD-002 and TD-003 remain open. Historical
+disposable-keyring failures remain unexplained, and SQLCipher mlock warnings do
+not establish a memory-lock guarantee. Preserve Secret Service, SQLCipher,
+fresh encrypted-state policy, operator-owned resources and all retained gates.
+
+The implementation includes the explicit capability/local IPC contract, real
+Linux account/keyring isolation, authority/control extraction, closed-admission
+recovery, setup/transition and four-case BYO qualification.
+Do not claim credential isolation from same-user mocks or permission labels.
+The user authorized committing and pushing this branch and will prepare the PR.
+No release has been performed for milestone 28; hosted CI remains a pre-merge gate.
+
+Implementation refinement: `docs/backend-role-contract.md` keeps registry,
+signing and reconciliation in the authority. The worker only forwards enumerated
+control requests and publishes replies, so worker completion reports are not
+trusted for reconciliation. Separate non-root UIDs, private keyrings/homes,
+kernel peer credentials, strict bounded IPC, per-session sequences, five-second
+worker leases and runtime locks enforce the boundary. Production combined `serve`
+is refused; explicit development fixtures remain. Setup adds `worker-init`,
+`role-bind`, `worker-configure`, `serve-authority`, `serve-control` and
+`validate-control`. Authority validation also checks role readiness online.
+
+Local verification on 2026-10-23: the complete `./scripts/dev/verify.sh` suite
+passed, covering formatting, warnings-denied Clippy, build/doctests, units,
+Secret Service/protected-state checks, retained NATS/TLS cases, Compose/CLI,
+TUI/dynamic-join gates and all four isolated BYO cases. The log is retained at
+`/tmp/epochgrid-m28-verify.log`. Actionlint also passed. An earlier TLS fixture
+failure was corrected: a TLS-first worker restart had been placed in ordinary
+certificate rotation.
+
+Final review then made closed IPC listeners terminal, discarded queued requests
+from dead sessions, and separated authenticated NATS readiness from the IPC
+handshake deadline. Clippy/build and 117 workspace units (89 core, 14 client,
+14 service) passed after those fixes. The production TLS regression (11.96s) and
+all four BYO cases passed again: configuration R1 52.96s, configuration R3 65.38s,
+operator-JWT R1 64.28s and operator-JWT R3 77.06s. Final logs are
+`/tmp/epochgrid-m28-final-unit.log` and `/tmp/epochgrid-m28-final-roles.log`.
+Unit output included existing SQLCipher mlock warnings; no memory-lock guarantee
+is claimed. No new quarantines or automatic test retries were introduced.
+
+Before merge, obtain a cold hosted CI run for this implementation, including
+native separate-UID/keyring isolation and all four BYO cases. Local evidence is
+strong enough for review; it does not replace that CI gate or close TD-003.
+
+Host sudo requires interactive authentication. The local fixture image is
+`epochgrid-role-tests:local`, built from `scripts/dev/roles.Dockerfile`; it uses
+disposable users/keyrings, no external network and read-only executable/script
+mounts. `scripts/dev/test-role-isolation.py` validates the runtime artifact against
+current sources before execution. Hosted CI uses passwordless sudo to `nobody`
+instead, via `EPOCHGRID_ROLE_NATIVE=1`. No production service sudo permission is
+required. The four BYO cases retain their existing check names.
+
+# Historical milestone 27 handoff — online validation and startup gate implemented
 
 Work is on `feature/milestone-27-initialization`, based on merged milestone 26
 at `5256862`. The user requested implementation on 2026-10-22 using

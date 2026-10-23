@@ -39,6 +39,39 @@ impl Drop for AuthTask {
     }
 }
 pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
+    if epochgrid_core::tls::TlsConfig::from_env()?.profile
+        == epochgrid_core::tls::Profile::Production
+    {
+        let report = epochgrid_core::validation::offline(home, path, Some(url));
+        ensure!(
+            report.success,
+            "production startup local validation failed:\n{}",
+            report.human()
+        );
+    }
+    ensure!(
+        epochgrid_core::tls::TlsConfig::from_env()?.profile
+            == epochgrid_core::tls::Profile::Development,
+        "production requires separate authority/control accounts: run role-bind, worker-configure, serve-authority and serve-control; see docs/backend-role-contract.md"
+    );
+    ensure!(
+        !home.join(crate::roles::BINDINGS).exists(),
+        "role-bound homes require serve-authority"
+    );
+    serve_inner(home, url, path, None).await
+}
+
+pub async fn authority(home: &Path, url: &str, path: &Path) -> Result<()> {
+    let bindings = crate::roles::Bindings::load(home)?;
+    serve_inner(home, url, path, Some(bindings)).await
+}
+
+async fn serve_inner(
+    home: &Path,
+    url: &str,
+    path: &Path,
+    bindings: Option<crate::roles::Bindings>,
+) -> Result<()> {
     let production = epochgrid_core::tls::TlsConfig::from_env()?.profile
         == epochgrid_core::tls::Profile::Production;
     let manifest = if production {
@@ -56,6 +89,7 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
     } else {
         None
     };
+    let _runtime = crate::roles::runtime_lock(home)?;
     let config = Config::load(path)?;
     config.check_transport(url)?;
     if config.development_plaintext {
@@ -63,6 +97,19 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
     }
     // Resolve every local credential before opening subscriptions/admission.
     let mut callout = Callout::new(config.clone())?;
+    if let Some(bindings) = &bindings {
+        callout = callout.with_worker(bindings.worker_nkey.clone())?;
+    }
+    // Bind and lock before opening network subscriptions. The listener never
+    // receives signing keys, registry handles or credential references.
+    let admission = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut local = bindings
+        .as_ref()
+        .map(|bindings| crate::roles::Server::bind(bindings, admission.clone()))
+        .transpose()?;
+    let worker_live = local
+        .as_ref()
+        .map(|s| (s.live.clone(), s.last_seen.clone()));
     let identity = IdentityStore::open(&home.join("control"))?;
     let key = identity.nkey()?;
     ensure!(
@@ -75,7 +122,6 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
         .await?;
     tokio::time::timeout(Duration::from_secs(5), auth_client.flush()).await??;
     let auth_registry = AuthRegistry::open(home)?;
-    let admission = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let admission_worker = admission.clone();
     let mut auth_task = AuthTask(tokio::spawn(async move {
         while let Some(message) = requests.next().await {
@@ -93,7 +139,13 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
                         &auth_registry,
                         key.as_str(),
                         &message.payload,
-                        admission_worker.load(std::sync::atomic::Ordering::Acquire),
+                        admission_worker.load(std::sync::atomic::Ordering::Acquire)
+                            && worker_live.as_ref().is_none_or(|(live, seen)| {
+                                live.load(std::sync::atomic::Ordering::Acquire)
+                                    && seen
+                                        .lock()
+                                        .is_ok_and(|stamp| stamp.elapsed() < Duration::from_secs(5))
+                            }),
                     )
                 });
             match response {
@@ -125,7 +177,7 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
         );
     }
     let enrollment = registry.historical_enrollment()?;
-    let (directory, log) = if production {
+    let (directory, log) = if production || local.is_some() {
         // Lookups only: never create or alter operator resources, including on errors.
         let (directory, log) = tokio::time::timeout(Duration::from_secs(10), async {
             Ok::<_, anyhow::Error>((
@@ -152,10 +204,14 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
         registry.activate(&registration.payload.nats_public_key)?;
     }
     epochgrid_core::authorization::reconcile_consumers(&registry, &client).await?;
-    let mut controls = futures_util::stream::select(
-        client.subscribe("epochgrid.v1.identity.*").await?,
-        client.subscribe("epochgrid.v1.channel.*").await?,
-    );
+    let mut controls = if local.is_none() {
+        Some(futures_util::stream::select(
+            client.subscribe("epochgrid.v1.identity.*").await?,
+            client.subscribe("epochgrid.v1.channel.*").await?,
+        ))
+    } else {
+        None
+    };
     client.flush().await?;
     admission.store(true, std::sync::atomic::Ordering::Release);
     tracing::info!("EpochGrid dynamic identity and Auth Callout service ready");
@@ -170,19 +226,26 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
             },
             signal=tokio::signal::ctrl_c()=>{signal?;break},
             result=&mut auth_task.0=>{result??;anyhow::bail!("auth handler stopped")},
-            message=controls.next()=>{
-                let Some(message)=message else {anyhow::bail!("control subscription ended")};
-                let Some(reply)=message.reply else {continue};
-                if !reply.as_str().starts_with("_INBOX.") {continue}
+            incoming=async {
+                if let Some(local) = &mut local {
+                    let request = crate::roles::next_request(&mut local.requests).await?;
+                    Ok::<_, anyhow::Error>((request.subject, request.payload, None, Some(request.response)))
+                } else {
+                    let message = controls.as_mut().unwrap().next().await.context("control subscription ended")?;
+                    Ok((message.subject.to_string(), message.payload.to_vec(), message.reply, None))
+                }
+            }=>{
+                let (subject, payload, reply, response_sender) = incoming?;
+                if response_sender.is_none() && !reply.as_ref().is_some_and(|r| r.as_str().starts_with("_INBOX.")) {continue}
                 let response=tokio::time::timeout(Duration::from_secs(5),async {
-                    let request = wire::decode(&message.payload)?;
+                    let request = wire::decode(&payload)?;
                     let mutating = matches!(&request, Body::GroupPolicy(_) | Body::Enroll {..} | Body::Revoke(_) | Body::Register(_));
                     if mutating {admission.store(false, std::sync::atomic::Ordering::Release);}
                     let registrations=transparency::read(&log).await?;
                     let revocations=revocation::read(&log,&registrations).await?;
                     for key in revocations.keys() {registry.revoke(&key)?;}
                     let active=registry.enrollment()?;
-                    let body = match (message.subject.as_str(),request) {
+                    let body = match (subject.as_str(),request) {
                         (epochgrid_core::authorization::SUBJECT, Body::PolicyQuery {gid}) => Body::PolicyState(registry.policy_state(&gid)?),
                         (epochgrid_core::authorization::RELAY, Body::RelayWelcome(relay)) => {
                             let subject = relay.validate(&registry)?;
@@ -231,7 +294,11 @@ pub async fn serve(home: &Path, url: &str, path: &Path) -> Result<()> {
                 }
                 let body=match response {Ok(Ok(body))=>body,_=>{tracing::warn!("dynamic identity operation rejected");Body::Rejected}};
                 let bytes=wire::encode(body).or_else(|_|wire::encode(Body::Rejected))?;
-                client.publish(reply,bytes.into()).await?;
+                if let Some(sender) = response_sender {
+                    let _ = sender.send(bytes);
+                } else if let Some(reply) = reply {
+                    client.publish(reply,bytes.into()).await?;
+                }
             }
         }
     }

@@ -1,5 +1,13 @@
 # EpochGrid architecture
 
+Production backend privilege separation uses an authority and a control worker
+under distinct Linux accounts and Secret Service sessions. The authority keeps
+registry/signing and JetStream reconciliation; the worker forwards enumerated
+requests over peer-authenticated Unix sockets and has no resource-management
+grants. Client wire messages and registry schemas remain unchanged. See the
+[role contract](backend-role-contract.md) for capabilities, setup and failure
+behavior, and the [milestone index](milestones.md) for qualification status.
+
 Current scope and deployment qualification: [milestone status](milestones.md).
 Milestone 23 provides the shared [TLS profile](operator/tls.md); Milestone 22
 integrates dynamic authorization with the normal CLI/TUI messaging path. Legacy
