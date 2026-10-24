@@ -24,9 +24,10 @@ This prints a **public** `alice/desktop=U...` binding. On the development operat
 machine, substitute that complete printed binding below:
 
 ```bash
+export EPOCHGRID_PROFILE=development
 ./target/debug/epochgrid dev-config --enroll 'alice/desktop=U...'
 ./scripts/dev/bootstrap-nats.sh
-./target/debug/epochgrid-service
+./target/debug/epochgrid-service --dev-static
 ```
 
 The service stays running in its terminal. Bootstrap retains additional public
