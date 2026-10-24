@@ -120,10 +120,11 @@ The operator then stops clients/service, adds the printed PUBLIC binding, bootst
 the existing fabric without deleting state, and restarts the service:
 
 ```bash
+export EPOCHGRID_PROFILE=development
 ./target/debug/epochgrid dev-config --root .dev \
   --enroll 'alice/replacement=PUBLIC_NKEY_PRINTED_ABOVE'
 ./scripts/dev/bootstrap-nats.sh
-./target/debug/epochgrid-service
+./target/debug/epochgrid-service --dev-static
 ```
 
 The replacement is a new trust domain. Pin its directory signer using the retained

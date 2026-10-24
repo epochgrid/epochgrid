@@ -66,9 +66,10 @@ bytes as text and do not safely summarize a manifest containing a DEK. Existing
 UTF-8 text messages and the v1 registration/recovery protocols remain unchanged.
 
 ```bash
+export EPOCHGRID_PROFILE=development
 cargo build --workspace
 ./scripts/dev/bootstrap-nats.sh
-./target/debug/epochgrid-service
+./target/debug/epochgrid-service --dev-static
 ```
 
 After both devices have joined a channel, Alice sends a file:

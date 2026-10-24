@@ -95,11 +95,24 @@ The development image supports Linux amd64/arm64. Host clients/services currentl
 require Linux Secret Service; Docker on a non-Linux host does not supply that
 credential backend to host binaries.
 
+Run all commands below from the repository root, under the same Linux login and
+unlocked Secret Service session used for bootstrap. Alice and Bob are separate
+device homes, not separate Linux users. A new terminal must have access to that
+same keyring; installing the keyring packages alone is not sufficient.
+
 Production is the default transport profile. In **every terminal** used for the
-local plaintext walkthrough below, explicitly select development:
+local plaintext walkthrough below, first run:
 
 ```bash
 export EPOCHGRID_PROFILE=development
+export EPOCHGRID_NATS_URL=nats://127.0.0.1:4222
+unset EPOCHGRID_TLS_CA_PATH EPOCHGRID_TLS_FIRST EPOCHGRID_TLS_MIN_VERSION
+```
+
+The bootstrap and registration scripts set their own development environment;
+they cannot set it in your calling shell or in another terminal. Then bootstrap:
+
+```bash
 ./scripts/dev/bootstrap-nats.sh
 ```
 
@@ -120,10 +133,13 @@ Start the host service in a separate terminal:
 
 ```bash
 export EPOCHGRID_PROFILE=development
+export EPOCHGRID_NATS_URL=nats://127.0.0.1:4222
+unset EPOCHGRID_TLS_CA_PATH EPOCHGRID_TLS_FIRST EPOCHGRID_TLS_MIN_VERSION
 ./target/debug/epochgrid-service --dev-static
 ```
 
-Register both pre-created devices:
+Leave the service running. In another terminal with the setup above, register
+both pre-created devices (the scripts register identities; bootstrap creates them):
 
 ```bash
 ./scripts/dev/create-alice.sh
@@ -135,6 +151,9 @@ Register both pre-created devices:
 In Alice's terminal:
 
 ```bash
+export EPOCHGRID_PROFILE=development
+export EPOCHGRID_NATS_URL=nats://127.0.0.1:4222
+unset EPOCHGRID_TLS_CA_PATH EPOCHGRID_TLS_FIRST EPOCHGRID_TLS_MIN_VERSION
 ./target/debug/epochgrid --home .dev/alice identity lookup bob
 ./target/debug/epochgrid --home .dev/alice channel create engineering
 ./target/debug/epochgrid --home .dev/alice channel invite engineering bob
@@ -143,6 +162,9 @@ In Alice's terminal:
 In Bob's terminal:
 
 ```bash
+export EPOCHGRID_PROFILE=development
+export EPOCHGRID_NATS_URL=nats://127.0.0.1:4222
+unset EPOCHGRID_TLS_CA_PATH EPOCHGRID_TLS_FIRST EPOCHGRID_TLS_MIN_VERSION
 ./target/debug/epochgrid --home .dev/bob channel join --from alice
 ./target/debug/epochgrid --home .dev/bob channel members engineering
 ```
@@ -154,7 +176,8 @@ verified directory identity. If Bob has already joined, skip `channel join`.
 
 ## Persistent terminal client
 
-After bootstrap and device registration, run one per terminal:
+After bootstrap and device registration, use the configured Alice and Bob
+terminals above. Run Alice's command in her terminal and Bob's in his:
 
 ```bash
 ./target/debug/epochgrid --home .dev/alice tui
@@ -174,6 +197,9 @@ Uncommitted drafts are not saved on exit.
 See [TUI architecture and controls](docs/tui.md).
 
 ## Chat
+
+Use the configured terminals above. Stop each device's TUI before starting
+`chat` or any other command on that home; TUI and `chat` are alternative clients.
 
 Alice's terminal:
 
@@ -224,6 +250,20 @@ bootstrap initially enrolls Alice/laptop and Bob/laptop. Milestone 12 supports
 additional independent devices through public operator enrollment; see
 [multi-device setup and upgrade](docs/multi-device.md).
 Stop infrastructure with `docker compose down`; local keys and server data remain.
+
+### Local walkthrough troubleshooting
+
+| Error or symptom | Check |
+| --- | --- |
+| `production requires tls://` | Export `EPOCHGRID_PROFILE=development` in the terminal running the failing command. Running a registration script does not configure that terminal. |
+| `TLS-first requires a tls:// endpoint` or `a CA bundle requires a tls:// endpoint` | Clear the TLS variables shown in the terminal setup above for this plaintext fixture. |
+| Secret Service unavailable, locked, or missing credential | Use the original unlocked keyring/session with the matching home; see [secret storage](docs/secret-storage.md). Do not use the disposable test-keyring wrapper with persistent `.dev` homes. |
+| Device directory already in use | Exit that device's TUI/chat before running another CLI command against its home. |
+| Connection refused or registration/request timeout | Keep NATS and `epochgrid-service --dev-static` running and check that all terminals use the same NATS URL. |
+
+When resuming an existing lab, use `channel list` and the
+[resume instructions](#resume-after-an-exit-or-failure). Do not repeat group
+creation or initialize replacement identities to work around a startup error.
 
 ## Verify device identity
 
