@@ -90,6 +90,13 @@ impl IdentityStore {
         })
     }
     pub(crate) fn insert_group(&self, group: &Group) -> Result<()> {
+        let count: u64 = self
+            .connection
+            .query_row("SELECT COUNT(*) FROM groups", [], |r| r.get(0))?;
+        ensure!(
+            count < self.capacity.retained_groups,
+            "capacity exhausted: local groups"
+        );
         self.connection
             .execute(
                 "INSERT INTO groups(name,gid,mls_id) VALUES(?1,?2,?3)",

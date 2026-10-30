@@ -38,7 +38,10 @@ impl InitOptions {
         self.target_account.as_deref().unwrap_or("EPOCHGRID")
     }
     fn validate(&self) -> Result<DeploymentManifest> {
-        let manifest = DeploymentManifest::new(self.replicas)?;
+        let manifest = DeploymentManifest::bounded(
+            self.replicas,
+            epochgrid_core::capacity::Capacity::default(),
+        )?;
         match self.auth_mode {
             AuthMode::Configuration => {
                 ensure!(
@@ -284,7 +287,7 @@ authorization {{
         artifacts.insert("nats-reference.conf".into(), snippet);
         "Configuration mode: integrate nats-reference.conf into your operator-owned NATS configuration. Keep EPOCHGRID_AUTH separate from the application account. Supply your own application-account administrator for resource provisioning; the snippet does not issue administrator credentials."
     };
-    artifacts.insert("SETUP.md".into(), format!("# EpochGrid public deployment artifacts\n\nArtifact publication complete; deployment readiness has NOT been evaluated.\n\n{guide}\n\nSupply TLS certificates and verified tls:// endpoints, EPOCHGRID_TLS_CA_PATH when using a private CA, and mutual TLS on cluster routes. NATS Server 2.14.5 is the qualified target; configure server max_payload at least 65536. Do not import/export application or Auth Callout subjects to other accounts.\n\nUsing your application's administrative NATS context, apply each native stream configuration (including KV backing streams):\n\n```sh\nfor resource in CHAT MAILBOX KV_IDENTITIES KV_CHANNELS KV_TRANSPARENCY; do\n  nats --context APPLICATION_ADMIN stream add --config \"$resource.json\"\ndone\n```\n\nSet storage budgets for your workload before applying resources. Matching configuration does not certify capacity. Review existing resources instead of overwriting them. All five resources declare R{}. Keep deployment.json beside auth.json. Resource ownership and root signing keys remain with the operator. See docs/operator/byo-nats.md for the complete account/JWT and transport contract.\n", manifest.replicas()));
+    artifacts.insert("SETUP.md".into(), format!("# EpochGrid public deployment artifacts\n\nArtifact publication complete; deployment readiness has NOT been evaluated.\n\n{guide}\n\nSupply TLS certificates and verified tls:// endpoints, EPOCHGRID_TLS_CA_PATH when using a private CA, and mutual TLS on cluster routes. NATS Server 2.14.5 is the qualified target; configure server max_payload exactly 65536. Do not import/export application or Auth Callout subjects to other accounts.\n\nUsing your application's administrative NATS context, apply each native stream configuration (including KV backing streams):\n\n```sh\nfor resource in CHAT MAILBOX KV_IDENTITIES KV_CHANNELS KV_TRANSPARENCY; do\n  nats --context APPLICATION_ADMIN stream add --config \"$resource.json\"\ndone\n```\n\nSet storage budgets for your workload before applying resources. Matching configuration does not certify capacity. Review existing resources instead of overwriting them. All five resources declare R{}. Keep deployment.json beside auth.json. Resource ownership and root signing keys remain with the operator. See docs/operator/byo-nats.md for the complete account/JWT and transport contract.\n", manifest.replicas()));
     Ok(artifacts)
 }
 
@@ -311,6 +314,14 @@ pub fn initialize(home: &Path, options: &InitOptions) -> Result<()> {
     publish_file(
         &home.join("auth-init.json"),
         &serde_json::to_vec_pretty(options)?,
+    )?;
+    publish_file(
+        &home.join(epochgrid_core::capacity::FILE),
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(manifest.capacity().context("capacity missing")?)?
+        )
+        .as_bytes(),
     )?;
     AuthRegistry::open(home)?;
     let vault = Vault::new(home);
@@ -339,7 +350,13 @@ pub fn initialize(home: &Path, options: &InitOptions) -> Result<()> {
             }),
     };
     let artifacts = artifacts(&config, &manifest)?;
-    let manifest_bytes = artifacts[MANIFEST_FILE].as_bytes();
+    // Keep the established replica manifest stable; capacity.json is the
+    // independently versioned, atomically replaceable capacity contract.
+    let local_manifest = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&DeploymentManifest::new(manifest.replicas())?)?
+    );
+    let manifest_bytes = local_manifest.as_bytes();
     same_or_absent(&home.join(MANIFEST_FILE), manifest_bytes)?;
     if let Some(snippet) = artifacts.get("nats-reference.conf") {
         same_or_absent(&home.join("nats-reference.conf"), snippet.as_bytes())?;
@@ -407,6 +424,14 @@ pub fn export(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => DeploymentManifest::new(replicas.context("deployment manifest missing: supply --replicas 1 or 3 for this existing installation")?)?,
         Err(error) => return Err(error.into()),
     };
+    let manifest = if home.join(epochgrid_core::capacity::FILE).try_exists()? {
+        DeploymentManifest::bounded(
+            manifest.replicas(),
+            epochgrid_core::capacity::Capacity::load(home)?,
+        )?
+    } else {
+        manifest
+    };
     let artifacts = artifacts(&config, &manifest)?;
     let default_output = home.join("deployment-artifacts");
     let output = output.unwrap_or(&default_output);
@@ -421,7 +446,14 @@ pub fn export(
     }
     publish_bundle(output, &artifacts)?;
     if !manifest_path.try_exists()? {
-        publish_file(&manifest_path, artifacts[MANIFEST_FILE].as_bytes())?;
+        publish_file(
+            &manifest_path,
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&DeploymentManifest::new(manifest.replicas())?)?
+            )
+            .as_bytes(),
+        )?;
     }
     completion(&config);
     Ok(())
@@ -445,3 +477,58 @@ fn completion(config: &Config) {
 
 #[cfg(test)]
 mod tests;
+
+/// Explicit stopped-service upgrade. Original M28 manifest and artifacts survive.
+pub fn capacity_export(
+    home: &Path,
+    path: &Path,
+    policy: &Path,
+    output: &Path,
+    replace: bool,
+) -> Result<()> {
+    ensure!(
+        path.parent()
+            .context("auth config parent required")?
+            .canonicalize()?
+            == home.canonicalize()?,
+        "auth configuration must belong to the backend home"
+    );
+    let bytes = fs::read(policy)?;
+    ensure!(bytes.len() <= 8192, "capacity file too large");
+    let capacity: epochgrid_core::capacity::Capacity = serde_json::from_slice(&bytes)?;
+    capacity.validate()?;
+    let _runtime = crate::roles::runtime_lock(home)?;
+    let _setup = lock(home)?;
+    capacity.inspect_registry(home)?;
+    let config = Config::load_for_export(path)?;
+    let old: DeploymentManifest = serde_json::from_slice(&fs::read(home.join(MANIFEST_FILE))?)?;
+    let manifest = DeploymentManifest::bounded(old.replicas(), capacity.clone())?;
+    let bundle = artifacts(&config, &manifest)?;
+    // Do all checks before publishing. No existing policy is silently replaced.
+    let policy_bytes = bundle[epochgrid_core::capacity::FILE].as_bytes();
+    let destination = home.join(epochgrid_core::capacity::FILE);
+    if replace && destination.try_exists()? {
+        let metadata = fs::symlink_metadata(&destination)?;
+        ensure!(
+            metadata.is_file() && !metadata.file_type().is_symlink(),
+            "capacity policy must be a regular file"
+        );
+        epochgrid_core::capacity::Capacity::load(home)?;
+    } else {
+        same_or_absent(&destination, policy_bytes)?;
+    }
+    publish_bundle(output, &bundle)?;
+    if replace {
+        let mut staged = tempfile::NamedTempFile::new_in(home)?;
+        staged.write_all(policy_bytes)?;
+        staged.as_file().sync_all()?;
+        staged.persist(&destination)?;
+        fs::File::open(home)?.sync_all()?;
+    } else {
+        publish_file(&destination, policy_bytes)?;
+    }
+    println!(
+        "Capacity installed locally. Apply exported broker resources with operator credentials, validate both roles, then restart. Existing deployment artifacts are unchanged."
+    );
+    Ok(())
+}

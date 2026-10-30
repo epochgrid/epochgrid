@@ -9,7 +9,7 @@ use openmls_sqlite_storage::{Codec, SqliteStorageProvider};
 use openmls_traits::OpenMlsProvider;
 use rusqlite::Connection;
 use serde::{Serialize, de::DeserializeOwned};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::{
     fs::{File, OpenOptions},
     path::Path,
@@ -51,6 +51,8 @@ impl OpenMlsProvider for Provider {
 /// are protected by SQLCipher. On-disk references contain no secret values.
 pub struct IdentityStore {
     pub(crate) connection: Rc<Connection>,
+    pub(crate) capacity: crate::capacity::Capacity,
+    pub(crate) recovery_budget: Cell<bool>,
     _lock: File,
     pub(crate) vault: Vault,
     key: RefCell<Option<nkeys::KeyPair>>,
@@ -100,7 +102,10 @@ impl IdentityStore {
         CREATE INDEX IF NOT EXISTS transcript_group ON transcript(gid,stream_sequence,id);",
         )?;
         let storage = SqliteStorageProvider::new(Rc::clone(&connection));
+        let capacity = crate::capacity::Capacity::load_or_default(dir)?;
         let store = Self {
+            capacity,
+            recovery_budget: Cell::new(false),
             connection,
             _lock: lock,
             vault: Vault::new(dir),
@@ -118,6 +123,7 @@ impl IdentityStore {
         store.migrate_receipts()?;
         store.migrate_relationships()?;
         store.migrate_participants()?;
+        store.capacity.check_client(&store.connection, true)?;
         Ok(store)
     }
     fn migrate_multi_device(&self) -> Result<()> {
@@ -150,8 +156,24 @@ impl IdentityStore {
         Ok(())
     }
     pub(crate) fn transaction<T>(&self, action: impl FnOnce() -> Result<T>) -> Result<T> {
+        self.transaction_budget(false, action)
+    }
+    pub(crate) fn recovery_transaction<T>(&self, action: impl FnOnce() -> Result<T>) -> Result<T> {
+        self.transaction_budget(true, action)
+    }
+    fn transaction_budget<T>(
+        &self,
+        recovery: bool,
+        action: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
         self.connection.execute_batch("BEGIN IMMEDIATE")?;
-        match action() {
+        self.recovery_budget.set(recovery);
+        let result = action().and_then(|value| {
+            self.capacity.check_database(&self.connection, recovery)?;
+            Ok(value)
+        });
+        self.recovery_budget.set(false);
+        match result {
             Ok(value) => {
                 if let Err(error) = self.connection.execute_batch("COMMIT") {
                     let _ = self.connection.execute_batch("ROLLBACK");

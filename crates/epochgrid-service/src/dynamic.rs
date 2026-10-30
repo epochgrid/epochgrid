@@ -81,11 +81,7 @@ async fn serve_inner(
             "production startup local validation failed:\n{}",
             report.human()
         );
-        Some(serde_json::from_slice::<
-            epochgrid_core::deployment::DeploymentManifest,
-        >(&std::fs::read(
-            home.join(epochgrid_core::deployment::MANIFEST_FILE),
-        )?)?)
+        Some(epochgrid_core::deployment::DeploymentManifest::load(home)?)
     } else {
         None
     };
@@ -96,7 +92,15 @@ async fn serve_inner(
         tracing::warn!("DEVELOPMENT ONLY: unencrypted client transport enabled");
     }
     // Resolve every local credential before opening subscriptions/admission.
-    let mut callout = Callout::new(config.clone())?;
+    let capacity = epochgrid_core::capacity::Capacity::load_or_default(home)?;
+    let mut control_rate = epochgrid_core::capacity::RateLimit::new(
+        capacity.requests_per_second,
+        capacity.request_burst,
+        std::time::Instant::now(),
+    );
+    let mut revocation_rate =
+        epochgrid_core::capacity::RateLimit::new(4, 8, std::time::Instant::now());
+    let mut callout = Callout::new(config.clone())?.with_capacity(&capacity);
     if let Some(bindings) = &bindings {
         callout = callout.with_worker(bindings.worker_nkey.clone())?;
     }
@@ -117,6 +121,12 @@ async fn serve_inner(
         "control identity does not match callout configuration"
     );
     let auth_client = tokio::time::timeout(Duration::from_secs(5), config.connect(url)).await??;
+    if production {
+        ensure!(
+            auth_client.server_info().max_payload == wire::MAX_WIRE,
+            "capacity contract requires server max_payload 65536"
+        );
+    }
     let mut requests = auth_client
         .queue_subscribe(auth_callout::SUBJECT, "epochgrid-auth".into())
         .await?;
@@ -219,6 +229,7 @@ async fn serve_inner(
     repair.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
+            biased;
             _=repair.tick(), if !admission.load(std::sync::atomic::Ordering::Acquire)=> {
                 if matches!(tokio::time::timeout(Duration::from_secs(5),repair_state(&registry, &client, &log, &directory, &key)).await, Ok(Ok(()))) {
                     admission.store(true, std::sync::atomic::Ordering::Release);
@@ -238,6 +249,11 @@ async fn serve_inner(
                 let (subject, payload, reply, response_sender) = incoming?;
                 if response_sender.is_none() && !reply.as_ref().is_some_and(|r| r.as_str().starts_with("_INBOX.")) {continue}
                 let response=tokio::time::timeout(Duration::from_secs(5),async {
+                    ensure!(payload.len() <= wire::MAX_WIRE, "oversized control request");
+                    let permitted = if subject == wire::REVOKE {
+                        revocation_rate.allow(std::time::Instant::now())
+                    } else { control_rate.allow(std::time::Instant::now()) };
+                    ensure!(permitted, "control overload");
                     let request = wire::decode(&payload)?;
                     let mutating = matches!(&request, Body::GroupPolicy(_) | Body::Enroll {..} | Body::Revoke(_) | Body::Register(_));
                     if mutating {admission.store(false, std::sync::atomic::Ordering::Release);}

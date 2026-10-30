@@ -36,6 +36,7 @@ impl IdentityStore {
             if let Some((old_subject, old_payload)) = existing {
                 ensure!(old_subject == subject && old_payload == payload, "CHAT sequence changed: possible stream reset; refusing to overwrite local history");
             } else {
+                self.capacity.check_database(&self.connection, false)?;
                 self.connection.execute("INSERT INTO chat_deliveries(sequence,subject,payload) VALUES(?1,?2,?3)", params![sequence, subject, payload])?;
             }
             Ok(())

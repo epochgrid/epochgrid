@@ -284,11 +284,11 @@ pub fn offline(home: &Path, auth_config: &Path, endpoint: Option<&str>) -> Repor
         let manifest = report.check("local.deployment_manifest", "version-1 manifest with explicit replicas 1 or 3", "deployment_manifest_invalid", "Run deployment-export with explicit --replicas 1 or 3 for an existing M26 home; preserve established deployment choices.", || {
             let path = home.join(crate::deployment::MANIFEST_FILE);
             private_path(&path, false)?;
-            Ok(serde_json::from_slice::<DeploymentManifest>(&std::fs::read(path)?)?)
+            DeploymentManifest::load(home)
         });
         if let Some(manifest) = manifest {
             report.checks.last_mut().unwrap().observed =
-                json!({"version":1,"replicas":manifest.replicas()});
+                json!({"version":2,"replicas":manifest.replicas()});
         }
     } else {
         report.skip(
@@ -297,6 +297,10 @@ pub fn offline(home: &Path, auth_config: &Path, endpoint: Option<&str>) -> Repor
             "backend home unavailable",
         );
     }
+    report.check("local.capacity", "valid capacity policy and retained usage within declared limits", "capacity_invalid_or_exhausted", "Run capacity-export while stopped; apply the exported broker budgets, preserve existing identities and increase capacity only within supported ceilings.", || {
+        private_path(&home.join(crate::capacity::FILE), false)?;
+        crate::capacity::Capacity::load(home)?.inspect_registry(home)
+    });
     let auth_files = home_ok && files(&mut report, home, "auth", "auth");
     let control_root = home.join("control");
     let control_ok = if home_ok {

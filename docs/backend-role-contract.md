@@ -133,3 +133,11 @@ Build the image with `--build-arg UBUNTU_VERSION=24.04` when binaries were built
 Ubuntu 24.04. The default image matches Ubuntu 26.04 local binaries. On an isolated
 runner with passwordless sudo to `nobody`, `EPOCHGRID_ROLE_NATIVE=1` runs the same
 fixtures natively. Do not grant that sudo permission to production service users.
+
+## Capacity ownership
+
+The [capacity contract](operator/capacity.md) assigns registry, admission-rate and
+broker checks to the authority. The worker retains fixed bounded NATS/IPC queues,
+prioritizes heartbeat selection, and receives no quota-administration permission.
+Client-local database/outbox budgets remain separate. Capacity configuration is
+public; authority keyrings and registry handles never cross the IPC boundary.

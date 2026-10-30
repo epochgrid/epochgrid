@@ -256,3 +256,30 @@ fn duplicate_subjects_and_multiple_failures_are_not_hidden() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn bounded_contract_preserves_v1_and_enforces_finite_budgets() -> Result<()> {
+    let legacy = DeploymentManifest::new(3)?;
+    assert_eq!(legacy.resources()[0].max_bytes, -1);
+    assert_eq!(legacy.resources()[0].discard, DiscardPolicy::Old);
+    let bounded = DeploymentManifest::bounded(3, crate::capacity::Capacity::default())?;
+    let value = serde_json::to_value(&bounded)?;
+    assert_eq!(value["version"], 2);
+    let restored: DeploymentManifest = serde_json::from_value(value)?;
+    assert_eq!(restored, bounded);
+    for mut resource in bounded.resources() {
+        assert!(resource.max_bytes >= 262144);
+        assert!(resource.max_consumers > 0);
+        assert_eq!(resource.discard, DiscardPolicy::New);
+        assert!(bounded.compare(&resource.name, &resource)?.is_empty());
+        resource.max_bytes = -1;
+        assert!(
+            bounded
+                .compare(&resource.name, &resource)?
+                .iter()
+                .any(|m| m.field == "max_bytes")
+        );
+    }
+    assert!(serde_json::from_str::<DeploymentManifest>(r#"{"version":2,"replicas":1}"#).is_err());
+    Ok(())
+}

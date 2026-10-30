@@ -104,7 +104,7 @@ done
 
 These are native stream configurations, including KV backing streams. Every
 resource uses the chosen replica count. Supply server TLS, verified `tls://`
-endpoints, custom CA roots when required, `max_payload` at least 65536, and mutual
+endpoints, custom CA roots when required, `max_payload` exactly 65536, and mutual
 route TLS for clusters. Existing resources need explicit operator review rather
 than blind recreation. EpochGrid does not provision administrator credentials.
 

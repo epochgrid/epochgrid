@@ -24,8 +24,9 @@ No `v0.1.0-alpha.1` tag or production-ready release has been published.
 | 25 | Merged (#15) | SQLCipher client/backend state, independent Secret Service keys, fresh encrypted homes only |
 | 26 | Implemented; locally validated | BYO-NATS contract, operator-JWT adapter, standalone/R3 cluster qualification; cold CI pending |
 | 27 | Implemented; cold CI pending | Explicit initialization/export, offline/online validation, production startup admission gate and generated-artifact BYO fixtures |
-| 28 | Implemented; locally validated | [Backend privilege separation plan](milestone-28-plan.md) and [role contract](backend-role-contract.md): isolated authority/control roles, least-privilege runtime grants and restart-safe admission; hosted CI pending |
-| 29–31 | Not started | Resource bounds, operational diagnostics and structured audit events |
+| 28 | Merged (#21); hosted CI passed | [Backend privilege separation plan](milestone-28-plan.md) and [role contract](backend-role-contract.md): isolated authority/control roles, least-privilege runtime grants and restart-safe admission |
+| 29 | Implemented; locally validated | [Capacity contract](operator/capacity.md), transactional limits and finite broker budgets; cold hosted CI pending |
+| 30–31 | Not started | Operational diagnostics and structured audit events |
 | 32–34 | Not started | Official Linux artifacts, GHCR runtime image and release supply chain |
 | 35–38 | Not started | Broader adversarial suite, protocol/configuration freeze, first-run UX and operator documentation set |
 

@@ -1,4 +1,14 @@
-# Milestone 27 resource comparison rules
+# Deployment resource comparison rules
+
+Milestone 29 production uses the [capacity contract](operator/capacity.md):
+version-two exported manifests embed validated finite quotas, all five resources
+use discard-new and 65536-byte messages, and byte/consumer budgets compare exactly.
+The replica-only local manifest remains stable; the explicit capacity policy
+selects bounded rendering. The version-one rules below remain supported for
+historical rendering and comparison, not M29 production admission.
+
+
+## Historical version-one contract
 
 The pure `epochgrid_core::deployment` module now supplies `auth-init` and
 `deployment-export`. Atomic artifact publication and explicit mode/account/R1–R3

@@ -90,6 +90,8 @@ pub struct DeviceAuthorization {
 }
 pub struct AuthRegistry {
     pub(crate) db: Connection,
+    pub(crate) capacity: crate::capacity::Capacity,
+    pub(crate) principal_rates: std::collections::BTreeMap<String, crate::capacity::RateLimit>,
 }
 impl AuthRegistry {
     pub fn open(home: &Path) -> Result<Self> {
@@ -116,7 +118,13 @@ CREATE TABLE authorization_groups(gid TEXT PRIMARY KEY,generation INTEGER NOT NU
 CREATE TABLE authorization_members(gid TEXT NOT NULL REFERENCES authorization_groups(gid),nkey TEXT NOT NULL REFERENCES devices(nkey),leaf INTEGER NOT NULL,PRIMARY KEY(gid,nkey),UNIQUE(gid,leaf));
 INSERT INTO auth_migrations VALUES(2); COMMIT;")?;
         }
-        Ok(Self { db })
+        let capacity = crate::capacity::Capacity::load_or_default(home)?;
+        capacity.check_registry(&db)?;
+        Ok(Self {
+            db,
+            capacity,
+            principal_rates: std::collections::BTreeMap::new(),
+        })
     }
     pub fn resolve(&self, binding: &IdentityBinding) -> Result<UserId> {
         UserId::try_from(self.db.query_row(
@@ -174,6 +182,8 @@ INSERT INTO auth_migrations VALUES(2); COMMIT;")?;
                 now()? + ttl as i64
             ],
         )?;
+        self.capacity.check_registry(&tx)?;
+        self.capacity.check_database(&tx, false)?;
         tx.commit()?;
         Ok(token)
     }
@@ -228,6 +238,8 @@ INSERT INTO auth_migrations VALUES(2); COMMIT;")?;
             "INSERT INTO devices(nkey,user_id,device_id,registration) VALUES(?1,?2,?3,?4)",
             params![key, uid.as_str(), registration.payload.device_id, encoded],
         )?;
+        self.capacity.check_registry(&tx)?;
+        self.capacity.check_database(&tx, false)?;
         tx.commit()?;
         Ok(())
     }
@@ -268,6 +280,7 @@ INSERT INTO auth_migrations VALUES(2); COMMIT;")?;
         tx.execute("DELETE FROM authorization_members WHERE nkey=?1", [key])?;
         tx.execute("UPDATE authorization_groups SET coordinator=COALESCE((SELECT nkey FROM authorization_members m WHERE m.gid=authorization_groups.gid ORDER BY leaf LIMIT 1),'') WHERE coordinator=?1",[key])?;
         tx.execute("UPDATE devices SET revoked=1,authorization_generation=authorization_generation+1 WHERE nkey=?1 AND revoked=0",[key])?;
+        self.capacity.check_database(&tx, true)?;
         tx.commit()?;
         Ok(())
     }

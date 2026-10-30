@@ -79,7 +79,7 @@ impl IdentityStore {
     pub fn observe_device(&self, registration: &DeviceRegistration) -> Result<()> {
         let fingerprint = fingerprint(registration)?;
         let p = &registration.payload;
-        let changed = self.transaction(|| {
+        let changed = self.recovery_transaction(|| {
             if let Some(previous) = self.device_trust(&p.user_id, &p.device_id)? {
                 if previous.state == "changed" && previous.fingerprint == fingerprint {
                     // Preserve the last differing identity if the old view reappears.
@@ -90,6 +90,8 @@ impl IdentityStore {
                     return Ok(true);
                 }
             } else {
+                let retained: u64 = self.connection.query_row("SELECT COUNT(*) FROM device_trust", [], |r| r.get(0))?;
+                ensure!(retained < 256, "capacity exhausted: retained trust bindings");
                 self.connection.execute("INSERT INTO device_trust VALUES(?1,?2,?3,?3,'unverified')", params![p.user_id,p.device_id,fingerprint])?;
             }
             Ok(false)

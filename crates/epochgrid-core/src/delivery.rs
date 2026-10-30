@@ -17,6 +17,26 @@ impl IdentityStore {
             payload.len() <= wire::MAX_WIRE,
             "MLS message exceeds transport limit"
         );
+        ensure!(
+            !self.connection.is_autocommit(),
+            "outbox insertion requires MLS transaction"
+        );
+        self.capacity
+            .check_database(&self.connection, self.recovery_budget.get())?;
+        let (messages, bytes): (u64, u64) = self.connection.query_row(
+            "SELECT COUNT(*),COALESCE(SUM(length(payload)),0) FROM outbox WHERE sent=0",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let reserve_messages = if self.recovery_budget.get() { 32 } else { 0 };
+        let reserve_bytes = reserve_messages * wire::MAX_WIRE as u64;
+        ensure!(
+            messages < self.capacity.pending_messages + reserve_messages
+                && bytes
+                    .checked_add(payload.len() as u64)
+                    .is_some_and(|n| n <= self.capacity.pending_bytes + reserve_bytes),
+            "capacity exhausted: outbox; pending messages retained"
+        );
         self.connection.execute(
             "INSERT INTO outbox(subject,payload) VALUES(?1,?2)",
             rusqlite::params![subject, payload],
@@ -150,41 +170,58 @@ pub async fn flush_outbox(store: &IdentityStore, client: &async_nats::Client) ->
     );
     store.block_revoked_outbox()?;
     let js = async_nats::jetstream::new(client.clone());
-    let mut statement = store
+    let high: i64 =
+        store
+            .connection
+            .query_row("SELECT COALESCE(MAX(id),0) FROM outbox", [], |r| r.get(0))?;
+    let mut after = 0i64;
+    loop {
+        let mut statement = store
         .connection
-        .prepare("SELECT id,subject,payload FROM outbox WHERE sent=0 AND id NOT IN (SELECT id FROM blocked_outbox) ORDER BY id")?;
-    let rows = statement
-        .query_map([], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, Vec<u8>>(2)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    for (id, subject, payload) in rows {
-        if crate::authorization::dispatch(store, client, &snapshot, id, &subject, &payload).await? {
-            store
-                .connection
-                .execute("UPDATE outbox SET sent=1 WHERE id=?1", [id])?;
-            continue;
+        .prepare("SELECT id,subject,payload FROM outbox WHERE sent=0 AND id>?1 AND id<=?2 AND id NOT IN (SELECT id FROM blocked_outbox) ORDER BY id LIMIT ?3")?;
+        let rows = statement
+            .query_map(
+                rusqlite::params![after, high, crate::capacity::OUTBOX_BATCH as u64],
+                |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, Vec<u8>>(2)?,
+                    ))
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        if rows.is_empty() {
+            break;
         }
-        let mut headers = async_nats::HeaderMap::new();
-        headers.insert(
-            "Nats-Msg-Id",
-            format!("{}:{id}", store.nkey()?.public_key()),
-        );
-        let ack = js
-            .publish_with_headers(subject, headers, payload.clone().into())
-            .await?
-            .await?;
-        store.transaction(|| {
+        drop(statement);
+        for (id, subject, payload) in rows {
+            after = id;
+            if crate::authorization::dispatch(store, client, &snapshot, id, &subject, &payload)
+                .await?
+            {
+                store
+                    .connection
+                    .execute("UPDATE outbox SET sent=1 WHERE id=?1", [id])?;
+                continue;
+            }
+            let mut headers = async_nats::HeaderMap::new();
+            headers.insert(
+                "Nats-Msg-Id",
+                format!("{}:{id}", store.nkey()?.public_key()),
+            );
+            let ack = js
+                .publish_with_headers(subject, headers, payload.clone().into())
+                .await?
+                .await?;
+            store.transaction(|| {
             store.connection.execute("UPDATE outbox SET sent=1 WHERE id=?1", [id])?;
             if ack.stream == "CHAT" {
                 store.connection.execute("UPDATE transcript SET stream_sequence=CASE WHEN stream_sequence IS NULL OR stream_sequence>?1 THEN ?1 ELSE stream_sequence END WHERE payload=?2", rusqlite::params![ack.sequence, payload])?;
             }
             Ok(())
         })?;
+        }
     }
     Ok(())
 }

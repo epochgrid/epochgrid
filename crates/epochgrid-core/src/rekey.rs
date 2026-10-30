@@ -77,7 +77,7 @@ impl IdentityStore {
             return Ok(false);
         }
         let (signer, _) = self.signer()?;
-        self.transaction(|| {
+        self.recovery_transaction(|| {
             self.block_revoked_outbox()?;
             let mut group = self.load_group(&descriptor)?;
             let (commit, welcome, _) = group

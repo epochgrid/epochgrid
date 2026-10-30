@@ -336,8 +336,7 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     let path = root.join("backend/auth.json");
     let artifacts = root.join("backend/deployment-artifacts");
     let mut config = Config::load_for_export(&path)?;
-    let manifest: epochgrid_core::deployment::DeploymentManifest =
-        serde_json::from_slice(&std::fs::read(root.join("backend/deployment.json"))?)?;
+    let manifest = epochgrid_core::deployment::DeploymentManifest::load(&root.join("backend"))?;
     ensure!(
         manifest.replicas() == nodes,
         "explicit initialization replicas lost"
@@ -737,6 +736,140 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     send(root, &urls[0], "bob", b"bidirectional reply").await?;
     sync(root, &urls[0], "alice").await?;
     contains(root, "alice", b"bidirectional reply")?;
+    // Saturate the real separate-UID forwarding worker. Lost/rejected requests
+    // are not accepted mutations, and heartbeat/reconciliation remain bounded.
+    let rss_before = std::fs::read_to_string(format!("/proc/{}/status", service.0.id()))?
+        .lines()
+        .find(|line| line.starts_with("VmRSS:"))
+        .unwrap_or("VmRSS unavailable")
+        .to_owned();
+    let overload_inbox = admin.new_inbox();
+    let mut overload_replies = admin.subscribe(overload_inbox.clone()).await?;
+    let audit = epochgrid_core::wire::encode(epochgrid_core::wire::Body::RegistrationAudit)?;
+    for _ in 0..512 {
+        admin
+            .publish_with_reply(
+                epochgrid_core::wire::AUDIT,
+                overload_inbox.clone(),
+                audit.clone().into(),
+            )
+            .await?;
+    }
+    admin.flush().await?;
+    let mut replies = 0;
+    let mut rejected = 0;
+    let drain = tokio::time::sleep(Duration::from_secs(2));
+    tokio::pin!(drain);
+    loop {
+        use futures_util::StreamExt;
+        tokio::select! {
+            _ = &mut drain => break,
+            message = overload_replies.next() => {
+                let Some(message) = message else { break };
+                replies += 1;
+                if matches!(epochgrid_core::wire::decode(&message.payload)?, epochgrid_core::wire::Body::Rejected) { rejected += 1; }
+            }
+        }
+    }
+    ensure!(
+        replies < 512 || rejected > 0,
+        "saturation did not exercise a bounded rejection/loss boundary"
+    );
+    let rss_after = std::fs::read_to_string(format!("/proc/{}/status", service.0.id()))?
+        .lines()
+        .find(|line| line.starts_with("VmRSS:"))
+        .unwrap_or("VmRSS unavailable")
+        .to_owned();
+    eprintln!(
+        "capacity flood: responses={replies}, rejected={rejected}; authority {rss_before} -> {rss_after}"
+    );
+    validate_online(root, &urls[..1], true, None).await?;
+
+    // Operator-owned quota exhaustion must preserve accepted history and pending MLS intent.
+    let chat_config = js.get_stream("CHAT").await?.info().await?.config.clone();
+    let before = js.get_stream("CHAT").await?.info().await?.state.clone();
+    let mut full = chat_config.clone();
+    full.max_bytes = before.bytes as i64 + 1;
+    js.update_stream(full).await?;
+    IdentityStore::open(&root.join("alice"))?
+        .encrypt_message("engineering", b"retained across broker quota")?;
+    let rejected = tls::run(
+        tls::cli(root, &urls[0], "alice", Some(&root.join("ca.pem")), false)
+            .args(["channel", "flush"]),
+        &[],
+    )
+    .await?;
+    ensure!(
+        !rejected.status.success(),
+        "full broker accepted new publish"
+    );
+    let after = js.get_stream("CHAT").await?.info().await?.state.clone();
+    ensure!(
+        after.messages == before.messages && after.first_sequence == before.first_sequence,
+        "quota exhaustion evicted accepted history"
+    );
+    contains(root, "alice", b"retained across broker quota")?;
+    validate_online(root, &urls[..1], false, Some("resource_incompatible")).await?;
+    // Only the fixture's operator credential restores the declared capacity.
+    js.update_stream(chat_config).await?;
+    command(root, &urls[0], "alice", &["channel", "flush"], &[]).await?;
+    sync(root, &urls[0], "bob").await?;
+    contains(root, "bob", b"retained across broker quota")?;
+    contains(root, "bob", b"before broker loss")?;
+    validate_online(root, &urls[..1], true, None).await?;
+
+    // Native R3 KV replacement needs incoming-record headroom before releasing the old value.
+    let kv = js.get_key_value("TRANSPARENCY").await?;
+    let current = kv.entry("snapshot").await?.context("snapshot missing")?;
+    let mut kv_stream = js.get_stream("KV_TRANSPARENCY").await?;
+    let kv_info = kv_stream.info().await?.clone();
+    let mut bounded_kv = kv_info.config.clone();
+    bounded_kv.max_bytes = kv_info.state.bytes as i64 + 256;
+    js.update_stream(bounded_kv).await?;
+    let replacement = kv
+        .update("snapshot", current.value.clone(), current.revision)
+        .await;
+    if nodes == 1 {
+        replacement.context("standalone history-one replacement")?;
+    } else {
+        let error = replacement
+            .expect_err("R3 replacement unexpectedly fit without incoming-record headroom");
+        ensure!(
+            error.to_string().contains("maximum bytes exceeded"),
+            "unexpected R3 KV failure: {error}"
+        );
+        ensure!(
+            kv.entry("snapshot")
+                .await?
+                .context("retained snapshot missing")?
+                .revision
+                == current.revision,
+            "rejected R3 replacement changed the committed revision"
+        );
+    }
+    ensure!(
+        kv.put("capacity-probe", vec![0u8; 65536].into())
+            .await
+            .is_err(),
+        "KV quota ignored"
+    );
+    ensure!(
+        kv.get("snapshot").await?.as_ref() == Some(&current.value),
+        "KV replacement lost snapshot"
+    );
+    js.update_stream(kv_info.config).await?;
+    let retained = kv
+        .entry("snapshot")
+        .await?
+        .context("retained snapshot missing")?;
+    kv.update("snapshot", retained.value.clone(), retained.revision)
+        .await
+        .context("KV replacement after operator capacity increase")?;
+    ensure!(
+        kv.status().await?.history() == 1,
+        "capacity change altered native KV history"
+    );
+
     // Every node must support admission, not just the seed server.
     for url in &urls {
         command(root, url, "alice", &["identity", "register"], &[]).await?;

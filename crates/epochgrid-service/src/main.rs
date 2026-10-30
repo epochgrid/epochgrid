@@ -98,6 +98,18 @@ enum ServiceCommand {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+    /// Prepare finite capacity for an established stopped backend without resetting state.
+    CapacityExport {
+        #[arg(long)]
+        auth_config: PathBuf,
+        #[arg(long)]
+        policy: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        /// Explicitly replace an installed policy after validating retained usage.
+        #[arg(long)]
+        replace: bool,
+    },
     /// Issue a local provider enrollment token to stdout; protect its delivery.
     UserInvite {
         #[arg(long)]
@@ -213,6 +225,18 @@ async fn main() -> Result<()> {
                 replicas,
                 output,
             } => deployment_setup::export(&args.home, &auth_config, replicas, output.as_deref()),
+            ServiceCommand::CapacityExport {
+                auth_config,
+                policy,
+                output,
+                replace,
+            } => deployment_setup::capacity_export(
+                &args.home,
+                &auth_config,
+                &policy,
+                &output,
+                replace,
+            ),
             ServiceCommand::UserInvite { handle, ttl } => {
                 let token = epochgrid_core::identity_model::AuthRegistry::open(&args.home)?
                     .invite(&handle, ttl)?;
