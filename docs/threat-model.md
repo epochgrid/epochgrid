@@ -279,3 +279,18 @@ uses constant-sized rate state, and principal buckets are allocated only after
 device authentication. Sustained overload can still deny service and backend
 reconnection; closed admission, monotonic leases and explicit recovery remain
 required. Logical page and payload budgets are not physical memory/disk quotas.
+
+## Local operational diagnostics
+
+The milestone 30 status socket authenticates kernel peer UIDs and accepts only
+bounded, enumerated read operations. Authority-only aggregate registry usage never
+crosses into the worker view. Status has no signing, broker, database or keyring
+capability and never renews the worker lease. Fixed typed fields exclude private
+content and raw error chains; even aggregates can reveal activity and should be
+shared deliberately. Instance IDs are random per process and counters are volatile,
+not audit evidence. Observation age and unknown states prevent cached usage or
+connection failure being presented as current health. A permitted slow peer can
+make status unavailable within its bounded request deadline; control/heartbeat
+handling is independent. Coverage does not include unrelated legacy debug logs,
+physical resource guarantees or the milestone 31 audit pipeline. See the
+[operator diagnostic contract](operator/diagnostics.md).

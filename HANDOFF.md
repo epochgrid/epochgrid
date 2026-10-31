@@ -1,3 +1,65 @@
+# Milestone 30 handoff — implementation and local verification
+
+The user authorized implementation of [the plan](docs/milestone-30-plan.md) on
+2026-10-30. Starting changes were the three milestone 30 planning documents only.
+Milestone 29 merged as `05bb651` (PR #23); its
+[hosted CI run 41146465259](https://github.com/epochgrid/epochgrid/actions/runs/41146465259)
+passed. Work is on `feature/milestone-30-diagnostics` from that merge, preserving
+the planning edits and original milestone 29 planning stash.
+
+Implemented: `status --role authority|control --format human|json`, a separately
+versioned diagnostic operation on the existing authenticated status socket,
+process counters, monotonic gate/lease observations, authority-only cached registry
+usage and the [diagnostics runbook](docs/operator/diagnostics.md). Status does not
+open databases/keyrings, connect to NATS, initialize state, repair resources or
+renew the worker lease. Existing validation report v1 and minimal status exchange
+remain supported. The same reconciliation/lease predicate serves Auth Callout and
+status; connection/permission observations remain advisory.
+
+Reports use a 256-byte request limit, 16 KiB framed response limit, one connection
+at a time and a five-second total socket deadline. Kernel peer UID selects the
+view; the worker cannot request authority capacity fields. Aggregate capacity uses
+the existing authority registry handle every 10 seconds and becomes stale after
+30 seconds. No new database handle, durable event log or background scan task was
+introduced. Structured security audit events remain milestone 31.
+
+Local verification on 2026-10-30 passed formatting, warnings-denied workspace
+Clippy, build/doctests, all 135 units (103 core, 14 client, 18 service), harness,
+three isolated live Secret Service checks, protected-state lifecycle/CLI checks,
+all 16 retained NATS/TLS cases, Compose/CLI, main/relationship/participant TUI and
+focused dynamic join/reconnect. All four final BYO cases passed: configuration R1
+78.68s, configuration R3 96.73s, operator-JWT R1 90.37s and operator-JWT R3 103.18s.
+They include real separate-UID diagnostic privacy/overload checks, quota-blocked
+authority reconciliation and recovery of retained intent after operator capacity
+restoration, worker loss, authority restart/instance reset, and retained broker
+failover/revocation/resource-ownership assertions. All four initial capacity
+samples took less than one millisecond at report resolution; sampled authority
+RSS was unchanged during each control flood at roughly 37 MiB. Neither observation
+establishes a worst-case latency, memory bound or supported deployment size.
+
+Evidence: `/tmp/epochgrid-m30-final-quality.log` records final Clippy/build and
+`/tmp/epochgrid-m30-final-unit.log` records the final units. The first general run
+passed harness, formatting, build/doctests, units, live Secret Service and
+protected-state checks, and the first seven retained NATS cases, then correctly
+refused a stale runtime artifact after additional acceptance tests were added.
+That evidence remains in `/tmp/epochgrid-m30-verify.log`. After rebuilding, all
+remaining TLS/NATS and smoke checks passed in `/tmp/epochgrid-m30-remaining.log`;
+the final four-case qualification passed in `/tmp/epochgrid-m30-byo.log`.
+Documentation links, Python syntax and patch whitespace pass.
+
+An initial unit assertion searched all JSON for the word capacity and matched the
+`physical_capacity` coverage flag. It was corrected to assert the actual worker
+observation field set. Separate-UID fixtures check denial to a third account,
+worker-view isolation, malformed/oversized/versioned requests, concurrent status
+traffic and silent-peer expiry while heartbeats continue. The disposable Docker
+fixture grants its test account permission to run the third-account probe; no
+production privilege requirement changed. Existing SQLCipher mlock warnings do
+not establish a memory-lock guarantee. TD-001/002/003 remain open; no retry or
+quarantine was added.
+
+No commit, push, PR, merge or release has been performed for milestone 30. Its own
+cold hosted CI remains a pre-merge gate. The prior milestone handoffs follow.
+
 # Milestone 29 handoff — implementation and local verification
 
 The user requested implementing `docs/milestone-29-plan.md`, with a clean workspace

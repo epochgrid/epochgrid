@@ -107,13 +107,13 @@ async fn serve_inner(
     // Bind and lock before opening network subscriptions. The listener never
     // receives signing keys, registry handles or credential references.
     let admission = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let diagnostics = std::sync::Arc::new(crate::diagnostics::Runtime::new(admission.clone())?);
+    callout = callout.with_diagnostics(diagnostics.auth.clone());
     let mut local = bindings
         .as_ref()
-        .map(|bindings| crate::roles::Server::bind(bindings, admission.clone()))
+        .map(|bindings| crate::roles::Server::bind(bindings, diagnostics.clone()))
         .transpose()?;
-    let worker_live = local
-        .as_ref()
-        .map(|s| (s.live.clone(), s.last_seen.clone()));
+    let separated = local.is_some();
     let identity = IdentityStore::open(&home.join("control"))?;
     let key = identity.nkey()?;
     ensure!(
@@ -133,6 +133,8 @@ async fn serve_inner(
     tokio::time::timeout(Duration::from_secs(5), auth_client.flush()).await??;
     let auth_registry = AuthRegistry::open(home)?;
     let admission_worker = admission.clone();
+    let auth_diagnostics = diagnostics.clone();
+    let status_auth_client = auth_client.clone();
     let mut auth_task = AuthTask(tokio::spawn(async move {
         while let Some(message) = requests.next().await {
             let Some(reply) = message.reply else { continue };
@@ -149,19 +151,17 @@ async fn serve_inner(
                         &auth_registry,
                         key.as_str(),
                         &message.payload,
-                        admission_worker.load(std::sync::atomic::Ordering::Acquire)
-                            && worker_live.as_ref().is_none_or(|(live, seen)| {
-                                live.load(std::sync::atomic::Ordering::Acquire)
-                                    && seen
-                                        .lock()
-                                        .is_ok_and(|stamp| stamp.elapsed() < Duration::from_secs(5))
-                            }),
+                        if separated {
+                            auth_diagnostics.ready()
+                        } else {
+                            admission_worker.load(std::sync::atomic::Ordering::Acquire)
+                        },
                     )
                 });
             match response {
                 Ok(bytes) => auth_client.publish(reply, bytes.into()).await?,
-                Err(error) => {
-                    tracing::warn!(%error, "invalid encrypted Auth Callout request denied");
+                Err(_) => {
+                    tracing::warn!("invalid encrypted Auth Callout request denied");
                 }
             }
         }
@@ -176,6 +176,7 @@ async fn serve_inner(
             .connect(url),
     )
     .await??;
+    diagnostics.connections(status_auth_client, client.clone(), monitor.clone());
     drop(identity);
     if let Some(manifest) = &manifest {
         let report =
@@ -224,16 +225,24 @@ async fn serve_inner(
     };
     client.flush().await?;
     admission.store(true, std::sync::atomic::Ordering::Release);
+    diagnostics.repair(true);
+    diagnostics.refresh(&registry);
     tracing::info!("EpochGrid dynamic identity and Auth Callout service ready");
     let mut repair = tokio::time::interval(Duration::from_secs(1));
     repair.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut observations = tokio::time::interval(Duration::from_secs(
+        epochgrid_core::diagnostics::REFRESH_SECONDS,
+    ));
+    observations.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
             biased;
+            _=observations.tick()=> { diagnostics.refresh(&registry); },
             _=repair.tick(), if !admission.load(std::sync::atomic::Ordering::Acquire)=> {
                 if matches!(tokio::time::timeout(Duration::from_secs(5),repair_state(&registry, &client, &log, &directory, &key)).await, Ok(Ok(()))) {
                     admission.store(true, std::sync::atomic::Ordering::Release);
-                }
+                    diagnostics.repair(true);
+                } else { diagnostics.repair(false); }
             },
             signal=tokio::signal::ctrl_c()=>{signal?;break},
             result=&mut auth_task.0=>{result??;anyhow::bail!("auth handler stopped")},
@@ -248,13 +257,16 @@ async fn serve_inner(
             }=>{
                 let (subject, payload, reply, response_sender) = incoming?;
                 if response_sender.is_none() && !reply.as_ref().is_some_and(|r| r.as_str().starts_with("_INBOX.")) {continue}
+                diagnostics.control.received.increment();
                 let response=tokio::time::timeout(Duration::from_secs(5),async {
+                    if payload.len() > wire::MAX_WIRE {diagnostics.control.malformed.increment();}
                     ensure!(payload.len() <= wire::MAX_WIRE, "oversized control request");
                     let permitted = if subject == wire::REVOKE {
                         revocation_rate.allow(std::time::Instant::now())
                     } else { control_rate.allow(std::time::Instant::now()) };
+                    if !permitted {diagnostics.control.rate_limited.increment();}
                     ensure!(permitted, "control overload");
-                    let request = wire::decode(&payload)?;
+                    let request = wire::decode(&payload).inspect_err(|_| diagnostics.control.malformed.increment())?;
                     let mutating = matches!(&request, Body::GroupPolicy(_) | Body::Enroll {..} | Body::Revoke(_) | Body::Register(_));
                     if mutating {admission.store(false, std::sync::atomic::Ordering::Release);}
                     let registrations=transparency::read(&log).await?;
@@ -301,14 +313,23 @@ async fn serve_inner(
                     if mutating {
                         epochgrid_core::authorization::reconcile_consumers(&registry, &client).await?;
                         admission.store(true, std::sync::atomic::Ordering::Release);
+                        diagnostics.repair(true);
                     }
                     Ok::<Body, anyhow::Error>(body)
                 }).await;
-                if !admission.load(std::sync::atomic::Ordering::Acquire)
-                    && matches!(tokio::time::timeout(Duration::from_secs(5), repair_state(&registry, &client, &log, &directory, &key)).await, Ok(Ok(()))) {
-                    admission.store(true, std::sync::atomic::Ordering::Release);
+                if !admission.load(std::sync::atomic::Ordering::Acquire) {
+                    let repaired = matches!(tokio::time::timeout(Duration::from_secs(5), repair_state(&registry, &client, &log, &directory, &key)).await, Ok(Ok(())));
+                    diagnostics.repair(repaired);
+                    if repaired {admission.store(true, std::sync::atomic::Ordering::Release);}
                 }
-                let body=match response {Ok(Ok(body))=>body,_=>{tracing::warn!("dynamic identity operation rejected");Body::Rejected}};
+                let body=match response {
+                    Ok(Ok(body)) if !matches!(body,Body::Rejected) => {diagnostics.control.accepted.increment();body},
+                    result => {
+                        diagnostics.control.denied.increment();
+                        if result.is_err() {diagnostics.control.timeout.increment();}
+                        tracing::warn!("dynamic identity operation rejected"); Body::Rejected
+                    }
+                };
                 let bytes=wire::encode(body).or_else(|_|wire::encode(Body::Rejected))?;
                 if let Some(sender) = response_sender {
                     let _ = sender.send(bytes);

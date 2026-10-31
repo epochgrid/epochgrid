@@ -235,6 +235,13 @@ impl Worker {
                 .is_err(),
             "wrong-UID worker accepted"
         );
+        // A third OS account may reach the socket but cannot receive status.
+        let rejected = Command::new("sudo")
+            .args(["-n", "-u", "daemon", "--", "python3", "-c",
+                "import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect(sys.argv[1]); sys.exit(0 if s.recv(1)==b'' else 1)"])
+            .arg(self.public.path().join("control.sock.status"))
+            .status()?;
+        ensure!(rejected.success(), "unrelated UID received diagnostics");
         let log = self.public.path().join("worker.log");
         let previous = fs::read_to_string(&log)?
             .matches("WORKER_VALIDATED=passed")

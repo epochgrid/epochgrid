@@ -94,6 +94,42 @@ pub struct AuthRegistry {
     pub(crate) principal_rates: std::collections::BTreeMap<String, crate::capacity::RateLimit>,
 }
 impl AuthRegistry {
+    /// Aggregate snapshot on the existing runtime handle; no credentials or rows escape.
+    pub fn diagnostic_usage(&self) -> Result<crate::diagnostics::Usage> {
+        use crate::diagnostics::{Budget, Usage};
+        let tx = self.db.unchecked_transaction()?;
+        let count = |table: &str, limit| -> Result<Budget> {
+            // Table names below are compile-time constants, never caller input.
+            Ok(Budget {
+                used: tx.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))?,
+                limit,
+            })
+        };
+        let pages: u64 = tx.query_row("PRAGMA page_count", [], |r| r.get(0))?;
+        let size: rusqlite::types::Value = tx.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+        let size: u64 = match size {
+            rusqlite::types::Value::Integer(n) => n.try_into()?,
+            rusqlite::types::Value::Text(n) => n.parse()?,
+            _ => anyhow::bail!("invalid page size"),
+        };
+        let result = Usage {
+            users: count("users", self.capacity.retained_users)?,
+            devices: count("devices", self.capacity.retained_devices)?,
+            tokens: count("enrollment_tokens", self.capacity.retained_tokens)?,
+            groups: count("authorization_groups", self.capacity.retained_groups)?,
+            memberships: count("authorization_members", self.capacity.membership_edges)?,
+            database_bytes: Budget {
+                used: pages
+                    .checked_mul(size)
+                    .ok_or_else(|| anyhow::anyhow!("page overflow"))?,
+                limit: self.capacity.database_bytes,
+            },
+            recovery_bytes: self.capacity.recovery_bytes,
+        };
+        tx.commit()?;
+        Ok(result)
+    }
+
     pub fn open(home: &Path) -> Result<Self> {
         let db = crate::database::open(home, "auth")?;
         db.busy_timeout(Duration::from_secs(1))?;

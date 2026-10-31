@@ -40,9 +40,17 @@ fn registry_limit_rollback_idempotence_revocation_and_restart() -> Result<()> {
             .query_row("SELECT COUNT(*) FROM users", [], |r| r.get::<_, u64>(0))?,
         2
     );
+    let usage = registry.diagnostic_usage()?;
+    assert_eq!(usage.users.used, 2);
+    assert_eq!(usage.devices.used, 1);
+    assert_eq!(usage.devices.limit, 1);
+    assert!(usage.database_bytes.used > 0);
+    assert!(usage.database_bytes.used <= usage.database_bytes.limit);
+    assert_eq!(usage.groups.used, 0);
     registry.revoke(&registration.payload.nats_public_key)?;
     drop(registry);
     let mut registry = AuthRegistry::open(&home)?;
+    assert_eq!(registry.diagnostic_usage()?.devices.used, 1);
     // Revoking does not free retained identity capacity or consume Bob's token.
     assert!(registry.enroll(&bob_token, &bob_registration).is_err());
     assert!(

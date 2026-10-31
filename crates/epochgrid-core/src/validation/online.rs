@@ -23,6 +23,9 @@ const OVERALL: Duration = Duration::from_secs(60);
 #[derive(Clone, Default)]
 pub struct PermissionMonitor(Arc<AtomicBool>);
 impl PermissionMonitor {
+    pub fn denied(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
     pub fn configure(&self, options: ConnectOptions) -> ConnectOptions {
         let denied = self.0.clone();
         options.event_callback(move |event| {

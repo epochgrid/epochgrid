@@ -6,5 +6,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && (id ubuntu >/dev/null 2>&1 || useradd -m -u 1000 ubuntu) \
     && printf 'ubuntu ALL=(nobody) NOPASSWD: ALL\n' > /etc/sudoers.d/epochgrid-fixture
+RUN printf 'ubuntu ALL=(daemon) NOPASSWD: ALL\n' > /etc/sudoers.d/epochgrid-diagnostics-fixture
 USER ubuntu
 WORKDIR /workspace

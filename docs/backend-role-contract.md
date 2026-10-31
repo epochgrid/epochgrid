@@ -1,6 +1,6 @@
 # Backend role contract — milestone 28
 
-Implementation is complete; hosted CI qualification remains pending. Production requires the two
+Milestone 28 merged in PR #21 with hosted CI passed. Production requires the two
 isolated roles. The combined `serve` command is restricted to explicit development
 homes without role bindings.
 
@@ -141,3 +141,16 @@ broker checks to the authority. The worker retains fixed bounded NATS/IPC queues
 prioritizes heartbeat selection, and receives no quota-administration permission.
 Client-local database/outbox budgets remain separate. Capacity configuration is
 public; authority keyrings and registry handles never cross the IPC boundary.
+
+## Operational diagnostics
+
+Milestone 30 adds a versioned `diagnose` operation to the separate authenticated
+status socket; the existing minimal `inspect`/`status` exchange is unchanged.
+The kernel peer UID selects the view. Only the authority UID receives cached
+registry counts and policy limits; the bound worker gets aggregate runtime state.
+Unknown fields/versions, oversized input and other UIDs receive no report. One
+connection is handled at a time with a five-second total deadline and a 256-byte
+input/16 KiB output bound. No diagnostic request touches credentials, databases,
+NATS or the worker lease. Slow peers can deny diagnostic availability but cannot
+replace the worker or establish readiness. See [diagnostics](operator/diagnostics.md)
+for counters, stale-cache behavior, exit codes and dependency coverage.

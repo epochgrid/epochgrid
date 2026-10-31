@@ -252,16 +252,33 @@ struct Frame {
 enum Operation {
     Ready,
     Heartbeat,
-    Request { subject: String, payload: Vec<u8> },
-    Response { payload: Vec<u8> },
+    Request {
+        subject: String,
+        payload: Vec<u8>,
+    },
+    Response {
+        payload: Vec<u8>,
+    },
     Inspect,
-    Status { reconciled: bool, worker_live: bool },
+    Status {
+        reconciled: bool,
+        worker_live: bool,
+    },
+    Diagnose {
+        version: u16,
+    },
+    Diagnostic {
+        report: Box<epochgrid_core::diagnostics::Report>,
+    },
 }
 
 async fn read(stream: &mut UnixStream) -> Result<Frame> {
+    read_limit(stream, LIMIT).await
+}
+async fn read_limit(stream: &mut UnixStream, limit: usize) -> Result<Frame> {
     tokio::time::timeout(DEADLINE, async {
         let size = stream.read_u32().await? as usize;
-        ensure!(size > 0 && size <= LIMIT, "invalid IPC frame length");
+        ensure!(size > 0 && size <= limit, "invalid IPC frame length");
         let mut bytes = vec![0; size];
         stream.read_exact(&mut bytes).await?;
         let frame: Frame = serde_json::from_slice(&bytes)?;
@@ -319,7 +336,6 @@ impl Drop for Session {
 pub struct Server {
     pub requests: mpsc::Receiver<Request>,
     pub live: Arc<AtomicBool>,
-    pub last_seen: Arc<Mutex<Instant>>,
     task: tokio::task::JoinHandle<()>,
     status_task: tokio::task::JoinHandle<()>,
     _lock: File,
@@ -336,7 +352,7 @@ impl Drop for Server {
 }
 
 impl Server {
-    pub fn bind(bindings: &Bindings, reconciled: Arc<AtomicBool>) -> Result<Self> {
+    pub fn bind(bindings: &Bindings, runtime: Arc<crate::diagnostics::Runtime>) -> Result<Self> {
         bindings.validate()?;
         ensure!(
             uid() == bindings.authority_uid,
@@ -367,9 +383,9 @@ impl Server {
         let listener = UnixListener::bind(&bindings.socket)?;
         std::fs::set_permissions(&bindings.socket, std::fs::Permissions::from_mode(0o666))?;
         let (sender, requests) = mpsc::channel(1);
-        let live = Arc::new(AtomicBool::new(false));
+        let live = runtime.live.clone();
         let task_live = live.clone();
-        let last_seen = Arc::new(Mutex::new(Instant::now()));
+        let last_seen = runtime.last_seen.clone();
         let seen = last_seen.clone();
         let worker_uid = bindings.worker_uid;
         let authority_uid = bindings.authority_uid;
@@ -384,39 +400,69 @@ impl Server {
         }
         let status_listener = UnixListener::bind(&status_socket)?;
         std::fs::set_permissions(&status_socket, std::fs::Permissions::from_mode(0o666))?;
-        let status_live = live.clone();
-        let status_seen = last_seen.clone();
+        let status_runtime = runtime.clone();
+        let status_sender = sender.clone();
         let status_task = tokio::spawn(async move {
             loop {
-                let Ok((mut stream, _)) = status_listener.accept().await else {
-                    break;
+                let (mut stream, _) = match status_listener.accept().await {
+                    Ok(pair) => pair,
+                    Err(_) => {
+                        tracing::error!("diagnostic listener unavailable");
+                        break;
+                    }
                 };
-                if !stream
-                    .peer_cred()
-                    .is_ok_and(|peer| [worker_uid, authority_uid].contains(&peer.uid()))
-                {
+                let Ok(peer) = stream.peer_cred() else {
                     continue;
-                }
-                let _ = async {
-                    let request = read(&mut stream).await?;
-                    ensure!(
-                        request.sequence == 0 && matches!(request.operation, Operation::Inspect),
-                        "status request required"
+                };
+                let role = if peer.uid() == authority_uid {
+                    epochgrid_core::diagnostics::Role::Authority
+                } else if peer.uid() == worker_uid {
+                    epochgrid_core::diagnostics::Role::Control
+                } else {
+                    continue;
+                };
+                // One connection at a time, one total deadline, and a small request
+                // frame. Never touch the worker lease or the control session here.
+                let _ = tokio::time::timeout(DEADLINE, async {
+                    let request = read_limit(&mut stream, 256).await?;
+                    ensure!(request.sequence == 0, "status sequence required");
+                    let report = status_runtime.snapshot(
+                        role,
+                        status_sender.max_capacity() - status_sender.capacity(),
                     );
-                    let worker_live = status_live.load(Ordering::Acquire)
-                        && status_seen
-                            .lock()
-                            .is_ok_and(|seen| seen.elapsed() < DEADLINE);
-                    write(
-                        &mut stream,
-                        0,
-                        Operation::Status {
-                            reconciled: reconciled.load(Ordering::Acquire),
-                            worker_live,
-                        },
-                    )
-                    .await
-                }
+                    let response = match request.operation {
+                        Operation::Inspect => {
+                            let obs = report
+                                .observations
+                                .as_ref()
+                                .context("runtime unavailable")?;
+                            Operation::Status {
+                                reconciled: obs.reconciled,
+                                worker_live: obs.worker_live,
+                            }
+                        }
+                        Operation::Diagnose { version }
+                            if version == epochgrid_core::diagnostics::VERSION =>
+                        {
+                            Operation::Diagnostic {
+                                report: Box::new(report),
+                            }
+                        }
+                        _ => anyhow::bail!("unsupported status operation"),
+                    };
+                    let encoded = serde_json::to_vec(&Frame {
+                        version: VERSION,
+                        sequence: 0,
+                        operation: response,
+                    })?;
+                    ensure!(
+                        encoded.len() <= epochgrid_core::diagnostics::MAX_REPORT,
+                        "diagnostic output limit"
+                    );
+                    stream.write_u32(encoded.len() as u32).await?;
+                    stream.write_all(&encoded).await?;
+                    Ok::<_, anyhow::Error>(())
+                })
                 .await;
             }
         });
@@ -438,6 +484,7 @@ impl Server {
                     .await
                     .is_err()
                 {
+                    runtime.disconnects.increment();
                     tracing::warn!("control worker disconnected or invalid; admission closed");
                 }
             }
@@ -446,7 +493,6 @@ impl Server {
         Ok(Self {
             requests,
             live,
-            last_seen,
             task,
             status_task,
             _lock: lock,
@@ -482,6 +528,94 @@ async fn inspect(bindings: &Bindings) -> Result<bool> {
     })
     .await
     .context("role inspection deadline")?
+}
+
+/// Existing public bindings only: deliberately no Vault lookup or runtime lock.
+fn diagnostic_bindings(home: &Path, role: epochgrid_core::diagnostics::Role) -> Result<Bindings> {
+    use epochgrid_core::diagnostics::Role;
+    use std::io::Read;
+    owned(home, uid(), true)?;
+    let path = home.join(if role == Role::Authority {
+        BINDINGS
+    } else {
+        "worker.json"
+    });
+    owned(&path, uid(), true)?;
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags((rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32)
+        .open(path)?;
+    let meta = file.metadata()?;
+    ensure!(
+        meta.is_file() && meta.uid() == uid() && meta.mode() & 0o077 == 0,
+        "invalid role file"
+    );
+    let mut bytes = Vec::new();
+    file.take(8193).read_to_end(&mut bytes)?;
+    ensure!(bytes.len() <= 8192, "role configuration too large");
+    let bindings = match role {
+        Role::Authority => serde_json::from_slice::<Bindings>(&bytes)?,
+        Role::Control => {
+            let config: WorkerConfig = serde_json::from_slice(&bytes)?;
+            ensure!(
+                config.version == VERSION,
+                "unsupported worker configuration"
+            );
+            config.bindings
+        }
+    };
+    bindings.validate()?;
+    ensure!(
+        uid()
+            == match role {
+                Role::Authority => bindings.authority_uid,
+                Role::Control => bindings.worker_uid,
+            },
+        "wrong role account"
+    );
+    Ok(bindings)
+}
+
+pub async fn diagnostic_status(
+    home: &Path,
+    role: epochgrid_core::diagnostics::Role,
+) -> epochgrid_core::diagnostics::Report {
+    use epochgrid_core::diagnostics::{MAX_REPORT, Reason, Report, VERSION};
+    let bindings = match diagnostic_bindings(home, role) {
+        Ok(bindings) => bindings,
+        Err(_) => return Report::unknown(role, Reason::ConfigurationInvalid),
+    };
+    let result = tokio::time::timeout(DEADLINE, async {
+        let mut stream = UnixStream::connect(status_path(&bindings.socket))
+            .await
+            .map_err(|_| Reason::AuthorityUnavailable)?;
+        if !stream
+            .peer_cred()
+            .is_ok_and(|p| p.uid() == bindings.authority_uid)
+        {
+            return Err(Reason::AuthorityUnavailable);
+        }
+        write(&mut stream, 0, Operation::Diagnose { version: VERSION })
+            .await
+            .map_err(|_| Reason::AuthorityUnavailable)?;
+        let frame = read_limit(&mut stream, MAX_REPORT)
+            .await
+            .map_err(|_| Reason::UnsupportedResponse)?;
+        if frame.sequence != 0 {
+            return Err(Reason::UnsupportedResponse);
+        }
+        let Operation::Diagnostic { report } = frame.operation else {
+            return Err(Reason::UnsupportedResponse);
+        };
+        let bytes = serde_json::to_vec(&report).map_err(|_| Reason::UnsupportedResponse)?;
+        Report::parse(&bytes, role).map_err(|_| Reason::UnsupportedResponse)
+    })
+    .await;
+    match result {
+        Ok(Ok(report)) => report,
+        Ok(Err(reason)) => Report::unknown(role, reason),
+        Err(_) => Report::unknown(role, Reason::ObservationTimeout),
+    }
 }
 
 fn worker_config(home: &Path) -> Result<WorkerConfig> {
@@ -746,6 +880,75 @@ pub async fn worker(home: &Path, url: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn diagnostics_are_bounded_private_and_do_not_renew_the_lease() -> Result<()> {
+        use epochgrid_core::diagnostics::{Reason, Report, Role};
+        let root = tempfile::tempdir()?;
+        let home = root.path().join("home");
+        std::fs::create_dir(&home)?;
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700))?;
+        let bindings = Bindings {
+            version: VERSION,
+            authority_uid: uid(),
+            worker_uid: if uid() == 65534 { 65533 } else { 65534 },
+            worker_nkey: nkeys::KeyPair::new_user().public_key(),
+            socket: root.path().join("control.sock"),
+        };
+        publish(&home.join(BINDINGS), &serde_json::to_vec(&bindings)?)?;
+        let runtime = Arc::new(crate::diagnostics::Runtime::new(Arc::new(
+            AtomicBool::new(true),
+        ))?);
+        runtime.live.store(true, Ordering::Release);
+        *runtime.last_seen.lock().unwrap() = Instant::now() - Duration::from_secs(6);
+        let lease = *runtime.last_seen.lock().unwrap();
+        let _server = Server::bind(&bindings, runtime.clone())?;
+        let report = diagnostic_status(&home, Role::Authority).await;
+        assert_eq!(report.exit_code(), 1);
+        assert!(report.reasons.contains(&Reason::WorkerLeaseExpired));
+        assert_eq!(*runtime.last_seen.lock().unwrap(), lease);
+        assert!(!inspect(&bindings).await?);
+        Report::parse(&serde_json::to_vec(&report)?, Role::Authority)?;
+        assert!(!home.join("credentials.json").exists());
+        for operation in [Operation::Diagnose { version: 999 }, Operation::Ready] {
+            let mut stream = UnixStream::connect(status_path(&bindings.socket)).await?;
+            write(&mut stream, 0, operation).await?;
+            assert!(
+                read_limit(&mut stream, epochgrid_core::diagnostics::MAX_REPORT)
+                    .await
+                    .is_err()
+            );
+        }
+        let mut oversized = UnixStream::connect(status_path(&bindings.socket)).await?;
+        oversized.write_u32(257).await?;
+        assert!(oversized.read_u8().await.is_err());
+        let mut malformed = UnixStream::connect(status_path(&bindings.socket)).await?;
+        let marker = br#"{"secret":"PRIVATE_MARKER"}"#;
+        malformed.write_u32(marker.len() as u32).await?;
+        malformed.write_all(marker).await?;
+        assert!(malformed.read_u8().await.is_err());
+        // A slow inspection occupies only its own bounded listener task.
+        let _slow = UnixStream::connect(status_path(&bindings.socket)).await?;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(!runtime.ready());
+        assert_eq!(*runtime.last_seen.lock().unwrap(), lease);
+        let wrong = diagnostic_status(&home, Role::Control).await;
+        assert_eq!(wrong.exit_code(), 2);
+        assert!(!wrong.human().contains("PRIVATE_MARKER"));
+        Ok(())
+    }
+    #[tokio::test]
+    async fn missing_diagnostics_never_initialize_or_expose_paths() -> Result<()> {
+        use epochgrid_core::diagnostics::{Reason, Role};
+        let root = tempfile::tempdir()?;
+        let home = root.path().join("PRIVATE_MARKER");
+        for role in [Role::Authority, Role::Control] {
+            let report = diagnostic_status(&home, role).await;
+            assert_eq!(report.reasons, vec![Reason::ConfigurationInvalid]);
+            assert!(!report.human().contains("PRIVATE_MARKER"));
+            assert!(!home.exists());
+        }
+        Ok(())
+    }
     #[tokio::test]
     async fn stale_requests_are_discarded_and_closed_listener_is_terminal() -> Result<()> {
         let (send, mut receive) = mpsc::channel(2);

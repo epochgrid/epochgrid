@@ -53,3 +53,5 @@ pub mod tls;
 pub mod secrets;
 
 pub(crate) mod database;
+
+pub mod diagnostics;
