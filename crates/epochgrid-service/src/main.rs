@@ -1,4 +1,5 @@
 mod deployment_setup;
+mod diagnostics;
 mod dynamic;
 mod roles;
 use anyhow::{Context, Result};
@@ -36,6 +37,13 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum ServiceCommand {
+    /// Inspect the running authority without database, keyring or broker access.
+    Status {
+        #[arg(long, value_enum)]
+        role: StatusRole,
+        #[arg(long, value_enum, default_value = "human")]
+        format: ReportFormat,
+    },
     /// Provision the control worker connection in this account's keyring.
     WorkerInit,
     /// Bind an existing backend to a separate worker account (service stopped).
@@ -124,6 +132,11 @@ enum ServiceCommand {
     },
 }
 #[derive(Clone, Copy, ValueEnum)]
+enum StatusRole {
+    Authority,
+    Control,
+}
+#[derive(Clone, Copy, ValueEnum)]
 enum ReportFormat {
     Human,
     Json,
@@ -131,6 +144,18 @@ enum ReportFormat {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    if let Some(ServiceCommand::Status { role, format }) = &args.command {
+        let role = match role {
+            StatusRole::Authority => epochgrid_core::diagnostics::Role::Authority,
+            StatusRole::Control => epochgrid_core::diagnostics::Role::Control,
+        };
+        let report = roles::diagnostic_status(&args.home, role).await;
+        match format {
+            ReportFormat::Human => print!("{}", report.human()),
+            ReportFormat::Json => println!("{}", serde_json::to_string_pretty(&report)?),
+        }
+        std::process::exit(report.exit_code());
+    }
     if let Some(ServiceCommand::ValidateControl { online, format, .. }) = &args.command {
         let report = roles::validate(&args.home, true, *online, args.server.as_deref()).await;
         match format {
@@ -196,6 +221,9 @@ async fn main() -> Result<()> {
     );
     if let Some(command) = args.command {
         return match command {
+            ServiceCommand::Status { .. } => {
+                unreachable!("status handled before runtime initialization")
+            }
             ServiceCommand::WorkerInit => roles::worker_init(&args.home),
             ServiceCommand::RoleBind {
                 auth_config,

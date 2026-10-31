@@ -615,7 +615,27 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
         &root.join("service.log"),
     )?;
     backend_ready(root, &mut service).await?;
+    diagnostic_status(root, 1).await?;
     worker.start().await?;
+    let original_status = diagnostic_status(root, 0).await?;
+    let observed_capacity = original_status
+        .observations
+        .as_ref()
+        .and_then(|o| o.capacity.as_ref())
+        .context("authority capacity observation missing")?;
+    ensure!(
+        observed_capacity.availability == epochgrid_core::diagnostics::Availability::Current
+            && observed_capacity
+                .usage
+                .as_ref()
+                .is_some_and(|u| u.database_bytes.used > 0),
+        "capacity usage was not collected"
+    );
+    eprintln!(
+        "diagnostic capacity collection_ms={:?}",
+        observed_capacity.collection_ms
+    );
+    let original_instance = original_status.instance;
     crate::role_fixture::Worker::check_authority_permissions(root, &urls[0]).await?;
     validate_offline(root, &urls[0], true).await?;
     validate_online(root, &urls, true, None).await?;
@@ -808,12 +828,14 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
         after.messages == before.messages && after.first_sequence == before.first_sequence,
         "quota exhaustion evicted accepted history"
     );
+    diagnostic_status(root, 0).await?;
     contains(root, "alice", b"retained across broker quota")?;
     validate_online(root, &urls[..1], false, Some("resource_incompatible")).await?;
     // Only the fixture's operator credential restores the declared capacity.
     js.update_stream(chat_config).await?;
     command(root, &urls[0], "alice", &["channel", "flush"], &[]).await?;
     sync(root, &urls[0], "bob").await?;
+    diagnostic_status(root, 0).await?;
     contains(root, "bob", b"retained across broker quota")?;
     contains(root, "bob", b"before broker loss")?;
     validate_online(root, &urls[..1], true, None).await?;
@@ -870,6 +892,72 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
         "capacity change altered native KV history"
     );
 
+    // A new retained registration cannot fit the constrained transparency
+    // snapshot. Preserve the committed registry intent while admission is closed,
+    // then recover the same home after an explicit operator capacity increase.
+    let mut pending_stream = js.get_stream("KV_TRANSPARENCY").await?;
+    let pending_info = pending_stream.info().await?.clone();
+    let mut constrained = pending_info.config.clone();
+    constrained.max_bytes = pending_info.state.bytes as i64 + 128;
+    js.update_stream(constrained).await?;
+    let token = AuthRegistry::open(&root.join("backend"))?.invite("diagnostic-device", 120)?;
+    let rejected = tls::run(
+        tls::cli(
+            root,
+            &urls[0],
+            "diagnostic-device",
+            Some(&root.join("ca.pem")),
+            false,
+        )
+        .args(["identity", "enroll"]),
+        token.as_bytes(),
+    )
+    .await?;
+    ensure!(
+        !rejected.status.success(),
+        "quota-blocked enrollment unexpectedly succeeded"
+    );
+    let pending = diagnostic_status(root, 1).await?;
+    ensure!(
+        pending
+            .reasons
+            .contains(&epochgrid_core::diagnostics::Reason::ReconciliationPending),
+        "missing pending-reconciliation reason"
+    );
+    ensure!(
+        pending
+            .observations
+            .as_ref()
+            .is_some_and(|o| o.reconciliation_failure > 0),
+        "repair failure was not observed"
+    );
+    js.update_stream(pending_info.config).await?;
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let output = tls::run(
+                Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+                    .arg("--home")
+                    .arg(root.join("backend"))
+                    .args(["status", "--role", "authority", "--format", "json"]),
+                &[],
+            )
+            .await?;
+            if output.status.success() {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .context("quota recovery did not reopen admission")??;
+    let restored = diagnostic_status(root, 0).await?;
+    ensure!(
+        restored.instance == original_instance,
+        "quota recovery replaced authority state"
+    );
+    let retained = IdentityStore::open(&root.join("diagnostic-device"))?.registration()?;
+    AuthRegistry::open(&root.join("backend"))?.authorize(&retained.payload.nats_public_key)?;
+
     // Every node must support admission, not just the seed server.
     for url in &urls {
         command(root, url, "alice", &["identity", "register"], &[]).await?;
@@ -913,6 +1001,14 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     // Require explicit server permission errors, not generic request timeouts.
     let alice_key = IdentityStore::open(&root.join("alice"))?.nkey()?;
     worker.stop().await?;
+    let stopped = diagnostic_status(root, 1).await?;
+    ensure!(
+        stopped
+            .observations
+            .as_ref()
+            .is_some_and(|o| !o.worker_live),
+        "worker loss diagnostics"
+    );
     validate_online(root, &urls[..1], false, Some("role_not_ready")).await?;
     denied_admission(root, &urls[0], Some(&alice_key)).await?;
     ensure!(
@@ -920,6 +1016,7 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
         "worker loss stopped authority"
     );
     worker.start().await?;
+    diagnostic_status(root, 0).await?;
     validate_online(root, &urls[..1], true, None).await?;
     let (errors, mut observed) = tokio::sync::mpsc::unbounded_channel();
     let options = async_nats::ConnectOptions::with_nkey(alice_key.seed()?)
@@ -1037,6 +1134,7 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     }
     drop(service);
     worker.set_running(false)?;
+    diagnostic_status(root, 2).await?;
     // An available broker with no Auth Callout service must reject fresh admission.
     denied_admission(root, &urls[survivor], Some(&alice_key))
         .await
@@ -1053,7 +1151,13 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
         &root.join("service.log"),
     )?;
     backend_ready(root, &mut service).await?;
+    diagnostic_status(root, 1).await?;
     worker.start().await?;
+    let restarted = diagnostic_status(root, 0).await?;
+    ensure!(
+        restarted.instance != original_instance,
+        "diagnostic instance survived restart"
+    );
     validate_offline(root, &urls[0], true).await?;
     validate_online(root, &urls, true, None).await?;
     sync(root, &urls[survivor], "bob").await?;
@@ -1148,4 +1252,37 @@ async fn operator_jwt_standalone() -> Result<()> {
 #[ignore = "run verify.sh byo-nats"]
 async fn operator_jwt_cluster() -> Result<()> {
     qualify(true, 3).await
+}
+
+/// No endpoint, keyring, or database needed for the local operational snapshot.
+async fn diagnostic_status(
+    root: &Path,
+    expected: i32,
+) -> Result<epochgrid_core::diagnostics::Report> {
+    use epochgrid_core::diagnostics::{Report, Role};
+    let result = tls::run(
+        Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+            .env(
+                "DBUS_SESSION_BUS_ADDRESS",
+                "unix:path=/nonexistent/PRIVATE_MARKER",
+            )
+            .env("EPOCHGRID_NATS_URL", "PRIVATE_MARKER")
+            .arg("--home")
+            .arg(root.join("backend"))
+            .args(["status", "--role", "authority", "--format", "json"]),
+        &[],
+    )
+    .await?;
+    ensure!(
+        result.status.code() == Some(expected),
+        "unexpected diagnostic exit: {}",
+        String::from_utf8_lossy(&result.stdout)
+    );
+    ensure!(result.stderr.is_empty(), "diagnostic stderr must be empty");
+    let report = Report::parse(&result.stdout, Role::Authority)?;
+    ensure!(
+        !String::from_utf8_lossy(&result.stdout).contains("PRIVATE_MARKER"),
+        "diagnostic disclosure"
+    );
+    Ok(report)
 }

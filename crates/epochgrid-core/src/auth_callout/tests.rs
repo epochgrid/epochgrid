@@ -328,3 +328,35 @@ fn maximum_group_grant_fits_signed_encrypted_response_budget() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn diagnostic_counters_observe_decisions_and_known_overload() -> Result<()> {
+    let mut f = Fixture::new()?;
+    let counters = std::sync::Arc::new(crate::diagnostics::Counters::default());
+    f.callout = Callout::new(f.config.clone())?.with_diagnostics(counters.clone());
+    let granted = f.request()?;
+    assert!(f.send(&granted, true)?.nats.error.is_empty());
+    let denied = f.request()?;
+    assert!(!f.send(&denied, false)?.nats.error.is_empty());
+    assert!(
+        f.callout
+            .respond(
+                &f.registry,
+                &f.server_x.public_key(),
+                &vec![0; wire::MAX_WIRE + 1],
+                true
+            )
+            .is_err()
+    );
+    f.callout.ingress = crate::capacity::RateLimit::new(1, 1, std::time::Instant::now());
+    assert!(f.callout.ingress.allow(std::time::Instant::now()));
+    assert!(f.send(&f.request()?, true).is_err());
+    let counts = counters.snapshot();
+    assert_eq!(counts.received, 4);
+    assert_eq!(counts.accepted, 1);
+    assert_eq!(counts.denied, 3);
+    assert_eq!(counts.rate_limited, 1);
+    assert_eq!(counts.malformed, 1);
+    assert_eq!(counts.timeout, 0);
+    Ok(())
+}

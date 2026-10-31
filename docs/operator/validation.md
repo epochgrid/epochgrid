@@ -185,3 +185,12 @@ budgets and discard-new policy exactly and require server `max_payload: 65536`.
 An M28 home must follow the [stopped capacity upgrade](capacity.md). Worker
 validation covers its own state and authenticated authority readiness; it does not
 read authority policy or claim to inspect server/account/filesystem quotas.
+
+## Runtime diagnostics
+
+Use [`status --role authority|control`](diagnostics.md) for a five-second local
+snapshot without database, keyring or broker access. Status reports readiness,
+worker lease, process counters and authority-only cached capacity usage; it does
+not replace validation. Both views are peer-authenticated authority observations.
+Validation report v1 and its minimal status exchange remain compatible. An unknown
+status result does not prove the process is stopped or identify a failed dependency.

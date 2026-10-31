@@ -25,8 +25,9 @@ No `v0.1.0-alpha.1` tag or production-ready release has been published.
 | 26 | Implemented; locally validated | BYO-NATS contract, operator-JWT adapter, standalone/R3 cluster qualification; cold CI pending |
 | 27 | Implemented; cold CI pending | Explicit initialization/export, offline/online validation, production startup admission gate and generated-artifact BYO fixtures |
 | 28 | Merged (#21); hosted CI passed | [Backend privilege separation plan](milestone-28-plan.md) and [role contract](backend-role-contract.md): isolated authority/control roles, least-privilege runtime grants and restart-safe admission |
-| 29 | Implemented; locally validated | [Capacity contract](operator/capacity.md), transactional limits and finite broker budgets; cold hosted CI pending |
-| 30–31 | Not started | Operational diagnostics and structured audit events |
+| 29 | Merged (#23); hosted CI passed | [Capacity contract](operator/capacity.md), transactional limits and finite broker budgets |
+| 30 | Implemented; locally validated; hosted CI pending | [Operational diagnostics](operator/diagnostics.md): bounded authenticated runtime status, aggregate observations and troubleshooting |
+| 31 | Not started | Structured security audit events, storage and export |
 | 32–34 | Not started | Official Linux artifacts, GHCR runtime image and release supply chain |
 | 35–38 | Not started | Broader adversarial suite, protocol/configuration freeze, first-run UX and operator documentation set |
 
@@ -55,8 +56,8 @@ See [TLS](operator/tls.md), [Auth Callout](operator/auth-callout.md),
 is merged. Milestone 26 (BYO-NATS qualification) is locally validated; milestone 27
 initialization/export, offline/online validation and production startup enforcement
 are implemented. See [deployment validation](operator/validation.md) for the
-pre-provisioning requirement and coverage limits. Milestone 28 is implemented;
-hosted CI remains pending. See the [role contract](backend-role-contract.md) and
+pre-provisioning requirement and coverage limits. Milestone 28 merged in PR #21;
+hosted CI passed as recorded in HANDOFF. See the [role contract](backend-role-contract.md) and
 [handoff](../HANDOFF.md) for the boundary and verification evidence.
 
 Post-MVP delivery includes a dedicated test and CI reliability focus under

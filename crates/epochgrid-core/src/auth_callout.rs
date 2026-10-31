@@ -186,6 +186,7 @@ struct Connect {
     auth_token: Option<wire::EnrollmentToken>,
 }
 pub struct Callout {
+    diagnostics: std::sync::Arc<crate::diagnostics::Counters>,
     issuer: KeyPair,
     encryption: XKey,
     config: Config,
@@ -203,6 +204,7 @@ impl Callout {
         );
         let encryption = XKey::from_seed(&config.encryption.read()?)?;
         Ok(Self {
+            diagnostics: std::sync::Arc::new(crate::diagnostics::Counters::default()),
             issuer,
             encryption,
             config,
@@ -230,6 +232,13 @@ impl Callout {
         self.worker = Some(worker);
         Ok(self)
     }
+    pub fn with_diagnostics(
+        mut self,
+        counters: std::sync::Arc<crate::diagnostics::Counters>,
+    ) -> Self {
+        self.diagnostics = counters;
+        self
+    }
     pub fn respond(
         &mut self,
         registry: &AuthRegistry,
@@ -237,14 +246,31 @@ impl Callout {
         encrypted: &[u8],
         devices_ready: bool,
     ) -> Result<Vec<u8>> {
+        self.diagnostics.received.increment();
+        let result = self.respond_inner(registry, server_xkey, encrypted, devices_ready);
+        if result.is_err() {
+            self.diagnostics.denied.increment();
+        }
+        result
+    }
+    fn respond_inner(
+        &mut self,
+        registry: &AuthRegistry,
+        server_xkey: &str,
+        encrypted: &[u8],
+        devices_ready: bool,
+    ) -> Result<Vec<u8>> {
+        if encrypted.len() > wire::MAX_WIRE {
+            self.diagnostics.malformed.increment();
+        }
         ensure!(
             encrypted.len() <= wire::MAX_WIRE,
             "oversized callout request"
         );
-        ensure!(
-            self.ingress.allow(std::time::Instant::now()),
-            "callout overload"
-        );
+        if !self.ingress.allow(std::time::Instant::now()) {
+            self.diagnostics.rate_limited.increment();
+            anyhow::bail!("callout overload");
+        }
         let peer = XKey::from_public_key(server_xkey)?;
         let plaintext = Zeroizing::new(self.encryption.open(encrypted, &peer)?);
         let request = Claims::<Request>::decode(std::str::from_utf8(&plaintext)?)
@@ -383,13 +409,15 @@ impl Callout {
                     "principal rate capacity exhausted"
                 );
                 let now = std::time::Instant::now();
-                ensure!(
-                    self.principals
-                        .entry(connect.nkey.clone())
-                        .or_insert_with(|| crate::capacity::RateLimit::new(4, 8, now))
-                        .allow(now),
-                    "principal admission overload"
-                );
+                if !self
+                    .principals
+                    .entry(connect.nkey.clone())
+                    .or_insert_with(|| crate::capacity::RateLimit::new(4, 8, now))
+                    .allow(now)
+                {
+                    self.diagnostics.rate_limited.increment();
+                    anyhow::bail!("principal admission overload");
+                }
                 user.nats
                     .permissions
                     .permissions
@@ -467,8 +495,14 @@ impl Callout {
         response.aud = Some(request.iss);
         response.exp = Some(expires);
         match result {
-            Ok(user) => response.nats.jwt = user.encode(&self.issuer)?,
-            Err(_) => response.nats.error = "EpochGrid admission denied".into(),
+            Ok(user) => {
+                response.nats.jwt = user.encode(&self.issuer)?;
+                self.diagnostics.accepted.increment();
+            }
+            Err(_) => {
+                response.nats.error = "EpochGrid admission denied".into();
+                self.diagnostics.denied.increment();
+            }
         }
         let encoded = response.encode(&self.issuer)?;
         ensure!(
