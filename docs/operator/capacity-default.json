@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "retained_users": 32,
+  "retained_devices": 32,
+  "devices_per_user": 8,
+  "retained_tokens": 256,
+  "retained_groups": 32,
+  "membership_edges": 512,
+  "groups_per_device": 16,
+  "pending_messages": 256,
+  "pending_bytes": 4194304,
+  "database_bytes": 268435456,
+  "recovery_bytes": 16777216,
+  "requests_per_second": 32,
+  "request_burst": 64,
+  "chat_bytes": 67108864,
+  "mailbox_bytes": 16777216,
+  "directory_bytes": 1048576,
+  "channels_bytes": 1048576,
+  "transparency_bytes": 1048576
+}

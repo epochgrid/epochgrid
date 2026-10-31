@@ -90,6 +90,10 @@ fn live_validation_duplicate_swapped_and_locked_credentials() -> Result<()> {
         &root.path().join("deployment.json"),
         &DeploymentManifest::new(1)?,
     )?;
+    save(
+        &root.path().join(crate::capacity::FILE),
+        &crate::capacity::Capacity::default(),
+    )?;
     let metadata = std::fs::read(root.path().join("credentials.json"))?;
     let database = std::fs::read(root.path().join("auth.sqlite"))?;
     assert!(offline(root.path(), &path, None).success);

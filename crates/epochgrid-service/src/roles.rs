@@ -663,6 +663,14 @@ pub async fn worker(home: &Path, url: &str) -> Result<()> {
         transport::connection_options(url, &key)?.connect(url),
     )
     .await??;
+    if epochgrid_core::tls::TlsConfig::from_env()?.profile
+        == epochgrid_core::tls::Profile::Production
+    {
+        ensure!(
+            client.server_info().max_payload == wire::MAX_WIRE,
+            "capacity contract requires server max_payload 65536"
+        );
+    }
     let mut controls = futures_util::stream::select(
         client.subscribe("epochgrid.v1.identity.*").await?,
         client.subscribe("epochgrid.v1.channel.*").await?,
@@ -705,6 +713,7 @@ pub async fn worker(home: &Path, url: &str) -> Result<()> {
     tracing::info!("EpochGrid control worker ready");
     loop {
         let (operation, reply) = tokio::select! {
+            biased;
             _ = tokio::signal::ctrl_c() => break,
             _ = heartbeat.tick() => (Operation::Heartbeat, None),
             message = controls.next() => {

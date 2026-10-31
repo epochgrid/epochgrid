@@ -294,3 +294,37 @@ fn operator_account_binding_and_signed_service_credential() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn maximum_group_grant_fits_signed_encrypted_response_budget() -> Result<()> {
+    let mut fixture = Fixture::new()?;
+    for i in 0..16 {
+        let gid = format!("{i:032x}");
+        fixture.registry.db.execute(
+            "INSERT INTO authorization_groups VALUES(?1,1,0,?2,X'')",
+            rusqlite::params![gid, fixture.device.public_key()],
+        )?;
+        fixture.registry.db.execute(
+            "INSERT INTO authorization_members VALUES(?1,?2,0)",
+            rusqlite::params![gid, fixture.device.public_key()],
+        )?;
+    }
+    fixture
+        .registry
+        .capacity
+        .check_registry(&fixture.registry.db)?;
+    let request = fixture.request()?;
+    let response = fixture.send(&request, true)?;
+    assert!(response.nats.error.is_empty());
+    let user = Claims::<User>::decode(&response.nats.jwt)?;
+    assert_eq!(user.nats.permissions.permissions.subscribe.allow.len(), 50);
+    let issuer = KeyPair::from_seed(&fixture.config.issuer.read()?)?;
+    let encoded = response.encode(&issuer)?;
+    // Includes a generous envelope/name/generation allowance beyond this fixture.
+    assert!(encoded.len() + 2048 < wire::MAX_WIRE);
+    eprintln!(
+        "capacity grant fixture: groups=16, signed_response_bytes={}",
+        encoded.len()
+    );
+    Ok(())
+}

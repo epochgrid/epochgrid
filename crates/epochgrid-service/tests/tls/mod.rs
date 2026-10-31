@@ -203,7 +203,7 @@ pub(super) fn daemon(mut command: Command, log: &Path) -> Result<Process> {
 }
 fn broker(root: &Path, port: u16, first: bool, leaf: &str) -> Result<Process> {
     let config = format!(
-        "listen: 127.0.0.1:{port}\njetstream {{store_dir: \"{}\"}}\ntls {{cert_file: \"{}\",key_file: \"{}\",min_version: \"1.2\",handshake_first: {first}}}\n{}",
+        "listen: 127.0.0.1:{port}\nmax_payload: 65536\njetstream {{store_dir: \"{}\"}}\ntls {{cert_file: \"{}\",key_file: \"{}\",min_version: \"1.2\",handshake_first: {first}}}\n{}",
         root.join("js").display(),
         root.join(format!("{leaf}.pem")).display(),
         root.join(format!("{leaf}.key")).display(),
@@ -384,7 +384,9 @@ async fn workflow() -> Result<()> {
     .connect(&url)
     .await?;
     let js = async_nats::jetstream::new(admin_client);
-    for resource in epochgrid_core::deployment::DeploymentManifest::new(1)?.resources() {
+    for resource in
+        epochgrid_core::deployment::DeploymentManifest::load(&root.join("backend"))?.resources()
+    {
         js.create_stream(resource).await?;
     }
     let mut worker = crate::role_fixture::Worker::setup(root, &url).await?;

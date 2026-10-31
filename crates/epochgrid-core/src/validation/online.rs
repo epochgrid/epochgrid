@@ -146,8 +146,8 @@ async fn resources(
     record(
         report,
         &format!("{prefix}.server"),
-        json!({"version":"2.14.5","minimum_max_payload":65536}),
-        if server.version == "2.14.5" && server.max_payload >= 65536 {
+        json!({"version":"2.14.5","max_payload":65536}),
+        if server.version == "2.14.5" && server.max_payload == 65536 {
             Ok(
                 json!({"version":"2.14.5","max_payload":server.max_payload,"discovered_endpoint_count":server.connect_urls.len()}),
             )
@@ -186,7 +186,7 @@ async fn resources(
                 record(
                     report,
                     &id,
-                    json!({"contract_version":1,"replicas":manifest.replicas()}),
+                    json!({"contract_version":2,"replicas":manifest.replicas()}),
                     if fields.is_empty() {
                         Ok(json!("compatible"))
                     } else {
@@ -273,8 +273,7 @@ pub async fn online(home: &Path, auth_config: &Path, endpoints: &[String]) -> Re
     // Re-resolve existing credentials only; no IdentityStore::open or initialization.
     let inputs = (|| -> anyhow::Result<_> {
         let config = Config::load(auth_config)?;
-        let manifest: DeploymentManifest =
-            serde_json::from_slice(&std::fs::read(home.join(crate::deployment::MANIFEST_FILE))?)?;
+        let manifest = DeploymentManifest::load(home)?;
         let reference = Vault::new(&home.join("control")).existing("device", Kind::User)?;
         anyhow::ensure!(
             reference.public_key == config.control_nkey,

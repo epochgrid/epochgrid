@@ -32,13 +32,14 @@ prove server identity, TLS reachability or operator route security.
 | --- | --- |
 | `local.home`, `local.control_home` | Existing backend-owned directories, no symlink, no group/other access |
 | `local.auth_config` | Existing private version-2 configuration in the backend home; existing semantic/JWT checks, including rejection of an incomplete operator setup |
-| `local.deployment_manifest` | Private version-1 manifest; explicit R1/R3; never created during validation |
+| `local.deployment_manifest` | Private replica manifest plus explicit capacity policy; R1/R3; never created during validation |
 | `local.permissions.auth.*`, `local.permissions.control.*` | Existing metadata/database files and present SQLite sidecars; backend ownership, regular file type and owner-only permissions |
 | `local.credentials.*` | Six existing Secret Service roles, matching metadata/configuration/control bindings, and independent IDs/public bindings |
+| `local.capacity` | Valid explicit policy and existing registry counts, record sizes and logical database pages within budget |
 | `local.database.auth` | Existing SQLCipher state, ready metadata, matching database role/key binding, integrity and foreign-key checks, complete auth schema version 2 |
 | `local.database.control` | Existing SQLCipher state/bindings/integrity, local schema version 8 and OpenMLS migration version 6, required tables/columns, signed service/laptop identity matching configuration and credentials |
 | `local.transport.inputs`, `local.transport.endpoint` | Shared TLS profile, usable trust roots, optional endpoint policy; no connection |
-| `coverage.network`, `coverage.operator` | Explicitly not checked: broker authentication, resources/replicas, server version/payload, route TLS, account isolation, signer authority, resolver lifecycle and capacity |
+| `coverage.network`, `coverage.operator` | Explicitly not checked: broker authentication, resources/replicas, server version/payload, route TLS, account isolation, signer authority, resolver lifecycle and physical capacity adequacy |
 
 The control registration's signature and identity binding are inspected without
 rejecting historical KeyPackages solely because they have expired. Schema checks
@@ -134,10 +135,10 @@ Local keyring/database checks retain their individual bounded waits.
 | `online.endpoints` | Explicit endpoint count |
 | `online.endpoints.N.auth` | Auth-service credential connection and flushed authenticated session |
 | `online.endpoints.N.jetstream` | Successful authenticated application-account JetStream API response |
-| `online.endpoints.N.server` | Qualified NATS version 2.14.5, max payload at least 65536; discovered endpoint count |
+| `online.endpoints.N.server` | Qualified NATS version 2.14.5, max payload exactly 65536; discovered endpoint count |
 | `online.endpoints.N.resources.NAME` | Existing CHAT, MAILBOX and all three KV backing streams against the shared manifest/contract, including KV history and replication |
 | `online.endpoints.N.resources.NAME.replicas` | Leader present for clustered resources, expected peer count, current/non-offline peers with no reported lag |
-| `coverage.discovery`, `coverage.operator` | Not certified: discovered endpoints, mutual route TLS, account isolation, signer scope, resolver lifecycle or capacity |
+| `coverage.discovery`, `coverage.operator` | Not certified: discovered endpoints, mutual route TLS, account isolation, signer scope, resolver lifecycle or physical capacity adequacy |
 
 Failure codes distinguish `permission_denied`, `authentication_denied`, `timeout`,
 `endpoint_unavailable`, `service_unavailable`, `tls_failed`, `resource_missing`,
@@ -174,3 +175,13 @@ and run offline validation before production startup. Do not reinitialize establ
 keys or databases. Wait for replica recovery before restarting into a degraded
 cluster: the gate requires all declared replicas healthy. This is a startup gate,
 not a continuous configuration monitor; use online validation after changes.
+
+## Capacity validation
+
+Milestone 29 requires a valid `capacity.json`. Offline `local.capacity` inspects
+existing encrypted registry counts, registration sizes and logical database usage
+without provisioning or migration. Online checks compare finite byte/consumer
+budgets and discard-new policy exactly and require server `max_payload: 65536`.
+An M28 home must follow the [stopped capacity upgrade](capacity.md). Worker
+validation covers its own state and authenticated authority readiness; it does not
+read authority policy or claim to inspect server/account/filesystem quotas.

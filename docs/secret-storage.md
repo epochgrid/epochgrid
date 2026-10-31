@@ -187,3 +187,12 @@ never opens another Auth Callout listener or creates credentials. Production
 startup also requires successful local validation before bootstrap; resource
 compatibility and health then gate device admission. See
 [deployment validation](operator/validation.md).
+
+## Storage capacity
+
+The [capacity contract](operator/capacity.md) adds logical database page budgets
+and a revocation/recovery reserve. Writes that exceed a budget roll back inside
+the SQLCipher transaction. These checks neither replace filesystem quotas nor
+bound WAL/temporary files. Keep physical headroom; actual disk-full errors may
+prevent even reserved recovery. Never recreate identities or delete history to
+work around capacity exhaustion.

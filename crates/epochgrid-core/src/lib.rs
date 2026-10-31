@@ -1,4 +1,5 @@
 pub mod authorization;
+pub mod capacity;
 pub mod delivery;
 pub mod deployment;
 pub mod groups;

@@ -268,3 +268,14 @@ TLS-first protects it too. Reconnect keeps certificate verification enabled, but
 changing a trust bundle requires a new process/connection configuration. The alpha
 has no custom certificate pinning, CRL distribution or mandatory mTLS. Local state is protected separately by Milestone 25 SQLCipher storage; TLS does not
 complete the broader [release gates](milestones.md).
+
+## Resource exhaustion
+
+The [capacity contract](operator/capacity.md) bounds retained registry growth,
+normal outbox work, subscription counts and operator-owned broker storage. Quota
+rejection preserves accepted state; signed snapshots remain complete. Authority
+checks apply even to a compromised forwarding worker. Unauthenticated ingress
+uses constant-sized rate state, and principal buckets are allocated only after
+device authentication. Sustained overload can still deny service and backend
+reconnection; closed admission, monotonic leases and explicit recovery remain
+required. Logical page and payload budgets are not physical memory/disk quotas.

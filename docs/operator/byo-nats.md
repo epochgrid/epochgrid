@@ -155,10 +155,10 @@ already-running backend.
 | KV `TRANSPARENCY` | `$KV.TRANSPARENCY.>` | File storage, history 1, maximum value size 65536; append-only signed records use distinct keys |
 
 Set replicas to 1 for standalone or 3 for **all five** streams/KV backing streams
-in the qualified cluster. Server `max_payload` must accommodate 65536-byte wire
+in the qualified cluster. Server `max_payload` must be exactly 65536 for the bounded wire
 messages. Do not add subject transforms, TTL/age eviction, interest/workqueue
 retention, or external publishers that alter protocol history. Storage quotas must
-cover the intended retention period; unlimited test defaults are not capacity
+cover the intended retention period; finite fixture defaults are not capacity
 planning. Milestone 29 will address broader resource bounds.
 
 The backend creates `device_<public NKey>` pull durables on CHAT and MAILBOX.
@@ -218,3 +218,7 @@ not developer state or host keyrings. See [role qualification](../backend-role-c
 Upstream contracts: [Auth Callout](https://docs.nats.io/learn/security/auth-callout),
 [pinned request/response validation](https://github.com/nats-io/nats-server/blob/v2.14.5/server/auth_callout.go),
 and [pinned operator/default-sentinel fixtures](https://github.com/nats-io/nats-server/blob/v2.14.5/server/auth_callout_test.go).
+
+Milestone 29 requires finite generated stream budgets and discard-new behavior;
+see [capacity sizing and the stopped upgrade](capacity.md). Account/server quotas
+and replica disk headroom remain operator-owned.

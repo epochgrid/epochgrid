@@ -1,3 +1,67 @@
+# Milestone 29 handoff — implementation and local verification
+
+The user requested implementing `docs/milestone-29-plan.md`, with a clean workspace
+and HANDOFF review before beginning. Both checks were completed. Work is on
+`feature/milestone-29-resource-bounds`, based on merged `origin/main` at `df23bb0`
+(PR #22). Milestone 28 merged as `a80be2e`; all checks in
+[CI run 40032719883](https://github.com/epochgrid/epochgrid/actions/runs/40032719883)
+passed. This supersedes the pending-merge/CI statements in the historical handoff.
+The original planning stash remains intact; only its plan was restored here.
+
+Implementation and required local verification are complete. See the
+[capacity contract and upgrade procedure](docs/operator/capacity.md) and
+[default policy](docs/operator/capacity-default.json). This adds validated public
+policies, transactional registry/outbox limits, bounded outbox batches, logical
+database budgets with recovery space, fixed NATS queues, monotonic global and
+verified-principal rate limits, finite broker exports/comparison, and explicit
+stopped backend/client policy installation. Original replica manifests remain
+stable; exported version-two manifests embed capacity. Runtime never administers
+streams. Protocol v1 and separate authority/worker UIDs/keyrings are preserved.
+
+The existing complete-snapshot wire format imposes a ceiling of 32 retained devices,
+including revoked identities; registration records are capped at 1536 bytes and
+grants at 16 groups per device. The measured maximum-name fixture uses 607 bytes
+per registration, 19,519 bytes for a 32-device signed audit and 8,319 bytes for full
+revocation. No history/evidence deletion or implicit replacement identities are
+used to regain capacity. Existing M28 state outside supported limits is refused,
+not truncated. Logical page checks do not establish physical disk/WAL/RSS limits.
+
+Local validation on 2026-10-24 passed formatting, warnings-denied workspace Clippy,
+build/doctests, all 130 unit tests (101 core, 14 client, 15 service), harness checks,
+three isolated live Secret Service checks, protected-state lifecycle/CLI checks,
+all retained NATS/TLS cases, Compose/CLI, main/relationship/participant TUI and
+focused dynamic join/reconnect. Final four-case BYO qualification passed:
+configuration R1 60.18s, configuration R3 72.84s, operator-JWT R1 71.73s and
+operator-JWT R3 84.41s. It includes real separate-UID overload, broker quota
+rejection, retained outbox/history, operator capacity restoration, KV replacement,
+restart/failover, revocation and unchanged resource ownership checks. Each flood
+sample received 40 replies from 512 requests; sampled authority RSS was unchanged
+at roughly 37 MiB. This is an observation, not a peak-memory guarantee.
+
+Evidence: `/tmp/epochgrid-m29-verify-complete.log` contains all general gates and
+stopped at the initial R3 KV fixture assumption. R3 needs incoming-record headroom
+for history-one replacement at a tight quota. The final fixture explicitly checks
+quota rejection and the unchanged committed revision, then successful replacement
+after an operator increase. All four corrected cases passed in
+`/tmp/epochgrid-m29-byo-final.log`. Only that fixture and documentation changed
+after the general gates; final Clippy/build also passed in
+`/tmp/epochgrid-m29-clippy-final.log` and `/tmp/epochgrid-m29-build-matrix.log`.
+Documentation links and patch whitespace pass.
+
+Earlier findings are retained: SQLCipher page size is returned as text; the capacity
+check now decodes it. The TLS fixture now explicitly configures `max_payload: 65536`.
+A concurrent quota test opens database handles before racing writes, avoiding the
+separate setup lock. One full unit run lost its disposable keyring daemon (control
+socket refused, followed by D-Bus reactivation), causing credential failures. Its
+root cause remains unestablished; log `/tmp/epochgrid-m29-verify-final.log` is kept.
+A fresh isolated capacity probe and the subsequent complete unit/protected-state
+gates passed. Existing SQLCipher mlock warnings remain; no memory-lock guarantee
+is claimed. TD-001/002/003 remain open. No automatic retry or quarantine was added.
+
+Cold hosted CI remains required before merge. On 2026-10-30 the user authorized
+staging, committing and pushing milestone 29 and will prepare the PR. No merge or
+release is authorized. The historical handoff follows.
+
 # Milestone 28 handoff — implementation and local verification
 
 PR #21 hosted CI follow-up: [run 40030107715](https://github.com/epochgrid/epochgrid/actions/runs/40030107715)

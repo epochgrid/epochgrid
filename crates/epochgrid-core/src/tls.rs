@@ -133,6 +133,10 @@ impl TlsConfig {
         .with_no_client_auth())
     }
     pub fn apply(&self, url: &str, options: ConnectOptions) -> Result<ConnectOptions> {
+        let options = options
+            .subscription_capacity(crate::capacity::SUBSCRIPTION_MESSAGES)
+            .client_capacity(crate::capacity::SUBSCRIPTION_MESSAGES)
+            .connection_timeout(std::time::Duration::from_secs(5));
         if !self.validate_endpoint(url)? {
             return Ok(options);
         }

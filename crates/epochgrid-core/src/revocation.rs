@@ -284,7 +284,7 @@ impl IdentityStore {
     }
     pub fn accept_revocations(&self, log: &RevocationLog, registrations: &Snapshot) -> Result<()> {
         log.validate(registrations)?;
-        self.transaction(|| {
+        self.recovery_transaction(|| {
             let previous: Option<Vec<u8>> = self.connection.query_row("SELECT checkpoint FROM revocation_checkpoint WHERE id=1",[],|r|r.get(0)).optional()?;
             if let Some(bytes) = previous {
                 let previous: Checkpoint = postcard::from_bytes(&bytes)?;

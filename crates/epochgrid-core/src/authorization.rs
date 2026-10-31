@@ -57,6 +57,19 @@ impl AuthRegistry {
         );
         nkeys::KeyPair::from_public_key(&update.signer)?
             .verify(&update.bytes()?, &signed.signature)?;
+        self.authorize(&update.signer)?;
+        ensure!(
+            self.principal_rates.contains_key(&update.signer) || self.principal_rates.len() < 32,
+            "policy principal capacity exhausted"
+        );
+        let now = std::time::Instant::now();
+        ensure!(
+            self.principal_rates
+                .entry(update.signer.clone())
+                .or_insert_with(|| crate::capacity::RateLimit::new(4, 16, now))
+                .allow(now),
+            "policy principal overload"
+        );
         let bytes = postcard::to_allocvec(update)?;
         // IMMEDIATE excludes concurrent enrollment/revocation/policy writers during checks.
         self.db.execute_batch("BEGIN IMMEDIATE")?;
@@ -121,6 +134,8 @@ impl AuthRegistry {
                 )?;
                 self.db.execute("UPDATE devices SET authorization_generation=authorization_generation+1 WHERE nkey=?1", [&member.nkey])?;
             }
+            self.capacity.check_registry(&self.db)?;
+            self.capacity.check_database(&self.db, false)?;
             Ok(generation)
         })();
         match result {

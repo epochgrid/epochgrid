@@ -191,6 +191,8 @@ pub struct Callout {
     config: Config,
     seen: BTreeMap<String, i64>,
     worker: Option<String>,
+    ingress: crate::capacity::RateLimit,
+    principals: BTreeMap<String, crate::capacity::RateLimit>,
 }
 impl Callout {
     pub fn new(config: Config) -> Result<Self> {
@@ -206,7 +208,17 @@ impl Callout {
             config,
             seen: BTreeMap::new(),
             worker: None,
+            ingress: crate::capacity::RateLimit::new(32, 64, std::time::Instant::now()),
+            principals: BTreeMap::new(),
         })
+    }
+    pub fn with_capacity(mut self, policy: &crate::capacity::Capacity) -> Self {
+        self.ingress = crate::capacity::RateLimit::new(
+            policy.requests_per_second,
+            policy.request_burst,
+            std::time::Instant::now(),
+        );
+        self
     }
     /// Bind a distinct forwarding identity. Only the authority selects this key.
     pub fn with_worker(mut self, worker: String) -> Result<Self> {
@@ -228,6 +240,10 @@ impl Callout {
         ensure!(
             encrypted.len() <= wire::MAX_WIRE,
             "oversized callout request"
+        );
+        ensure!(
+            self.ingress.allow(std::time::Instant::now()),
+            "callout overload"
         );
         let peer = XKey::from_public_key(server_xkey)?;
         let plaintext = Zeroizing::new(self.encryption.open(encrypted, &peer)?);
@@ -271,9 +287,10 @@ impl Callout {
         self.seen.retain(|_, expires| *expires > timestamp);
         let connection = format!("{}:{}", request.iss, request.nats.user_nkey);
         ensure!(
-            self.seen.len() < 4096 && !self.seen.contains_key(&connection),
-            "replayed connection request or capacity exceeded"
+            !self.seen.contains_key(&connection),
+            "replayed connection request"
         );
+        ensure!(self.seen.len() < 4096, "callout replay capacity exhausted");
         self.seen.insert(connection, expires);
         let result = (|| -> Result<Claims<User>> {
             let connect = &request.nats.connect_opts;
@@ -360,6 +377,19 @@ impl Callout {
                 }
             } else {
                 let authorization = registry.authorize(&connect.nkey)?;
+                // Only retained, authenticated devices occupy principal rate state.
+                ensure!(
+                    self.principals.contains_key(&connect.nkey) || self.principals.len() < 32,
+                    "principal rate capacity exhausted"
+                );
+                let now = std::time::Instant::now();
+                ensure!(
+                    self.principals
+                        .entry(connect.nkey.clone())
+                        .or_insert_with(|| crate::capacity::RateLimit::new(4, 8, now))
+                        .allow(now),
+                    "principal admission overload"
+                );
                 user.nats
                     .permissions
                     .permissions
@@ -440,8 +470,13 @@ impl Callout {
             Ok(user) => response.nats.jwt = user.encode(&self.issuer)?,
             Err(_) => response.nats.error = "EpochGrid admission denied".into(),
         }
+        let encoded = response.encode(&self.issuer)?;
+        ensure!(
+            encoded.len() <= wire::MAX_WIRE - 256,
+            "authorization response capacity exceeded"
+        );
         self.encryption
-            .seal(response.encode(&self.issuer)?.as_bytes(), &peer)
+            .seal(encoded.as_bytes(), &peer)
             .map_err(Into::into)
     }
 }

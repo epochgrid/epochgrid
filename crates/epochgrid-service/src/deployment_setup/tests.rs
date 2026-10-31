@@ -294,3 +294,64 @@ fn offline_validation_accepts_established_state_and_rejects_unsafe_inputs() -> R
     }
     Ok(())
 }
+
+#[test]
+fn stopped_capacity_upgrade_preserves_state_and_rejects_lower_usage_and_edits() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let home = root.path().join("backend");
+    initialize(&home, &defaults())?;
+    let auth = home.join("auth.json");
+    let mut registry = AuthRegistry::open(&home)?;
+    registry.invite("alice", 60)?;
+    registry.invite("bob", 60)?;
+    drop(registry);
+    let original_manifest = fs::read(home.join(MANIFEST_FILE))?;
+    let original_credentials = fs::read(home.join("credentials.json"))?;
+    let original_auth = fs::read(&auth)?;
+    // Model an established M28 home, retaining its original replica manifest.
+    fs::remove_file(home.join(epochgrid_core::capacity::FILE))?;
+    let policy_path = root.path().join("policy.json");
+    let policy = epochgrid_core::capacity::Capacity::default();
+    fs::write(&policy_path, serde_json::to_vec(&policy)?)?;
+    let output = root.path().join("capacity-artifacts");
+    let runtime = crate::roles::runtime_lock(&home)?;
+    assert!(capacity_export(&home, &auth, &policy_path, &output, false).is_err());
+    assert!(!output.exists());
+    drop(runtime);
+    capacity_export(&home, &auth, &policy_path, &output, false)?;
+    capacity_export(&home, &auth, &policy_path, &output, false)?;
+    assert_eq!(fs::read(home.join(MANIFEST_FILE))?, original_manifest);
+    assert_eq!(
+        fs::read(home.join("credentials.json"))?,
+        original_credentials
+    );
+    assert_eq!(fs::read(&auth)?, original_auth);
+    let installed = fs::read(home.join(epochgrid_core::capacity::FILE))?;
+    let mut lower = policy.clone();
+    lower.retained_users = 1;
+    fs::write(&policy_path, serde_json::to_vec(&lower)?)?;
+    assert!(capacity_export(&home, &auth, &policy_path, &root.path().join("lower"), true).is_err());
+    assert_eq!(
+        fs::read(home.join(epochgrid_core::capacity::FILE))?,
+        installed
+    );
+    fs::write(&policy_path, serde_json::to_vec(&policy)?)?;
+    fs::write(output.join("CHAT.json"), "operator edit")?;
+    assert!(capacity_export(&home, &auth, &policy_path, &output, false).is_err());
+    assert_eq!(
+        fs::read_to_string(output.join("CHAT.json"))?,
+        "operator edit"
+    );
+    let mut raised = policy;
+    raised.chat_bytes *= 2;
+    fs::write(&policy_path, serde_json::to_vec(&raised)?)?;
+    capacity_export(
+        &home,
+        &auth,
+        &policy_path,
+        &root.path().join("raised"),
+        true,
+    )?;
+    assert_eq!(epochgrid_core::capacity::Capacity::load(&home)?, raised);
+    Ok(())
+}

@@ -68,7 +68,7 @@ fn sql_error(error: anyhow::Error, fallback: InspectionError) -> anyhow::Error {
     }
 }
 
-pub(super) fn inspect(root: &Path, role: &str) -> Result<Connection> {
+pub(crate) fn inspect(root: &Path, role: &str) -> Result<Connection> {
     ensure!(
         matches!(role, "identity" | "auth"),
         InspectionError::MetadataInvalid

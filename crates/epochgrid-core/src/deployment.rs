@@ -13,6 +13,8 @@ pub const MANIFEST_FILE: &str = "deployment.json";
 pub struct DeploymentManifest {
     version: u32,
     replicas: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    capacity: Option<crate::capacity::Capacity>,
 }
 
 #[derive(Deserialize)]
@@ -20,17 +22,19 @@ pub struct DeploymentManifest {
 struct ManifestInput {
     version: u32,
     replicas: usize,
+    #[serde(default)]
+    capacity: Option<crate::capacity::Capacity>,
 }
 
 impl TryFrom<ManifestInput> for DeploymentManifest {
     type Error = anyhow::Error;
 
     fn try_from(input: ManifestInput) -> Result<Self> {
-        ensure!(
-            input.version == 1,
-            "unsupported deployment manifest version"
-        );
-        Self::new(input.replicas)
+        match (input.version, input.capacity) {
+            (1, None) => Self::new(input.replicas),
+            (2, Some(capacity)) => Self::bounded(input.replicas, capacity),
+            _ => anyhow::bail!("unsupported deployment manifest version/capacity"),
+        }
     }
 }
 
@@ -43,9 +47,34 @@ impl DeploymentManifest {
         Ok(Self {
             version: 1,
             replicas,
+            capacity: None,
         })
     }
 
+    pub fn bounded(replicas: usize, capacity: crate::capacity::Capacity) -> Result<Self> {
+        capacity.validate()?;
+        let mut manifest = Self::new(replicas)?;
+        manifest.version = 2;
+        manifest.capacity = Some(capacity);
+        Ok(manifest)
+    }
+    pub fn load(home: &std::path::Path) -> Result<Self> {
+        let manifest: Self = serde_json::from_slice(&std::fs::read(home.join(MANIFEST_FILE))?)?;
+        let capacity = crate::capacity::Capacity::load(home)?;
+        if let Some(declared) = &manifest.capacity {
+            ensure!(
+                declared == &capacity,
+                "capacity differs from deployment manifest"
+            );
+            Ok(manifest)
+        } else {
+            // Explicit M28 upgrade: the original v1 manifest remains unchanged.
+            Self::bounded(manifest.replicas(), capacity)
+        }
+    }
+    pub fn capacity(&self) -> Option<&crate::capacity::Capacity> {
+        self.capacity.as_ref()
+    }
     pub fn replicas(&self) -> usize {
         self.replicas
     }
@@ -97,6 +126,25 @@ impl DeploymentManifest {
                 ..Default::default()
             });
         }
+        if let Some(capacity) = &self.capacity {
+            for config in &mut resources {
+                config.max_bytes = match config.name.as_str() {
+                    "CHAT" => capacity.chat_bytes,
+                    "MAILBOX" => capacity.mailbox_bytes,
+                    "KV_IDENTITIES" => capacity.directory_bytes,
+                    "KV_CHANNELS" => capacity.channels_bytes,
+                    "KV_TRANSPARENCY" => capacity.transparency_bytes,
+                    _ => unreachable!(),
+                } as i64;
+                config.max_consumers = if config.name.starts_with("KV_") {
+                    8
+                } else {
+                    capacity.retained_devices as i32
+                };
+                config.discard = DiscardPolicy::New;
+                config.max_message_size = 65536;
+            }
+        }
         resources
     }
 
@@ -108,6 +156,12 @@ impl DeploymentManifest {
             MANIFEST_FILE.into(),
             format!("{}\n", serde_json::to_string_pretty(self)?),
         );
+        if let Some(capacity) = &self.capacity {
+            artifacts.insert(
+                crate::capacity::FILE.into(),
+                format!("{}\n", serde_json::to_string_pretty(capacity)?),
+            );
+        }
         for config in self.resources() {
             artifacts.insert(
                 format!("{}.json", config.name),
@@ -156,6 +210,11 @@ impl DeploymentManifest {
         check!(retention);
         check!(num_replicas);
         check!(discard);
+        if self.capacity.is_some() {
+            check!(max_bytes);
+            check!(max_consumers);
+            check!(max_message_size);
+        }
         check!(discard_new_per_subject);
         check!(max_age);
         check!(no_ack);

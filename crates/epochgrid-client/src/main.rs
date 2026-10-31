@@ -23,6 +23,11 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Install a public capacity policy after checking existing encrypted state.
+    CapacityInstall {
+        #[arg(long)]
+        policy: PathBuf,
+    },
     /// Run an explicitly invited MLS service participant (separate from the backend).
     Participant {
         #[command(subcommand)]
@@ -274,6 +279,10 @@ async fn main() -> Result<()> {
         IdentityStore::open(&args.home)?.ensure_messaging_identity()?;
     }
     match args.command {
+        Command::CapacityInstall { policy } => {
+            epochgrid_core::capacity::Capacity::install_client(&args.home, &policy)?;
+            println!("Capacity policy installed; existing identities and history preserved.");
+        }
         Command::Attachment { command } => {
             use epochgrid_core::attachments::{self, Limits};
             let store = IdentityStore::open(&args.home)?;
