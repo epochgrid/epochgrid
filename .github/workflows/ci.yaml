@@ -128,8 +128,63 @@ jobs:
           path: target/ci/results.jsonl
           retention-days: 7
           if-no-files-found: ignore
+  linux-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Build and package Linux candidate
+        timeout-minutes: 22
+        run: |
+          python3 scripts/dev/run-bounded.py 1200 python3 scripts/release/build-linux.py
+          python3 scripts/release/artifact.py package --work target/release-candidate/work --output target/linux-candidate
+          python3 scripts/release/artifact.py verify --archive target/linux-candidate/*.tar.gz --checksums target/linux-candidate/SHA256SUMS --output 'target/extracted candidate' --require-candidate --commit "$GITHUB_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-candidate-${{ github.sha }}
+          path: target/linux-candidate/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+  linux-qualify:
+    needs: [build, linux-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [smoke, configuration_standalone, configuration_cluster, operator_jwt_standalone, operator_jwt_cluster]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/runtime
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux-candidate-${{ github.sha }}
+          path: target/linux-candidate
+      - name: Verify and qualify extracted candidate
+        timeout-minutes: 15
+        env:
+          ARTIFACT_SUITE: ${{ matrix.suite }}
+        run: |
+          python3 scripts/release/artifact.py verify --archive target/linux-candidate/*.tar.gz --checksums target/linux-candidate/SHA256SUMS --output 'target/extracted candidate' --require-candidate --commit "$GITHUB_SHA" > target/artifact-verification.json
+          python3 scripts/dev/run-bounded.py 120 ./scripts/dev/download-nats.sh
+          python3 scripts/dev/run-bounded.py 180 docker build --target runtime -f scripts/release/qualification.Dockerfile -t epochgrid-artifact-tests:local .
+          python3 scripts/dev/run-bounded.py 700 python3 scripts/release/qualify.py --bundle 'target/extracted candidate' --suite "$ARTIFACT_SUITE" --result "target/qualification-$ARTIFACT_SUITE.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-qualification-${{ matrix.suite }}-${{ github.sha }}
+          path: |
+            target/artifact-verification.json
+            target/qualification-*.json
+          if-no-files-found: error
+          retention-days: 7
   validate:
-    needs: [build, tests, byo-nats]
+    needs: [build, tests, byo-nats, linux-build, linux-qualify]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2

@@ -14,17 +14,15 @@ use std::{
 
 fn runner(root: &Path, url: &str) -> Result<Process> {
     Ok(Process(
-        Command::new(
-            Path::new(env!("CARGO_BIN_EXE_epochgrid-service")).with_file_name("epochgrid"),
-        )
-        .arg("--home")
-        .arg(root.join("status"))
-        .arg("--server")
-        .arg(url)
-        .args(["participant", "run", "engineering"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?,
+        Command::new(crate::service_binary().with_file_name("epochgrid"))
+            .arg("--home")
+            .arg(root.join("status"))
+            .arg("--server")
+            .arg(url)
+            .args(["participant", "run", "engineering"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?,
     ))
 }
 #[tokio::test]

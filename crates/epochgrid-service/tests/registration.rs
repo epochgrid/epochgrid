@@ -12,6 +12,25 @@ use std::{
     time::Duration,
 };
 
+// Artifact qualification selects both production binaries explicitly. An invalid
+// override is an error; it must never silently fall back to the debug build.
+fn service_binary() -> std::path::PathBuf {
+    match std::env::var_os("EPOCHGRID_RELEASE_BIN_DIR") {
+        Some(directory) => {
+            let directory = std::path::PathBuf::from(directory);
+            assert!(
+                directory.is_absolute(),
+                "release binary directory must be absolute"
+            );
+            for name in ["epochgrid", "epochgrid-service"] {
+                assert!(directory.join(name).is_file(), "missing release binary");
+            }
+            directory.join("epochgrid-service")
+        }
+        None => env!("CARGO_BIN_EXE_epochgrid-service").into(),
+    }
+}
+
 struct Process(Child);
 impl Process {
     fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
@@ -49,7 +68,7 @@ fn server(root: &std::path::Path) -> Result<Process> {
 }
 async fn service(root: &std::path::Path, url: &str) -> Result<Process> {
     let child = Process(
-        Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+        Command::new(crate::service_binary())
             .arg("--dev-static")
             .arg("--home")
             .arg(root.join("service"))
@@ -636,3 +655,60 @@ mod auth_callout;
 
 mod byo_nats;
 mod tls;
+
+#[tokio::test]
+async fn artifact_audit_upgrade() -> Result<()> {
+    use epochgrid_core::secrets::SecretRef;
+    use rusqlite::{Connection, OpenFlags};
+    use std::fs;
+    use zeroize::Zeroizing;
+
+    // Mutate only a fresh disposable fixture, never an operator home. This uses
+    // the M31 migration fixture's schema removal to exercise the packaged CLI.
+    let directory = tempfile::tempdir()?;
+    let home = directory.path().join("authority");
+    let invoke = |arguments: &[&str]| {
+        let mut command = Command::new(service_binary());
+        command.arg("--home").arg(&home).args(arguments);
+        command
+    };
+    tls::success(tls::run(&mut invoke(&["auth-init"]), &[]).await?)?;
+    let credentials = fs::read(home.join("credentials.json"))?;
+    let metadata = fs::read(home.join("auth.database.json"))?;
+    let value: serde_json::Value = serde_json::from_slice(&metadata)?;
+    let reference: SecretRef = serde_json::from_value(value["key"].clone())?;
+    let key = reference.read()?;
+    let db =
+        Connection::open_with_flags(home.join("auth.sqlite"), OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    let raw = Zeroizing::new(format!("x'{}'", key.as_str()));
+    db.pragma_update(None, "key", raw.as_str())?;
+    db.execute_batch(
+        "BEGIN; DROP TRIGGER audit_user_reference; DROP TRIGGER audit_device_reference;
+        DROP TRIGGER audit_group_reference;
+        DROP TABLE audit_pending; DROP TABLE audit_events; DROP TABLE audit_state;
+        ALTER TABLE users DROP COLUMN audit_ref; ALTER TABLE devices DROP COLUMN audit_ref;
+        ALTER TABLE authorization_groups DROP COLUMN audit_ref;
+        DELETE FROM auth_migrations WHERE version=3; COMMIT;",
+    )?;
+    drop(db);
+    let before = fs::read(home.join("auth.sqlite"))?;
+    let refused = tls::run(&mut invoke(&["audit", "info"]), &[]).await?;
+    ensure!(
+        !refused.status.success(),
+        "legacy inspection silently upgraded"
+    );
+    ensure!(fs::read(home.join("auth.sqlite"))? == before);
+    tls::success(tls::run(&mut invoke(&["audit", "upgrade"]), &[]).await?)?;
+    let first = tls::run(&mut invoke(&["audit", "info"]), &[]).await?;
+    ensure!(first.status.success());
+    tls::success(tls::run(&mut invoke(&["audit", "upgrade"]), &[]).await?)?;
+    let second = tls::run(&mut invoke(&["audit", "info"]), &[]).await?;
+    ensure!(second.status.success());
+    ensure!(
+        first.stdout == second.stdout,
+        "repeated upgrade changed audit state"
+    );
+    ensure!(fs::read(home.join("credentials.json"))? == credentials);
+    ensure!(fs::read(home.join("auth.database.json"))? == metadata);
+    Ok(())
+}

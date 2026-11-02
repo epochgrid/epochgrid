@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Real pseudo-terminal Alice/Bob session, using isolated host NATS and SQLite."""
+from binaries import binary
 import codecs
 from contextlib import closing
 import re
@@ -16,7 +17,7 @@ import tempfile
 import termios
 import time
 
-BINARY = str(Path('target/debug/epochgrid').resolve())
+BINARY = binary('epochgrid')
 SERVER = os.environ.get('NATS_SERVER', str(Path('.dev/nats-image/nats-server').resolve()))
 CLIENTS = []
 # This runner owns only isolated, explicitly plaintext development fixtures.
@@ -266,7 +267,7 @@ def run(relationships_only=False, participants_only=False, check_typing=False):
             broker = nats()
             with socket.socket() as probe:
                 wait(lambda: probe.connect_ex(('127.0.0.1', port)) == 0, 'NATS startup')
-            service = subprocess.Popen(['./target/debug/epochgrid-service', '--dev-static', '--home', str(root / 'service'), '--enrollment', str(root / 'enrollment.json'), '--server', url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            service = subprocess.Popen([binary('epochgrid-service'), '--dev-static', '--home', str(root / 'service'), '--enrollment', str(root / 'enrollment.json'), '--server', url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             processes.append(service)
             wait(lambda: register('alice'), 'service startup')
             assert register('bob')

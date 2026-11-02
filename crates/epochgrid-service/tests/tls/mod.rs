@@ -167,7 +167,7 @@ pub(super) async fn certificates(root: &Path) -> Result<()> {
     Ok(())
 }
 pub(super) fn cli(root: &Path, url: &str, name: &str, ca: Option<&Path>, first: bool) -> Command {
-    let binary = Path::new(env!("CARGO_BIN_EXE_epochgrid-service")).with_file_name("epochgrid");
+    let binary = crate::service_binary().with_file_name("epochgrid");
     let mut command = Command::new(binary);
     command
         .arg("--home")
@@ -177,7 +177,7 @@ pub(super) fn cli(root: &Path, url: &str, name: &str, ca: Option<&Path>, first: 
     command
 }
 pub(super) fn backend(root: &Path, url: &str, ca: Option<&Path>, first: bool) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_epochgrid-service"));
+    let mut command = Command::new(crate::service_binary());
     command
         .arg("--home")
         .arg(root.join("backend"))
@@ -341,7 +341,7 @@ async fn workflow() -> Result<()> {
     minimum_version_probe(root, epochgrid_core::tls::MinimumVersion::Tls12).await?;
     let ca = root.join("ca.pem");
     let wrong = root.join("wrong.pem");
-    let mut init = Command::new(env!("CARGO_BIN_EXE_epochgrid-service"));
+    let mut init = Command::new(crate::service_binary());
     production(&mut init, None, false);
     success(
         run(

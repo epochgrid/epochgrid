@@ -1,4 +1,64 @@
-## Milestone 31 working tree — implemented, hosted CI pending
+## Milestone 32 — Linux binary artifacts implemented
+
+Milestone 31 merged as `c73d51a` (PR #26); milestone 30 merged as `6f05c3e`
+(PR #24). The user authorized implementing [milestone 32](docs/milestone-32-plan.md)
+on 2026-11-01, retaining GHCR as milestone 33 and release publication/supply-chain
+work as milestone 34. The original milestone 32 planning edits are preserved.
+The user subsequently authorized staging, committing and pushing on
+`feature/milestone-32-linux-artifacts`; the user will prepare the PR. No tag,
+release or registry publication is part of this request.
+
+Implementation is in `scripts/release/`: pinned Ubuntu 24.04 build/qualification
+fixtures, locked release builds, versioned manifests, deterministic allowlisted
+archives, strict extraction/checksum verification, dependency/native license
+notices and clean-runtime qualification. Both production binaries now expose
+`--version`. Fixtures accept explicit release-binary selection while keeping the
+internal debug/test bundle contract. An invalid override never falls back.
+
+CI adds `linux-build` and five `linux-qualify` entries to the existing aggregate
+`validate` gate. Candidate archives and sanitized reports have seven-day retention;
+workflow permissions remain read-only. No publishing is configured. See the
+[Linux artifact contract](docs/operator/linux-artifacts.md) for commands, installation,
+runtime requirements and upgrade limits.
+
+Local validation completed on 2026-11-01. Formatting, warnings-denied Clippy, doctests,
+13 packaging tests, existing harness checks, 146 workspace units plus the new
+CLI audit-upgrade integration test, protected-state/Secret Service tests and all
+16 retained NATS cases pass. The clean Ubuntu 24.04 extracted-binary smoke suite
+passes, including missing/locked keyrings, schema-2 explicit upgrade, TUI workflows,
+and offline join/restart. All four extracted-binary BYO cases pass; all five
+reports match the final bundle manifest and binary hashes. Their final BYO
+durations are 50.15 s (configuration R1), 61.97 s (configuration R3), 61.24 s
+(operator-JWT R1), and 73.25 s (operator-JWT R3 isolated rerun). Workflow syntax
+passes actionlint 1.7.12. Normal Compose, main/relationship/participant TUI and
+focused offline-join smoke pass. All four regular BYO cases pass (79.54, 92.60,
+91.14 and 103.99 seconds respectively), recorded in `/tmp/epochgrid-m32-byo.log`.
+The real dirty-checkout candidate rejection creates no output. Patch whitespace
+and local documentation links pass.
+
+The local bundle is deliberately labelled `local`, because the implementation
+is uncommitted; candidate builds refuse dirty checkouts. The current archive is
+`target/m32-bundle-release-check/epochgrid-0.1.0-local.c73d51a7f7d0efef4dfff382f4a732f076318d06-x86_64-unknown-linux-gnu.tar.gz`,
+SHA-256 `4b20584ec81985483559da9f96f10f93c8c3162b245e8569942c0c1a4d457bbb`.
+It is about 19.1 MB compressed, 58.6 MB of payload. Both binaries require at most
+GLIBC 2.39 and directly link only the ELF loader, libc, libm and libgcc. The build
+records exact system packages; apt repositories are not snapshotted and compiler
+reproducibility is not claimed.
+
+Initial validation exposed missing CLI version flags, an incomplete schema-2 test
+fixture, and runner path/profile mistakes; all were corrected before final artifact
+qualification. The first final operator-JWT cluster attempt lost its disposable
+worker Secret Service during startup. Its failure log is preserved as
+`/tmp/epochgrid-m32-final-operator_jwt_cluster.log`; the isolated diagnostic rerun
+passed in 73.25 seconds and is recorded separately in
+`/tmp/epochgrid-m32-final-operator_jwt_cluster-isolated.log`. The disappearance
+cause was not established. No automated retry or quarantine was added.
+
+Evidence files use `/tmp/epochgrid-m32-*`; final per-suite sanitized reports use
+`target/m32-final-*.json`. Cold hosted PR CI has not been run and remains a merge
+gate. TD-001/002/003 remain open. The historical evidence below predates the merges.
+
+## Historical milestone 31 working tree — implemented, hosted CI pending
 
 Security audit implementation is in `epochgrid-core::audit`, with authority-only
 CLI in `epochgrid-service/src/audit.rs`. See `docs/operator/audit.md` for the exact
