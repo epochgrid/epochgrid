@@ -416,7 +416,7 @@ fn inspection_rejects_bindings_schema_and_control_identity_without_repair() -> R
             .db
             .query_row("SELECT COUNT(*) FROM auth_migrations", [], |row| row
                 .get::<_, u64>(0))?,
-        1
+        2
     );
     let control_home = root.path().join("control");
     let mut identity = crate::identity::IdentityStore::open(&control_home)?;

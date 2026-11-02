@@ -62,7 +62,14 @@ fn signed_policy_replay_removal_revocation_and_restart() -> Result<()> {
     remove.expected_generation = 2;
     remove.epoch = 2;
     remove.members.pop();
+    // Missing audit evidence must not obstruct an authenticated privilege reduction.
+    registry.db.execute_batch("CREATE TRIGGER fail_reduction_audit BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT,'injected'); END;")?;
     registry.apply_policy(&remove.clone().sign(&keys[0])?)?;
+    assert!(registry.audit_info()?.degraded);
+    registry
+        .db
+        .execute_batch("DROP TRIGGER fail_reduction_audit")?;
+    crate::audit::recover(&root.path().join("registry"))?;
     assert!(registry.authorized_groups(&bob)?.is_empty());
     assert!(registry.apply_policy(&signed).is_err());
     add.expected_generation = 3;
@@ -105,7 +112,7 @@ fn migration_preserves_existing_registry_and_rejects_invalid_groups() -> Result<
     let token = registry.invite("alice", 60)?;
     let user = crate::identity_model::token_user(&token)?;
     // Reconstruct the version-1 schema with actual pre-existing identity data.
-    registry.db.execute_batch("DROP TABLE authorization_members; DROP TABLE authorization_groups; DELETE FROM auth_migrations WHERE version=2;")?;
+    registry.db.execute_batch("DROP TRIGGER audit_user_reference; DROP TRIGGER audit_device_reference; DROP TABLE audit_pending; DROP TABLE audit_events; DROP TABLE audit_state; ALTER TABLE users DROP COLUMN audit_ref; ALTER TABLE devices DROP COLUMN audit_ref; DROP TABLE authorization_members; DROP TABLE authorization_groups; DELETE FROM auth_migrations WHERE version>=2;")?;
     drop(registry);
     let registry = AuthRegistry::open(root.path())?;
     assert_eq!(
@@ -120,7 +127,7 @@ fn migration_preserves_existing_registry_and_rejects_invalid_groups() -> Result<
             .db
             .query_row("SELECT MAX(version) FROM auth_migrations", [], |r| r
                 .get::<_, i64>(0))?,
-        2
+        3
     );
     for gid in [
         "",

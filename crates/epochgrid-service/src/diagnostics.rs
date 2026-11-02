@@ -9,6 +9,9 @@ use std::{
 };
 
 pub struct Runtime {
+    audit_queue: Mutex<std::collections::VecDeque<epochgrid_core::audit::Event>>,
+    audit_loss: Counter,
+    audit_health: Mutex<Option<(Instant, AuditHealth)>>,
     pub reconciled: Arc<AtomicBool>,
     pub live: Arc<AtomicBool>,
     pub last_seen: Arc<Mutex<Instant>>,
@@ -38,6 +41,9 @@ impl Runtime {
         let mut random = [0u8; 16];
         std::fs::File::open("/dev/urandom")?.read_exact(&mut random)?;
         Ok(Self {
+            audit_queue: Mutex::new(std::collections::VecDeque::with_capacity(256)),
+            audit_loss: Counter::default(),
+            audit_health: Mutex::new(None),
             reconciled,
             live: Arc::new(AtomicBool::new(false)),
             last_seen: Arc::new(Mutex::new(Instant::now())),
@@ -68,7 +74,20 @@ impl Runtime {
             None
         };
         let worker_live = live && age.is_some_and(|age| age < Duration::from_secs(5));
-        let mut reasons = Vec::with_capacity(2);
+        let audit_blocked = self
+            .audit_health
+            .lock()
+            .map(|health| {
+                health.as_ref().is_some_and(|(stamp, health)| {
+                    !health.admission_capacity
+                        || millis(now.saturating_duration_since(*stamp)) > STALE_MS
+                })
+            })
+            .unwrap_or(true);
+        let mut reasons = Vec::with_capacity(3);
+        if audit_blocked {
+            reasons.push(Reason::AuditUnavailable);
+        }
         if !reconciled {
             reasons.push(Reason::ReconciliationPending);
         }
@@ -80,7 +99,7 @@ impl Runtime {
             reasons.push(Reason::WorkerLeaseExpired);
         }
         (
-            if reconciled && worker_live {
+            if reconciled && worker_live && !audit_blocked {
                 Readiness::Ready
             } else {
                 Readiness::NotReady
@@ -110,8 +129,62 @@ impl Runtime {
             self.repair_failed.increment();
         }
     }
+    pub fn queue_audit(&self, event: epochgrid_core::audit::Event) {
+        if let Ok(mut queue) = self.audit_queue.lock()
+            && queue.len() < 256
+        {
+            queue.push_back(event);
+        } else {
+            self.audit_loss.increment();
+        }
+    }
+    pub fn gate(&self, open: bool) {
+        if self.reconciled.swap(open, Ordering::AcqRel) != open {
+            let mut event =
+                epochgrid_core::audit::Event::committed(epochgrid_core::audit::Kind::AdmissionGate);
+            event.stage = epochgrid_core::audit::Stage::Observation;
+            event.outcome = if open {
+                epochgrid_core::audit::Outcome::Succeeded
+            } else {
+                epochgrid_core::audit::Outcome::Denied
+            };
+            self.queue_audit(event);
+        }
+    }
     pub fn refresh(&self, registry: &epochgrid_core::identity_model::AuthRegistry) {
         let start = Instant::now();
+        if let Ok(mut queue) = self.audit_queue.lock() {
+            let count = queue.len().min(16);
+            let events: Vec<_> = queue.drain(..count).collect();
+            if !events.is_empty() && registry.audit_batch(&events).is_err() {
+                for _ in events {
+                    self.audit_loss.increment();
+                }
+            }
+        }
+        let health = registry.audit_info().ok().map(|state| {
+            (
+                Instant::now(),
+                AuditHealth {
+                    events: state.events,
+                    bytes: state.bytes,
+                    admission_capacity: !state.degraded
+                        && state.events
+                            < epochgrid_core::audit::MAX_EVENTS
+                                - epochgrid_core::audit::RESERVE_EVENTS
+                        && state.bytes + epochgrid_core::audit::MAX_EVENT_BYTES as u64
+                            <= epochgrid_core::audit::MAX_BYTES
+                                - epochgrid_core::audit::RESERVE_BYTES,
+                    known_coverage_gaps: state.known_coverage_gaps,
+                    unresolved_effects: state.unresolved_effects,
+                    observation_loss: self.audit_loss.get(),
+                    age_ms: 0,
+                },
+            )
+        });
+        if let Ok(mut cached) = self.audit_health.lock() {
+            *cached = health;
+        }
         let value = registry
             .diagnostic_usage()
             .ok()
@@ -166,6 +239,13 @@ impl Runtime {
             instance: Some(self.instance.clone()),
             uptime_ms: Some(millis(now.saturating_duration_since(self.started))),
             observations: Some(Observations {
+                audit: self.audit_health.lock().ok().and_then(|cached| {
+                    cached.as_ref().map(|(stamp, health)| {
+                        let mut health = health.clone();
+                        health.age_ms = millis(now.saturating_duration_since(*stamp));
+                        health
+                    })
+                }),
                 // Derive this from the same sampled state, not a second atomic read.
                 reconciled,
                 worker_live,

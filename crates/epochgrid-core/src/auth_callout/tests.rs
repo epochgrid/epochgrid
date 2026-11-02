@@ -301,7 +301,7 @@ fn maximum_group_grant_fits_signed_encrypted_response_budget() -> Result<()> {
     for i in 0..16 {
         let gid = format!("{i:032x}");
         fixture.registry.db.execute(
-            "INSERT INTO authorization_groups VALUES(?1,1,0,?2,X'')",
+            "INSERT INTO authorization_groups(gid,generation,epoch,coordinator,last_update) VALUES(?1,1,0,?2,X'')",
             rusqlite::params![gid, fixture.device.public_key()],
         )?;
         fixture.registry.db.execute(
@@ -358,5 +358,22 @@ fn diagnostic_counters_observe_decisions_and_known_overload() -> Result<()> {
     assert_eq!(counts.rate_limited, 1);
     assert_eq!(counts.malformed, 1);
     assert_eq!(counts.timeout, 0);
+    Ok(())
+}
+
+#[test]
+fn audit_failure_closes_device_grants_but_preserves_repair_leases() -> Result<()> {
+    let mut f = Fixture::new()?;
+    let worker = KeyPair::new_user();
+    f.callout = Callout::new(f.config.clone())?.with_worker(worker.public_key())?;
+    f.registry.db.execute_batch("CREATE TRIGGER fail_audit BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT,'injected'); END;")?;
+    let request = f.request()?;
+    assert!(f.send(&request, true).is_err());
+    let mut request = f.request()?;
+    request.nats.connect_opts.nkey = worker.public_key();
+    request.nats.connect_opts.sig = URL_SAFE_NO_PAD.encode(worker.sign(b"test-challenge")?);
+    assert!(f.send(&request, false)?.nats.error.is_empty());
+    f.registry.revoke(&f.device.public_key())?;
+    assert!(f.registry.authorize(&f.device.public_key()).is_err());
     Ok(())
 }

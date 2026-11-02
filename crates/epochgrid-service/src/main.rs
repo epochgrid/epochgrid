@@ -1,3 +1,4 @@
+mod audit;
 mod deployment_setup;
 mod diagnostics;
 mod dynamic;
@@ -37,6 +38,11 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum ServiceCommand {
+    /// Inspect or maintain security evidence while the authority is stopped.
+    Audit {
+        #[command(subcommand)]
+        command: audit::Command,
+    },
     /// Inspect the running authority without database, keyring or broker access.
     Status {
         #[arg(long, value_enum)]
@@ -144,6 +150,9 @@ enum ReportFormat {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    if let Some(ServiceCommand::Audit { command }) = &args.command {
+        return audit::run(&args.home, command);
+    }
     if let Some(ServiceCommand::Status { role, format }) = &args.command {
         let role = match role {
             StatusRole::Authority => epochgrid_core::diagnostics::Role::Authority,
@@ -221,6 +230,9 @@ async fn main() -> Result<()> {
     );
     if let Some(command) = args.command {
         return match command {
+            ServiceCommand::Audit { .. } => {
+                unreachable!("audit handled before runtime initialization")
+            }
             ServiceCommand::Status { .. } => {
                 unreachable!("status handled before runtime initialization")
             }
@@ -266,6 +278,7 @@ async fn main() -> Result<()> {
                 replace,
             ),
             ServiceCommand::UserInvite { handle, ttl } => {
+                epochgrid_core::audit::inspect(&args.home)?;
                 let token = epochgrid_core::identity_model::AuthRegistry::open(&args.home)?
                     .invite(&handle, ttl)?;
                 println!("{}", token.as_str());

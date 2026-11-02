@@ -294,3 +294,9 @@ make status unavailable within its bounded request deadline; control/heartbeat
 handling is independent. Coverage does not include unrelated legacy debug logs,
 physical resource guarantees or the milestone 31 audit pipeline. See the
 [operator diagnostic contract](operator/diagnostics.md).
+
+Milestone 31 adds encrypted authority audit schema 3. Existing homes require a
+stopped-authority `audit upgrade` before production validation. See the
+[security audit contract](operator/audit.md) for storage bounds, coverage gaps, retention,
+export permissions and failure behavior. Status exposes aggregate audit health;
+only the authority account can export evidence.

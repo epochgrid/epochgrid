@@ -170,18 +170,24 @@ pub(crate) fn auth(root: &Path) -> Result<()> {
     schema(
         &db,
         "auth_migrations",
-        2,
+        3,
         &[
-            ("users", "id,enabled"),
+            (
+                "audit_state",
+                "store_id,next_sequence,retained_from,events,bytes,gaps,policy_version,prune_through,degraded",
+            ),
+            ("audit_events", "sequence,payload"),
+            ("audit_pending", "kind,operation"),
+            ("users", "id,enabled,audit_ref"),
             ("identity_bindings", "provider,subject,user_id"),
             ("enrollment_tokens", "digest,user_id,expires,used_key"),
             (
                 "devices",
-                "nkey,user_id,device_id,registration,ready,revoked,authorization_generation",
+                "nkey,user_id,device_id,registration,ready,revoked,authorization_generation,audit_ref",
             ),
             (
                 "authorization_groups",
-                "gid,generation,epoch,coordinator,last_update",
+                "gid,generation,epoch,coordinator,last_update,audit_ref",
             ),
             ("authorization_members", "gid,nkey,leaf"),
         ],

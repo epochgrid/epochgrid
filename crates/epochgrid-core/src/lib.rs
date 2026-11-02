@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod authorization;
 pub mod capacity;
 pub mod delivery;

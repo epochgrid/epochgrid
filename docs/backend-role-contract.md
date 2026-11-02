@@ -154,3 +154,9 @@ input/16 KiB output bound. No diagnostic request touches credentials, databases,
 NATS or the worker lease. Slow peers can deny diagnostic availability but cannot
 replace the worker or establish readiness. See [diagnostics](operator/diagnostics.md)
 for counters, stale-cache behavior, exit codes and dependency coverage.
+
+Milestone 31 adds encrypted authority audit schema 3. Existing homes require a
+stopped-authority `audit upgrade` before production validation. See the
+[security audit contract](operator/audit.md) for storage bounds, coverage gaps, retention,
+export permissions and failure behavior. Status exposes aggregate audit health;
+only the authority account can export evidence.

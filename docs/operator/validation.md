@@ -36,7 +36,7 @@ prove server identity, TLS reachability or operator route security.
 | `local.permissions.auth.*`, `local.permissions.control.*` | Existing metadata/database files and present SQLite sidecars; backend ownership, regular file type and owner-only permissions |
 | `local.credentials.*` | Six existing Secret Service roles, matching metadata/configuration/control bindings, and independent IDs/public bindings |
 | `local.capacity` | Valid explicit policy and existing registry counts, record sizes and logical database pages within budget |
-| `local.database.auth` | Existing SQLCipher state, ready metadata, matching database role/key binding, integrity and foreign-key checks, complete auth schema version 2 |
+| `local.database.auth` | Existing SQLCipher state, ready metadata, matching database role/key binding, integrity and foreign-key checks, complete auth schema version 3 |
 | `local.database.control` | Existing SQLCipher state/bindings/integrity, local schema version 8 and OpenMLS migration version 6, required tables/columns, signed service/laptop identity matching configuration and credentials |
 | `local.transport.inputs`, `local.transport.endpoint` | Shared TLS profile, usable trust roots, optional endpoint policy; no connection |
 | `coverage.network`, `coverage.operator` | Explicitly not checked: broker authentication, resources/replicas, server version/payload, route TLS, account isolation, signer authority, resolver lifecycle and physical capacity adequacy |
@@ -194,3 +194,9 @@ worker lease, process counters and authority-only cached capacity usage; it does
 not replace validation. Both views are peer-authenticated authority observations.
 Validation report v1 and its minimal status exchange remain compatible. An unknown
 status result does not prove the process is stopped or identify a failed dependency.
+
+Milestone 31 adds encrypted authority audit schema 3. Existing homes require a
+stopped-authority `audit upgrade` before production validation. See the
+[security audit contract](audit.md) for storage bounds, coverage gaps, retention,
+export permissions and failure behavior. Status exposes aggregate audit health;
+only the authority account can export evidence.

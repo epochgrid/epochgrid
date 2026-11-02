@@ -186,6 +186,7 @@ struct Connect {
     auth_token: Option<wire::EnrollmentToken>,
 }
 pub struct Callout {
+    audit_denials: crate::audit::Denials,
     diagnostics: std::sync::Arc<crate::diagnostics::Counters>,
     issuer: KeyPair,
     encryption: XKey,
@@ -204,6 +205,7 @@ impl Callout {
         );
         let encryption = XKey::from_seed(&config.encryption.read()?)?;
         Ok(Self {
+            audit_denials: crate::audit::Denials::default(),
             diagnostics: std::sync::Arc::new(crate::diagnostics::Counters::default()),
             issuer,
             encryption,
@@ -250,6 +252,7 @@ impl Callout {
         let result = self.respond_inner(registry, server_xkey, encrypted, devices_ready);
         if result.is_err() {
             self.diagnostics.denied.increment();
+            self.audit_denials.observe(registry);
         }
         result
     }
@@ -494,12 +497,41 @@ impl Callout {
         let mut response = AuthResponse::generic_claim(request.nats.user_nkey);
         response.aud = Some(request.iss);
         response.exp = Some(expires);
+        let audit_operation = crate::audit::opaque()?;
+        let mut granted_event = None;
+        let repair_role = request.nats.connect_opts.nkey == self.config.control_nkey
+            || self.worker.as_ref() == Some(&request.nats.connect_opts.nkey);
         match result {
             Ok(user) => {
+                let mut event = crate::audit::Event::committed(crate::audit::Kind::Admission);
+                event.stage = crate::audit::Stage::Result;
+                event.actor = if request.nats.connect_opts.nkey == self.config.control_nkey {
+                    crate::audit::Actor::Authority
+                } else if repair_role {
+                    crate::audit::Actor::BoundWorker
+                } else {
+                    crate::audit::Actor::VerifiedDevice
+                };
+                if !repair_role {
+                    event.actor_reference = crate::audit::reference(
+                        &registry.db,
+                        "devices",
+                        "nkey",
+                        &request.nats.connect_opts.nkey,
+                    )
+                    .ok();
+                }
+                if repair_role {
+                    let _ = registry.audit_correlated(event.clone(), &audit_operation);
+                } else {
+                    registry.audit_correlated(event.clone(), &audit_operation)?;
+                }
+                granted_event = Some(event);
                 response.nats.jwt = user.encode(&self.issuer)?;
                 self.diagnostics.accepted.increment();
             }
             Err(_) => {
+                self.audit_denials.observe(registry);
                 response.nats.error = "EpochGrid admission denied".into();
                 self.diagnostics.denied.increment();
             }
@@ -509,9 +541,16 @@ impl Callout {
             encoded.len() <= wire::MAX_WIRE - 256,
             "authorization response capacity exceeded"
         );
-        self.encryption
-            .seal(encoded.as_bytes(), &peer)
-            .map_err(Into::into)
+        let sealed = self.encryption.seal(encoded.as_bytes(), &peer)?;
+        if let Some(mut event) = granted_event {
+            event.kind = crate::audit::Kind::ResponseConstructed;
+            if repair_role {
+                let _ = registry.audit_correlated(event, &audit_operation);
+            } else {
+                registry.audit_correlated(event, &audit_operation)?;
+            }
+        }
+        Ok(sealed)
     }
 }
 

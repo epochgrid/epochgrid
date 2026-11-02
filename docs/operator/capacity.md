@@ -143,3 +143,8 @@ bypass a failed validation by removing encrypted state.
 Worker validation reports its own credential/binding and authenticated authority
 status. Authority validation owns registry and broker capacity checks. Root account,
 server and filesystem provisioning remain explicit operator checks.
+
+The authority security audit store shares encrypted auth schema 3 and its existing
+key. Its 100,000-event / 32 MiB payload ceiling includes a 1,024-event / 2 MiB
+repair reserve; SQLite overhead also counts toward the database limit. See the
+[audit guide](audit.md) for migration, explicit retention and fail-closed admission.

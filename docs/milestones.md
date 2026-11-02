@@ -27,7 +27,7 @@ No `v0.1.0-alpha.1` tag or production-ready release has been published.
 | 28 | Merged (#21); hosted CI passed | [Backend privilege separation plan](milestone-28-plan.md) and [role contract](backend-role-contract.md): isolated authority/control roles, least-privilege runtime grants and restart-safe admission |
 | 29 | Merged (#23); hosted CI passed | [Capacity contract](operator/capacity.md), transactional limits and finite broker budgets |
 | 30 | Implemented; locally validated; hosted CI pending | [Operational diagnostics](operator/diagnostics.md): bounded authenticated runtime status, aggregate observations and troubleshooting |
-| 31 | Not started | Structured security audit events, storage and export |
+| 31 | Implemented locally; hosted PR CI pending | [Security audit operations](operator/audit.md): encrypted events, bounded storage, fail-closed admission, export and explicit retention; [plan](milestone-31-plan.md) |
 | 32–34 | Not started | Official Linux artifacts, GHCR runtime image and release supply chain |
 | 35–38 | Not started | Broader adversarial suite, protocol/configuration freeze, first-run UX and operator documentation set |
 

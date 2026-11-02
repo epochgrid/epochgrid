@@ -179,6 +179,91 @@ impl Worker {
             fs::Permissions::from_mode(0o644),
         )?;
         worker.set_running(false)?;
+        // Audit access is authority-only even while the service is stopped.
+        for account in ["nobody", "daemon"] {
+            for action in ["info", "export"] {
+                let destination = worker.public.path().join(format!("denied-{account}.jsonl"));
+                let mut command = Command::new("sudo");
+                command
+                    .args(["-n", "-u", account, "--"])
+                    .arg(worker.public.path().join("runtime/epochgrid-service"))
+                    .arg("--home")
+                    .arg(root.join("backend"))
+                    .args(["audit", action]);
+                if action == "export" {
+                    command
+                        .args([
+                            "--store",
+                            "00000000000000000000000000000000",
+                            "--after",
+                            "0",
+                            "--upper",
+                            "0",
+                            "--output",
+                        ])
+                        .arg(&destination);
+                }
+                let denied = tls::run(&mut command, &[]).await?;
+                ensure!(
+                    !denied.status.success() && denied.stdout.is_empty() && !destination.exists(),
+                    "non-authority account accessed audit evidence"
+                );
+            }
+        }
+        let report = tls::run(
+            Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+                .arg("--home")
+                .arg(root.join("backend"))
+                .args(["audit", "info"]),
+            &[],
+        )
+        .await?;
+        ensure!(
+            report.status.success(),
+            "authority could not inspect audit evidence"
+        );
+        let state: epochgrid_core::audit::Info = serde_json::from_slice(&report.stdout)?;
+        let output = root.join("audit-export.jsonl");
+        let exported = tls::run(
+            Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+                .arg("--home")
+                .arg(root.join("backend"))
+                .args([
+                    "audit",
+                    "export",
+                    "--store",
+                    &state.store_id,
+                    "--after",
+                    &(state.retained_from - 1).to_string(),
+                    "--upper",
+                    &state.upper_sequence.to_string(),
+                    "--max-records",
+                    "16",
+                    "--output",
+                ])
+                .arg(&output),
+            &[],
+        )
+        .await?;
+        ensure!(exported.status.success(), "authority audit export failed");
+        let contents = fs::read_to_string(&output)?;
+        ensure!(
+            contents
+                .lines()
+                .last()
+                .is_some_and(|line| line.contains("\"complete\":true")),
+            "audit artifact not finalized"
+        );
+        for account in ["nobody", "daemon"] {
+            let denied = Command::new("sudo")
+                .args(["-n", "-u", account, "--", "test", "-r"])
+                .arg(&output)
+                .status()?;
+            ensure!(
+                !denied.success(),
+                "non-authority account could read audit export"
+            );
+        }
         Ok(worker)
     }
 

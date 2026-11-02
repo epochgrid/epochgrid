@@ -31,6 +31,7 @@ pub enum Reason {
     WorkerAbsent,
     WorkerLeaseExpired,
     LeaseUnavailable,
+    AuditUnavailable,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -130,6 +131,8 @@ impl CapacityObservation {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Observations {
+    #[serde(default)]
+    pub audit: Option<AuditHealth>,
     pub reconciled: bool,
     pub worker_live: bool,
     pub worker_lease_age_ms: Option<u64>,
@@ -147,6 +150,17 @@ pub struct Observations {
     pub permission_denied_observed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capacity: Option<CapacityObservation>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuditHealth {
+    pub events: u64,
+    pub bytes: u64,
+    pub admission_capacity: bool,
+    pub known_coverage_gaps: bool,
+    pub unresolved_effects: u64,
+    pub observation_loss: u64,
+    pub age_ms: u64,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -226,7 +240,13 @@ impl Report {
                     && obs.worker_lease_limit_ms == 5000,
                 "invalid runtime bounds"
             );
-            let expected = if obs.reconciled && obs.worker_live {
+            let expected = if obs.reconciled
+                && obs.worker_live
+                && obs
+                    .audit
+                    .as_ref()
+                    .is_none_or(|audit| audit.admission_capacity && audit.age_ms <= STALE_MS)
+            {
                 Readiness::Ready
             } else {
                 Readiness::NotReady
