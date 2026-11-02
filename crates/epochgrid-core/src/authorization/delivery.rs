@@ -260,6 +260,19 @@ pub async fn reconcile_consumers(
     registry: &AuthRegistry,
     client: &async_nats::Client,
 ) -> Result<()> {
+    let operation = registry.audit_effect(crate::audit::Kind::Reconciliation);
+    let result = reconcile_consumers_inner(registry, client).await;
+    registry.audit_effect_result(
+        crate::audit::Kind::Reconciliation,
+        operation,
+        result.is_ok(),
+    );
+    result
+}
+async fn reconcile_consumers_inner(
+    registry: &AuthRegistry,
+    client: &async_nats::Client,
+) -> Result<()> {
     let active = registry.enrollment()?;
     crate::transport::provision_mailboxes(client.clone(), &active).await?;
     let js = async_nats::jetstream::new(client.clone());

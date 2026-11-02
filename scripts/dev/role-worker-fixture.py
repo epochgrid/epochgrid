@@ -35,9 +35,14 @@ def check_diagnostics(command, bindings, env):
                 'auth_requests', 'control_requests', 'ipc_disconnects',
                 'reconciliation_success', 'reconciliation_failure', 'reconciliation_age_ms',
                 'control_queue_used', 'control_queue_limit', 'auth_connection',
-                'control_connection', 'permission_denied_observed'}
+                'control_connection', 'permission_denied_observed', 'audit'}
     if set(report['observations']) != expected:
         raise RuntimeError('worker diagnostic field disclosure')
+    audit = report['observations']['audit']
+    if audit is not None and (set(audit) != {'events', 'bytes', 'admission_capacity',
+            'known_coverage_gaps', 'unresolved_effects', 'observation_loss', 'age_ms'}
+            or any(not isinstance(value, (int, bool)) for value in audit.values())):
+        raise RuntimeError('worker audit health disclosed non-aggregate data')
     denied = subprocess.run(command + ['status', '--role', 'authority', '--format', 'json'],
                             env=diagnostic_env, capture_output=True, timeout=7)
     if denied.returncode != 2 or json.loads(denied.stdout)['observations'] is not None:

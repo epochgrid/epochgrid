@@ -26,7 +26,16 @@ async fn repair_state(
     }
     let enrollment = registry.historical_enrollment()?;
     for registration in registry.registrations()? {
-        transparency::register(log, directory, &enrollment, key, registration.clone()).await?;
+        publish_registration(
+            registry,
+            log,
+            directory,
+            &enrollment,
+            key,
+            registration.clone(),
+            false,
+        )
+        .await?;
         registry.activate(&registration.payload.nats_public_key)?;
     }
     epochgrid_core::authorization::reconcile_consumers(registry, client).await
@@ -168,6 +177,9 @@ async fn serve_inner(
         anyhow::bail!("auth subscription ended")
     }));
     let mut registry = AuthRegistry::open(home)?;
+    registry.audit_repair(epochgrid_core::audit::Event::committed(
+        epochgrid_core::audit::Kind::AuthorityStarted,
+    ));
     let monitor = epochgrid_core::validation::PermissionMonitor::default();
     let client = tokio::time::timeout(
         Duration::from_secs(5),
@@ -211,7 +223,16 @@ async fn serve_inner(
     }
     // Repair an enrollment interrupted after local commit but before projection/response.
     for registration in registry.registrations()? {
-        transparency::register(&log, &directory, &enrollment, &key, registration.clone()).await?;
+        publish_registration(
+            &registry,
+            &log,
+            &directory,
+            &enrollment,
+            &key,
+            registration.clone(),
+            false,
+        )
+        .await?;
         registry.activate(&registration.payload.nats_public_key)?;
     }
     epochgrid_core::authorization::reconcile_consumers(&registry, &client).await?;
@@ -224,7 +245,7 @@ async fn serve_inner(
         None
     };
     client.flush().await?;
-    admission.store(true, std::sync::atomic::Ordering::Release);
+    diagnostics.gate(true);
     diagnostics.repair(true);
     diagnostics.refresh(&registry);
     tracing::info!("EpochGrid dynamic identity and Auth Callout service ready");
@@ -234,13 +255,14 @@ async fn serve_inner(
         epochgrid_core::diagnostics::REFRESH_SECONDS,
     ));
     observations.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut audit_denials = epochgrid_core::audit::Denials::default();
     loop {
         tokio::select! {
             biased;
             _=observations.tick()=> { diagnostics.refresh(&registry); },
             _=repair.tick(), if !admission.load(std::sync::atomic::Ordering::Acquire)=> {
                 if matches!(tokio::time::timeout(Duration::from_secs(5),repair_state(&registry, &client, &log, &directory, &key)).await, Ok(Ok(()))) {
-                    admission.store(true, std::sync::atomic::Ordering::Release);
+                    diagnostics.gate(true);
                     diagnostics.repair(true);
                 } else { diagnostics.repair(false); }
             },
@@ -268,7 +290,7 @@ async fn serve_inner(
                     ensure!(permitted, "control overload");
                     let request = wire::decode(&payload).inspect_err(|_| diagnostics.control.malformed.increment())?;
                     let mutating = matches!(&request, Body::GroupPolicy(_) | Body::Enroll {..} | Body::Revoke(_) | Body::Register(_));
-                    if mutating {admission.store(false, std::sync::atomic::Ordering::Release);}
+                    if mutating {diagnostics.gate(false);}
                     let registrations=transparency::read(&log).await?;
                     let revocations=revocation::read(&log,&registrations).await?;
                     for key in revocations.keys() {registry.revoke(&key)?;}
@@ -289,20 +311,24 @@ async fn serve_inner(
                         (auth_callout::ENROLL,Body::Enroll{token,registration})=>{
 
                             registry.enroll(token.as_str(),&registration)?;
-                            transparency::register(&log,&directory,&registry.enrollment()?,&key,registration.clone()).await?;
+                            publish_registration(&registry,&log,&directory,&registry.enrollment()?,&key,registration.clone(),true).await?;
                             registry.activate(&registration.payload.nats_public_key)?;
                             Body::Registered
                         },
                         (wire::REGISTER,Body::Register(registration))=>{
                             registry.authorize(&registration.payload.nats_public_key)?;
-                            transparency::register(&log,&directory,&active,&key,registration).await?;Body::Registered
+                            publish_registration(&registry,&log,&directory,&active,&key,registration,true).await?;Body::Registered
                         },
                         (wire::AUDIT,Body::RegistrationAudit)=>Body::AuditLog(registrations),
                         (wire::AUDIT,Body::Audit) if revocations.entries.is_empty()=>Body::AuditLog(registrations),
                         (wire::REVOCATIONS,Body::RevocationAudit)=>Body::RevocationLog(revocations),
                         (wire::REVOKE,Body::Revoke(request))=>{
+                            request.validate(&registrations, &revocations.entries)?;
+                            let operation = registry.audit_revocation_intent(&request.nkey, &request.author);
                             let cutoff=revocation::chat_cutoff(&client).await?;
-                            let revoked=revocation::append(&log,&registrations,&key,request,cutoff).await?;
+                            let result=revocation::append(&log,&registrations,&key,request,cutoff).await;
+                            registry.audit_effect_result(epochgrid_core::audit::Kind::RevocationPublication,operation,result.is_ok());
+                            let revoked=result?;
                             for key in revoked.keys(){registry.revoke(&key)?;}
                             Body::Revoked
                         },
@@ -312,7 +338,7 @@ async fn serve_inner(
                     };
                     if mutating {
                         epochgrid_core::authorization::reconcile_consumers(&registry, &client).await?;
-                        admission.store(true, std::sync::atomic::Ordering::Release);
+                        diagnostics.gate(true);
                         diagnostics.repair(true);
                     }
                     Ok::<Body, anyhow::Error>(body)
@@ -320,12 +346,13 @@ async fn serve_inner(
                 if !admission.load(std::sync::atomic::Ordering::Acquire) {
                     let repaired = matches!(tokio::time::timeout(Duration::from_secs(5), repair_state(&registry, &client, &log, &directory, &key)).await, Ok(Ok(())));
                     diagnostics.repair(repaired);
-                    if repaired {admission.store(true, std::sync::atomic::Ordering::Release);}
+                    if repaired {diagnostics.gate(true);}
                 }
                 let body=match response {
                     Ok(Ok(body)) if !matches!(body,Body::Rejected) => {diagnostics.control.accepted.increment();body},
                     result => {
                         diagnostics.control.denied.increment();
+                        audit_denials.observe(&registry);
                         if result.is_err() {diagnostics.control.timeout.increment();}
                         tracing::warn!("dynamic identity operation rejected"); Body::Rejected
                     }
@@ -341,4 +368,27 @@ async fn serve_inner(
     }
     client.flush().await?;
     Ok(())
+}
+
+async fn publish_registration(
+    registry: &AuthRegistry,
+    log: &async_nats::jetstream::kv::Store,
+    directory: &async_nats::jetstream::kv::Store,
+    enrollment: &transport::Enrollment,
+    key: &nkeys::KeyPair,
+    registration: wire::DeviceRegistration,
+    required: bool,
+) -> Result<()> {
+    let operation = registry.audit_effect_target(
+        epochgrid_core::audit::Kind::RegistrationPublication,
+        &registration.payload.nats_public_key,
+        required,
+    )?;
+    let result = transparency::register(log, directory, enrollment, key, registration).await;
+    registry.audit_effect_result(
+        epochgrid_core::audit::Kind::RegistrationPublication,
+        operation,
+        result.is_ok(),
+    );
+    result
 }

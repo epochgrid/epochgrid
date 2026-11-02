@@ -139,7 +139,7 @@ impl AuthRegistry {
             [],
             |r| r.get(0),
         )?;
-        ensure!(version <= 2, "auth registry is newer than this service");
+        ensure!(version <= 3, "auth registry is newer than this service");
         if version == 0 {
             db.execute_batch("BEGIN IMMEDIATE;
 CREATE TABLE users(id TEXT PRIMARY KEY, enabled INTEGER NOT NULL CHECK(enabled IN (0,1)));
@@ -154,6 +154,7 @@ CREATE TABLE authorization_groups(gid TEXT PRIMARY KEY,generation INTEGER NOT NU
 CREATE TABLE authorization_members(gid TEXT NOT NULL REFERENCES authorization_groups(gid),nkey TEXT NOT NULL REFERENCES devices(nkey),leaf INTEGER NOT NULL,PRIMARY KEY(gid,nkey),UNIQUE(gid,leaf));
 INSERT INTO auth_migrations VALUES(2); COMMIT;")?;
         }
+        crate::audit::migrate(&db)?;
         let capacity = crate::capacity::Capacity::load_or_default(home)?;
         capacity.check_registry(&db)?;
         Ok(Self {
@@ -194,7 +195,7 @@ INSERT INTO auth_migrations VALUES(2); COMMIT;")?;
                         .encode(&random::<16>()?)
                         .to_ascii_lowercase()
                 );
-                tx.execute("INSERT INTO users VALUES(?1,1)", [&id])?;
+                tx.execute("INSERT INTO users(id,enabled) VALUES(?1,1)", [&id])?;
                 tx.execute(
                     "INSERT INTO identity_bindings VALUES('local',?1,?2)",
                     params![handle, id],
@@ -218,6 +219,10 @@ INSERT INTO auth_migrations VALUES(2); COMMIT;")?;
                 now()? + ttl as i64
             ],
         )?;
+        let mut event = crate::audit::Event::committed(crate::audit::Kind::TokenIssued);
+        event.actor = crate::audit::Actor::LocalOperator;
+        event.target_reference = Some(crate::audit::reference(&tx, "users", "id", &uid)?);
+        crate::audit::append(&tx, event, false)?;
         self.capacity.check_registry(&tx)?;
         self.capacity.check_database(&tx, false)?;
         tx.commit()?;
@@ -261,6 +266,13 @@ INSERT INTO auth_migrations VALUES(2); COMMIT;")?;
                 |r| r.get(0),
             )?;
             ensure!(old == encoded, "enrollment retry changed device binding");
+            let mut event = crate::audit::Event::committed(crate::audit::Kind::DeviceEnrolled);
+            event.stage = crate::audit::Stage::Result;
+            event.reason = crate::audit::Reason::IdempotentRetry;
+            event.actor = crate::audit::Actor::VerifiedDevice;
+            event.actor_reference =
+                Some(crate::audit::reference(&self.db, "devices", "nkey", key)?);
+            self.audit_event(event)?;
             return Ok(());
         }
         let binding = LocalIdentityProvider.authenticate(self, token)?;
@@ -274,19 +286,31 @@ INSERT INTO auth_migrations VALUES(2); COMMIT;")?;
             "INSERT INTO devices(nkey,user_id,device_id,registration) VALUES(?1,?2,?3,?4)",
             params![key, uid.as_str(), registration.payload.device_id, encoded],
         )?;
+        let mut event = crate::audit::Event::committed(crate::audit::Kind::DeviceEnrolled);
+        event.actor = crate::audit::Actor::VerifiedDevice;
+        event.actor_reference = Some(crate::audit::reference(&tx, "devices", "nkey", key)?);
+        event.target_reference = event.actor_reference.clone();
+        crate::audit::append(&tx, event, false)?;
         self.capacity.check_registry(&tx)?;
         self.capacity.check_database(&tx, false)?;
         tx.commit()?;
         Ok(())
     }
     pub fn activate(&self, key: &str) -> Result<()> {
-        ensure!(
-            self.db.execute(
-                "UPDATE devices SET ready=1 WHERE nkey=?1 AND revoked=0",
-                [key]
-            )? == 1,
-            "device cannot be activated"
-        );
+        let tx = self.db.unchecked_transaction()?;
+        let ready: bool = tx.query_row(
+            "SELECT ready FROM devices WHERE nkey=?1 AND revoked=0",
+            [key],
+            |r| r.get(0),
+        )?;
+        if !ready {
+            tx.execute("UPDATE devices SET ready=1 WHERE nkey=?1", [key])?;
+            let mut event = crate::audit::Event::committed(crate::audit::Kind::DeviceActivated);
+            event.target_reference = Some(crate::audit::reference(&tx, "devices", "nkey", key)?);
+            crate::audit::append(&tx, event, false)?;
+            self.capacity.check_database(&tx, false)?;
+        }
+        tx.commit()?;
         Ok(())
     }
     pub fn authorize(&self, key: &str) -> Result<DeviceAuthorization> {
@@ -311,11 +335,23 @@ INSERT INTO auth_migrations VALUES(2); COMMIT;")?;
     }
     pub fn revoke(&self, key: &str) -> Result<()> {
         let tx = self.db.unchecked_transaction()?;
+        let active: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM devices WHERE nkey=?1 AND revoked=0)",
+            [key],
+            |r| r.get(0),
+        )?;
+        if !active {
+            tx.commit()?;
+            return Ok(());
+        }
         tx.execute("UPDATE devices SET authorization_generation=authorization_generation+1 WHERE nkey IN (SELECT m.nkey FROM authorization_members m WHERE m.gid IN (SELECT gid FROM authorization_members WHERE nkey=?1))",[key])?;
         tx.execute("UPDATE authorization_groups SET generation=generation+1,last_update=X'' WHERE gid IN (SELECT gid FROM authorization_members WHERE nkey=?1)",[key])?;
         tx.execute("DELETE FROM authorization_members WHERE nkey=?1", [key])?;
         tx.execute("UPDATE authorization_groups SET coordinator=COALESCE((SELECT nkey FROM authorization_members m WHERE m.gid=authorization_groups.gid ORDER BY leaf LIMIT 1),'') WHERE coordinator=?1",[key])?;
         tx.execute("UPDATE devices SET revoked=1,authorization_generation=authorization_generation+1 WHERE nkey=?1 AND revoked=0",[key])?;
+        let mut event = crate::audit::Event::committed(crate::audit::Kind::DeviceRevoked);
+        event.target_reference = crate::audit::reference(&tx, "devices", "nkey", key).ok();
+        crate::audit::repair(&tx, event, &self.capacity);
         self.capacity.check_database(&tx, true)?;
         tx.commit()?;
         Ok(())

@@ -44,6 +44,31 @@ impl PolicyUpdate {
 impl AuthRegistry {
     /// Apply an authenticated coordinator snapshot atomically. Returns its generation.
     pub fn apply_policy(&mut self, signed: &SignedPolicy) -> Result<u64> {
+        let result = self.apply_policy_inner(signed);
+        if result.is_err()
+            && signed.update.members.len() <= 128
+            && nkeys::KeyPair::from_public_key(&signed.update.signer)
+                .and_then(|key| {
+                    key.verify(
+                        &signed.update.bytes().unwrap_or_default(),
+                        &signed.signature,
+                    )
+                })
+                .is_ok()
+            && self.authorize(&signed.update.signer).is_ok()
+        {
+            let mut event = crate::audit::Event::committed(crate::audit::Kind::PolicyRejected);
+            event.stage = crate::audit::Stage::Result;
+            event.outcome = crate::audit::Outcome::Denied;
+            event.reason = crate::audit::Reason::Rejected;
+            event.actor = crate::audit::Actor::VerifiedDevice;
+            event.actor_reference =
+                crate::audit::reference(&self.db, "devices", "nkey", &signed.update.signer).ok();
+            let _ = self.audit_event(event);
+        }
+        result
+    }
+    fn apply_policy_inner(&mut self, signed: &SignedPolicy) -> Result<u64> {
         let update = &signed.update;
         ensure!(update.version == 1, "unsupported policy version");
         validate_gid(&update.gid)?;
@@ -115,6 +140,8 @@ impl AuthRegistry {
                     );
                 }
             }
+            let reducing = self.db.query_row("SELECT COUNT(*) FROM authorization_members WHERE gid=?1", [&update.gid], |r| r.get::<_, u64>(0))? > 0
+                && update.members.iter().all(|member| self.db.query_row("SELECT EXISTS(SELECT 1 FROM authorization_members WHERE gid=?1 AND nkey=?2)", params![update.gid,member.nkey], |r| r.get::<_, bool>(0)).unwrap_or(false));
             // Coordinator removal is a separate lifecycle operation, not implicit delegation.
             ensure!(
                 keys.contains(&update.signer),
@@ -134,13 +161,34 @@ impl AuthRegistry {
                 )?;
                 self.db.execute("UPDATE devices SET authorization_generation=authorization_generation+1 WHERE nkey=?1", [&member.nkey])?;
             }
+            let mut event = crate::audit::Event::committed(crate::audit::Kind::PolicyCommitted);
+            event.actor = crate::audit::Actor::VerifiedDevice;
+            let actor = crate::audit::reference(&self.db, "devices", "nkey", &update.signer);
+            let target =
+                crate::audit::reference(&self.db, "authorization_groups", "gid", &update.gid);
+            if reducing {
+                event.actor_reference = actor.ok();
+                event.target_reference = target.ok();
+            } else {
+                event.actor_reference = Some(actor?);
+                event.target_reference = Some(target?);
+            }
+            event.generation = Some(generation);
+            if reducing {
+                crate::audit::repair(&self.db, event, &self.capacity);
+            } else {
+                crate::audit::append(&self.db, event, false)?;
+            }
             self.capacity.check_registry(&self.db)?;
-            self.capacity.check_database(&self.db, false)?;
+            self.capacity.check_database(&self.db, reducing)?;
             Ok(generation)
         })();
         match result {
             Ok(generation) => {
-                self.db.execute_batch("COMMIT")?;
+                if self.db.execute_batch("COMMIT").is_err() {
+                    let _ = self.db.execute_batch("ROLLBACK");
+                    anyhow::bail!("policy commit failed");
+                }
                 Ok(generation)
             }
             Err(error) => {

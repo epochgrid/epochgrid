@@ -477,6 +477,12 @@ impl Server {
                 {
                     continue;
                 }
+                let mut event = epochgrid_core::audit::Event::committed(
+                    epochgrid_core::audit::Kind::WorkerSessionStarted,
+                );
+                event.actor = epochgrid_core::audit::Actor::BoundWorker;
+                event.stage = epochgrid_core::audit::Stage::Observation;
+                runtime.queue_audit(event);
                 let active = Arc::new(AtomicBool::new(true));
                 let _session = Session(active.clone());
                 let _readiness = Session(task_live.clone());
@@ -487,6 +493,12 @@ impl Server {
                     runtime.disconnects.increment();
                     tracing::warn!("control worker disconnected or invalid; admission closed");
                 }
+                let mut event = epochgrid_core::audit::Event::committed(
+                    epochgrid_core::audit::Kind::WorkerSessionEnded,
+                );
+                event.actor = epochgrid_core::audit::Actor::BoundWorker;
+                event.stage = epochgrid_core::audit::Stage::Observation;
+                runtime.queue_audit(event);
             }
             task_live.store(false, Ordering::Release);
         });

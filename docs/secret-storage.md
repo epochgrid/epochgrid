@@ -196,3 +196,8 @@ the SQLCipher transaction. These checks neither replace filesystem quotas nor
 bound WAL/temporary files. Keep physical headroom; actual disk-full errors may
 prevent even reserved recovery. Never recreate identities or delete history to
 work around capacity exhaustion.
+
+The authority security audit store shares encrypted auth schema 3 and its existing
+key. Its 100,000-event / 32 MiB payload ceiling includes a 1,024-event / 2 MiB
+repair reserve; SQLite overhead also counts toward the database limit. See the
+[audit guide](operator/audit.md) for migration, explicit retention and fail-closed admission.

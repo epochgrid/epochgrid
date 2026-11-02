@@ -137,3 +137,9 @@ activity. Saving or sharing a report is an explicit operator action; no support
 archive is collected. This contract does not sanitize unrelated legacy debug logs;
 do not collect unrestricted trace output as a support bundle. Structured durable
 security audit events remain milestone 31, and TD-001/002/003 remain open.
+
+Milestone 31 adds encrypted authority audit schema 3. Existing homes require a
+stopped-authority `audit upgrade` before production validation. See the
+[security audit contract](audit.md) for storage bounds, coverage gaps, retention,
+export permissions and failure behavior. Status exposes aggregate audit health;
+only the authority account can export evidence.

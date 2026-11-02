@@ -128,3 +128,5 @@ Report vulnerabilities through the process in [SECURITY.md](SECURITY.md).
 ## License
 
 EpochGrid is available under the [MIT License](LICENSE).
+
+Security evidence: [authority audit operations](docs/operator/audit.md).

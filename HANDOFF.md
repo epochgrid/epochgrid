@@ -1,3 +1,38 @@
+## Milestone 31 working tree — implemented, hosted CI pending
+
+Security audit implementation is in `epochgrid-core::audit`, with authority-only
+CLI in `epochgrid-service/src/audit.rs`. See `docs/operator/audit.md` for the exact
+contract and commands. Auth schema 3 is additive; production schema-2 homes must
+run stopped-authority `audit upgrade` first. Existing credentials are preserved.
+
+Registry events commit with issuance/enrollment/activation/expanding policy changes.
+Repair uses a savepoint and reserved capacity. External publication/reconciliation
+intents survive missing results. The store has finite event/payload budgets and
+explicit retention/pruning. Export streams a bounded snapshot to a private partial
+artifact and publishes without overwrite only after syncing it. Coverage remains
+explicitly incomplete for historical and volatile observations. Status contains
+cached aggregate audit health, never records.
+
+Local evidence (2026-10-31): formatting, warnings-denied workspace/all-target/all-feature
+Clippy, build/test compilation, doctests and harness checks passed. Workspace units
+passed (114 core, 18 service, 14 client), along with protected-state/live Secret
+Service tests, all 16 retained NATS cases, all four separate-UID BYO cases, and
+compose/TUI/offline-join/relationship/participant smoke suites. The final maintenance
+edge-case changes were followed by the full unit suite and a standalone BYO rerun;
+both passed. The four-case run preceded those final maintenance-only corrections.
+
+Tests cover audit insertion rollback, enrollment/activation/policy denial on write
+failure, continued revocation/reduction and repair leases, metadata/schema refusal,
+restart/pending intents, quota reserves, denial aggregation, retention cursors,
+private/no-overwrite export, incomplete artifacts, and actual worker/unrelated-UID
+audit denial. Operator guide records local append/flood measurements without
+worst-case claims. Full-capacity export permits missing lifecycle records with an
+explicit warning and conservative coverage rather than forcing evidence deletion.
+
+Cold hosted PR CI remains a merge gate; no hosted run is claimed. TD-001/002/003
+remain open; no quarantined tests were restored. No commit, push or release has
+been performed.
+
 # Milestone 30 handoff — implementation and local verification
 
 The user authorized implementation of [the plan](docs/milestone-30-plan.md) on

@@ -373,7 +373,7 @@ pub fn offline(home: &Path, auth_config: &Path, endpoint: Option<&str>) -> Repor
         );
     }
     if auth_files {
-        report.check("local.database.auth", "encrypted bound auth database, schema 2, integrity valid", "database_inspection_failed", "Restore matching encrypted database, metadata and keyring; validation does not migrate or reset state.", || inspection::auth(home));
+        report.check("local.database.auth", "encrypted bound auth database, schema 3, integrity valid", "database_inspection_failed", "Restore matching encrypted database, metadata and keyring; validation does not migrate or reset state.", || inspection::auth(home));
     } else {
         report.skip(
             "local.database.auth",
