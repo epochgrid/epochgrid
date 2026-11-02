@@ -138,6 +138,9 @@ def build(args):
         raise ValueError('Build staging already exists; use a fresh --work directory')
     args.work.mkdir(parents=True, exist_ok=True)
     target_dir = args.work / 'cargo'
+    # Metadata resolves other target/dev dependencies too. Fetch its locked graph
+    # explicitly before compilation; a Linux build alone cannot seed this cache.
+    metadata = json.loads(output('cargo', 'metadata', '--locked', '--format-version', '1'))
     command = ['cargo', 'build', '--locked', '--release', '--target', TARGET,
                '--target-dir', str(target_dir), '--bin', BINS[0], '--bin', BINS[1], '--message-format=json']
     compiled = set()
@@ -150,7 +153,6 @@ def build(args):
                 print(item['message'].get('rendered', ''), end='', file=sys.stderr)
         if process.wait():
             raise subprocess.CalledProcessError(process.returncode, command)
-    metadata = json.loads(output('cargo', 'metadata', '--locked', '--offline', '--format-version', '1'))
     notices = licenses(metadata, compiled)
     if identity(args.local) != before:
         raise ValueError('Source changed during build')

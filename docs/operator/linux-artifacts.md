@@ -149,7 +149,10 @@ python3 scripts/release/artifact.py verify \
 ```
 
 Build uses a pinned Ubuntu container, the pinned toolchain mounted read-only and
-an isolated Cargo target directory. Only the registry cache is copied, never
+an isolated Cargo target directory. Locked Cargo metadata is fetched before
+compilation, including dependencies for other targets and development: the Linux
+binary build alone does not populate that complete graph in a cold cache. Only
+the registry cache is copied, never
 Cargo credentials. Each new build needs a fresh work/staging path; output refuses
 overwrite. For uncommitted local testing use `build-linux.py --local --work
  target/m32-local/work` and omit `--require-candidate` during verification.

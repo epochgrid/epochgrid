@@ -1,3 +1,32 @@
+## PR #27 CI follow-up — 2026-11-01
+
+CI run [41378534653](https://github.com/epochgrid/epochgrid/actions/runs/41378534653)
+failed independently in `linux-build` and `byo-nats (configuration_standalone)`.
+Linux compilation succeeded; offline metadata then requested uncached
+`anstyle-wincon 3.0.11`. Packaging now fetches locked metadata before compilation
+so other-target/development dependencies do not depend on a populated local cache.
+A fresh Ubuntu container with an empty Cargo cache fetched the complete graph and
+then reproduced identical metadata offline.
+
+Bob's channel join in the BYO case failed during NATS connection admission. The
+old warning discarded every error as an invalid encrypted request, so its root
+cause is unconfirmed. Fixed typed failure-stage context and bounded SQLite error
+categories now distinguish validation, replay, audit persistence and response
+construction without logging private input or raw errors. Negative tests cover
+private error sentinels, replay and audit-write failure. Admission behavior,
+audit requirements, test gates, retries and quarantines remain unchanged.
+
+Local validation: formatting, warnings-denied Clippy, build/doctests, packaging
+and existing harness checks pass. The default-concurrency unit suite twice lost
+its disposable Secret Service; both failure logs remain under
+`/tmp/epochgrid-pr27-unit*.log`. With `EPOCHGRID_TEST_THREADS=2`, all 147 workspace
+units plus the CLI upgrade test passed. This is a local diagnostic invocation,
+not a change to CI concurrency. All four BYO cases passed, including the CI-failing configuration standalone
+case, as recorded in `/tmp/epochgrid-pr27-byo.log`. The packaging cold-cache check is recorded in
+`/tmp/epochgrid-pr27-cold-metadata.log`.
+No claim is made that the unrelated keyring disappearance or original join
+rejection has been fixed.
+
 ## Milestone 32 — Linux binary artifacts implemented
 
 Milestone 31 merged as `c73d51a` (PR #26); milestone 30 merged as `6f05c3e`

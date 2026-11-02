@@ -12,6 +12,48 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path, time::Duration};
 use zeroize::Zeroizing;
 
+/// Fixed diagnostic stages. Never format an underlying request or error chain.
+#[derive(Debug, thiserror::Error, Clone, Copy, PartialEq, Eq)]
+pub enum FailureStage {
+    #[error("ingress")]
+    Ingress,
+    #[error("decryption")]
+    Decryption,
+    #[error("request_decode")]
+    RequestDecode,
+    #[error("request_validation")]
+    RequestValidation,
+    #[error("replay_check")]
+    ReplayCheck,
+    #[error("admission_audit")]
+    AdmissionAudit,
+    #[error("response_signing")]
+    ResponseSigning,
+    #[error("response_encryption")]
+    ResponseEncryption,
+    #[error("response_audit")]
+    ResponseAudit,
+}
+
+/// A bounded storage classification, without SQL, paths or backend error text.
+pub fn storage_failure_code(error: &anyhow::Error) -> &'static str {
+    match error
+        .downcast_ref::<rusqlite::Error>()
+        .and_then(|e| e.sqlite_error())
+    {
+        Some(e)
+            if matches!(
+                e.code,
+                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+            ) =>
+        {
+            "busy"
+        }
+        Some(_) => "storage_error",
+        None => "none",
+    }
+}
+
 pub const SUBJECT: &str = "$SYS.REQ.USER.AUTH";
 pub const ENROLL: &str = "epochgrid.v1.identity.enroll";
 /// Operator-owned public JWT configuration. Private signing keys stay in Secret Service.
@@ -249,7 +291,10 @@ impl Callout {
         devices_ready: bool,
     ) -> Result<Vec<u8>> {
         self.diagnostics.received.increment();
-        let result = self.respond_inner(registry, server_xkey, encrypted, devices_ready);
+        let mut stage = FailureStage::Ingress;
+        let result = self
+            .respond_inner(registry, server_xkey, encrypted, devices_ready, &mut stage)
+            .context(stage);
         if result.is_err() {
             self.diagnostics.denied.increment();
             self.audit_denials.observe(registry);
@@ -262,6 +307,7 @@ impl Callout {
         server_xkey: &str,
         encrypted: &[u8],
         devices_ready: bool,
+        stage: &mut FailureStage,
     ) -> Result<Vec<u8>> {
         if encrypted.len() > wire::MAX_WIRE {
             self.diagnostics.malformed.increment();
@@ -274,10 +320,13 @@ impl Callout {
             self.diagnostics.rate_limited.increment();
             anyhow::bail!("callout overload");
         }
+        *stage = FailureStage::Decryption;
         let peer = XKey::from_public_key(server_xkey)?;
         let plaintext = Zeroizing::new(self.encryption.open(encrypted, &peer)?);
+        *stage = FailureStage::RequestDecode;
         let request = Claims::<Request>::decode(std::str::from_utf8(&plaintext)?)
             .context("invalid signed NATS request encoding")?;
+        *stage = FailureStage::RequestValidation;
         let timestamp = now()?;
         let expires = request.exp.context("missing request expiry")?;
         ensure!(
@@ -313,6 +362,7 @@ impl Callout {
             KeyPair::from_public_key(&request.nats.user_nkey)?.key_pair_type() == KeyPairType::User,
             "invalid connection key"
         );
+        *stage = FailureStage::ReplayCheck;
         self.seen.retain(|_, expires| *expires > timestamp);
         let connection = format!("{}:{}", request.iss, request.nats.user_nkey);
         ensure!(
@@ -497,6 +547,7 @@ impl Callout {
         let mut response = AuthResponse::generic_claim(request.nats.user_nkey);
         response.aud = Some(request.iss);
         response.exp = Some(expires);
+        *stage = FailureStage::AdmissionAudit;
         let audit_operation = crate::audit::opaque()?;
         let mut granted_event = None;
         let repair_role = request.nats.connect_opts.nkey == self.config.control_nkey
@@ -527,6 +578,7 @@ impl Callout {
                     registry.audit_correlated(event.clone(), &audit_operation)?;
                 }
                 granted_event = Some(event);
+                *stage = FailureStage::ResponseSigning;
                 response.nats.jwt = user.encode(&self.issuer)?;
                 self.diagnostics.accepted.increment();
             }
@@ -536,12 +588,15 @@ impl Callout {
                 self.diagnostics.denied.increment();
             }
         }
+        *stage = FailureStage::ResponseSigning;
         let encoded = response.encode(&self.issuer)?;
         ensure!(
             encoded.len() <= wire::MAX_WIRE - 256,
             "authorization response capacity exceeded"
         );
+        *stage = FailureStage::ResponseEncryption;
         let sealed = self.encryption.seal(encoded.as_bytes(), &peer)?;
+        *stage = FailureStage::ResponseAudit;
         if let Some(mut event) = granted_event {
             event.kind = crate::audit::Kind::ResponseConstructed;
             if repair_role {
