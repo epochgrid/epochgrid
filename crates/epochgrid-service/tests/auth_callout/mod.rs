@@ -17,7 +17,7 @@ use std::{
 async fn init(root: &Path) -> Result<()> {
     let mut output = tempfile::tempfile()?;
     let mut child = Process(
-        Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+        Command::new(crate::service_binary())
             .arg("--home")
             .arg(root.join("backend"))
             .arg("auth-init")
@@ -46,7 +46,7 @@ fn daemon(root: &Path, url: &str) -> Result<Process> {
         .append(true)
         .open(root.join("backend.log"))?;
     Ok(Process(
-        Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+        Command::new(crate::service_binary())
             .arg("--home")
             .arg(root.join("backend"))
             .arg("--server")

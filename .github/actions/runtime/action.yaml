@@ -13,4 +13,4 @@ runs:
         python3 scripts/ci/runtime.py check
     - name: Install isolated keyring dependencies
       shell: bash
-      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dbus-daemon gnome-keyring libsecret-tools
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dbus-daemon gnome-keyring libsecret-tools libglib2.0-bin

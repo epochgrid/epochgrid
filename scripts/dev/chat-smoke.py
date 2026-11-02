@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise two independent interactive clients, including process restart."""
+from binaries import binary
 import queue
 import subprocess
 import threading
@@ -27,7 +28,7 @@ def exchange(abrupt=False):
     try:
         for user in ('alice', 'bob'):
             process = subprocess.Popen(
-                ['./target/debug/epochgrid', '--home', f'.dev/{user}', 'chat', 'engineering'],
+                [binary('epochgrid'), '--home', f'.dev/{user}', 'chat', 'engineering'],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1,
             )
@@ -43,7 +44,7 @@ def exchange(abrupt=False):
         wait_for('alice', 'bob/laptop> confirmed by Bob')
         for user in processes:
             locked = subprocess.run(
-                ['./target/debug/epochgrid', '--home', f'.dev/{user}', 'channel', 'list'],
+                [binary('epochgrid'), '--home', f'.dev/{user}', 'channel', 'list'],
                 capture_output=True, text=True, timeout=5,
             )
             assert locked.returncode != 0 and 'already in use' in locked.stderr
@@ -70,7 +71,7 @@ print('EpochGrid two-client interactive chat, forced termination, lock release a
 
 def cli(user, *args, data=None, check=True):
     return subprocess.run(
-        ['./target/debug/epochgrid', '--home', f'.dev/{user}', *args],
+        [binary('epochgrid'), '--home', f'.dev/{user}', *args],
         input=data, text=True, capture_output=True, check=check, timeout=15,
     )
 

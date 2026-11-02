@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Fresh CLI/backend provisioning and recovery using a disposable real keyring."""
+from binaries import binary
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import socket
@@ -9,8 +11,8 @@ import threading
 import time
 import tempfile
 
-CLIENT = str(Path('target/debug/epochgrid').resolve())
-SERVICE = str(Path('target/debug/epochgrid-service').resolve())
+CLIENT = binary('epochgrid')
+SERVICE = binary('epochgrid-service')
 
 
 def run(*args, ok=True, env=None):
@@ -173,4 +175,16 @@ with tempfile.TemporaryDirectory(prefix='epochgrid-secret-test-') as directory:
     assert db_path.read_bytes() == before
     assert metadata_path.read_bytes() == metadata
     run('secret-tool', 'lookup', 'application', 'org.epochgrid.credentials.v1', 'id', key_id, ok=False)
+    # Lock only this disposable session's default collection, after all other checks.
+    alias = run('gdbus', 'call', '--session', '--dest', 'org.freedesktop.secrets',
+                '--object-path', '/org/freedesktop/secrets', '--method',
+                'org.freedesktop.Secret.Service.ReadAlias', 'default').stdout.decode()
+    collection = re.search(r"objectpath '([^']+)'", alias).group(1)
+    run('gdbus', 'call', '--session', '--dest', 'org.freedesktop.secrets',
+        '--object-path', '/org/freedesktop/secrets', '--method',
+        'org.freedesktop.Secret.Service.Lock', f"['{collection}']")
+    before_locked = (restored / 'identity.sqlite').read_bytes()
+    locked = run(CLIENT, '--home', str(restored), 'identity', 'show', ok=False)
+    assert b'keyring is locked' in locked.stderr
+    assert (restored / 'identity.sqlite').read_bytes() == before_locked
     print('Protected credentials, encrypted databases, recovery, restart and bounded key failures passed')

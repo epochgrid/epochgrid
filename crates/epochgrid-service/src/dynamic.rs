@@ -169,8 +169,14 @@ async fn serve_inner(
                 });
             match response {
                 Ok(bytes) => auth_client.publish(reply, bytes.into()).await?,
-                Err(_) => {
-                    tracing::warn!("invalid encrypted Auth Callout request denied");
+                Err(error) => {
+                    // Context is a fixed enum, never the potentially sensitive cause.
+                    let stage = error.downcast_ref::<auth_callout::FailureStage>();
+                    tracing::warn!(
+                        stage = %stage.map_or_else(|| "missing_server_xkey".to_owned(), ToString::to_string),
+                        storage = auth_callout::storage_failure_code(&error),
+                        "Auth Callout response failed; admission denied"
+                    );
                 }
             }
         }

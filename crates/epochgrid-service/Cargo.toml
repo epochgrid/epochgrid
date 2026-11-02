@@ -22,6 +22,7 @@ tracing-subscriber.workspace = true
 epochgrid-core = { path = "../epochgrid-core" }
 
 [dev-dependencies]
+rusqlite.workspace = true
 nats-jwt-rs.workspace = true
 async-nats.workspace = true
 nkeys.workspace = true

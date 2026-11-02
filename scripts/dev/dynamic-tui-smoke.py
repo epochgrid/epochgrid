@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Bounded real-PTY chat over Auth Callout, without static device users."""
+from binaries import binary
 import importlib.util
 import json
 from pathlib import Path
@@ -13,7 +14,7 @@ import tempfile
 spec = importlib.util.spec_from_file_location('tui_smoke', Path(__file__).with_name('tui-smoke.py'))
 tui = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tui)
-SERVICE = str(Path('target/debug/epochgrid-service').resolve())
+SERVICE = binary('epochgrid-service')
 
 
 class ClientProxy(socketserver.ThreadingTCPServer):
