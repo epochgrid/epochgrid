@@ -1,3 +1,20 @@
+## PR #27 qualification permissions follow-up — 2026-11-03
+
+Run 41381167435 passed both builds and all existing suites, but all five
+Linux qualification cases failed to execute the mounted NATS fixture. The
+download script created owner-only paths while qualification runs as UID 1000;
+local UID 1000 masked the differing-owner failure. Public NATS fixture directory
+and executable permissions are now explicitly 0755, with public text files 0644.
+An offline download regression covers fresh and existing private caches, real
+checksum verification/extraction, and execution by UID 1000 of root-owned files
+in the qualification container. CI runs that container regression before suites.
+
+Qualification writes sanitized failure reports without swallowing failures, and
+CI always attempts to retain verification/qualification reports and timing data.
+Local harness checks, the distinct-UID container regression, actionlint and shell
+syntax checks pass. Full extracted-binary qualification awaits the next hosted
+run; the prior candidate/test manifests cannot qualify changed source bytes.
+
 ## PR #27 CI follow-up — 2026-11-01
 
 CI run [41378534653](https://github.com/epochgrid/epochgrid/actions/runs/41378534653)

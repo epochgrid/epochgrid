@@ -174,14 +174,17 @@ jobs:
           python3 scripts/release/artifact.py verify --archive target/linux-candidate/*.tar.gz --checksums target/linux-candidate/SHA256SUMS --output 'target/extracted candidate' --require-candidate --commit "$GITHUB_SHA" > target/artifact-verification.json
           python3 scripts/dev/run-bounded.py 120 ./scripts/dev/download-nats.sh
           python3 scripts/dev/run-bounded.py 180 docker build --target runtime -f scripts/release/qualification.Dockerfile -t epochgrid-artifact-tests:local .
+          python3 scripts/dev/run-bounded.py 30 docker run --rm --network none --user 0:0 --mount "type=bind,src=$PWD/scripts,dst=/workspace/scripts,readonly" epochgrid-artifact-tests:local python3 scripts/release/test-qualification.py
           python3 scripts/dev/run-bounded.py 700 python3 scripts/release/qualify.py --bundle 'target/extracted candidate' --suite "$ARTIFACT_SUITE" --result "target/qualification-$ARTIFACT_SUITE.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
         with:
           name: linux-qualification-${{ matrix.suite }}-${{ github.sha }}
           path: |
             target/artifact-verification.json
             target/qualification-*.json
-          if-no-files-found: error
+            target/ci/results.jsonl
+          if-no-files-found: warn
           retention-days: 7
   validate:
     needs: [build, tests, byo-nats, linux-build, linux-qualify]

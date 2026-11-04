@@ -8,7 +8,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 
 from artifact import BINS, ROOT, digest, output, validate_stage
 
@@ -86,11 +85,26 @@ def outside(args):
                   manifest_sha256=digest(args.bundle / 'BUILD.json'),
                   binary_sha256={name: digest(args.bundle / 'bin' / name) for name in BINS},
                   image=output('docker', 'image', 'inspect', args.image, '--format', '{{.Id}}'))
-    if args.result:
-        args.result.parent.mkdir(parents=True, exist_ok=True)
-        with args.result.open('x') as stream:
-            json.dump(result, stream, indent=2)
-            stream.write('\n')
+    return result
+
+
+def qualify(args):
+    # Write a bounded, sanitized report even when preflight or execution fails.
+    # Raw subprocess errors can contain fixture paths or private inputs.
+    result = dict(schema=1, suite=args.suite, result='failed')
+    try:
+        result = outside(args)
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        result['error_type'] = type(error).__name__
+        if isinstance(error, subprocess.CalledProcessError):
+            result['exit_code'] = error.returncode
+        raise
+    finally:
+        if args.result:
+            args.result.parent.mkdir(parents=True, exist_ok=True)
+            with args.result.open('x') as stream:
+                json.dump(result, stream, indent=2)
+                stream.write('\n')
 
 
 if __name__ == '__main__':
@@ -108,7 +122,7 @@ if __name__ == '__main__':
     args.runtime_manifest = args.runtime_manifest.resolve()
     os.chdir(ROOT)
     try:
-        (inside if args.inside else outside)(args)
+        (inside if args.inside else qualify)(args)
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         print(f'Artifact qualification failed: {error}', file=sys.stderr)
         sys.exit(1)

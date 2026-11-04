@@ -14,3 +14,7 @@ curl --fail --location --proto '=https' --tlsv1.2 "https://github.com/nats-io/na
 printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check -
 tar -xzf "$archive" -C .dev/nats-image --strip-components=1 "nats-server-v${version}-linux-${arch}/nats-server" "nats-server-v${version}-linux-${arch}/LICENSE"
 cp config/nats.Dockerfile .dev/nats-image/Dockerfile
+# Public broker fixtures are mounted into containers with a different UID.
+# Keep the download private until verification/extraction has succeeded.
+chmod 755 .dev/nats-image .dev/nats-image/nats-server
+chmod 644 .dev/nats-image/LICENSE .dev/nats-image/Dockerfile
