@@ -285,3 +285,24 @@ partition coverage, failure exit codes, timeout/cancellation categories and clea
 The initial trigger-only review passed 107 units and 16 NATS cases; the new
 send-during-disconnect regression adds one unit case. No hosted run of the redesigned
 workflow has been performed yet.
+
+## Linux distributable candidates — milestone 32
+
+The internal runtime contract above remains unchanged. `linux-build` compiles
+locked default-feature release binaries in the digest-pinned Ubuntu 24.04 builder
+and packages only the two applications, manifest and notices. It verifies
+checksums/layout and retains a candidate archive for seven days.
+
+`linux-qualify` has smoke plus four BYO matrix entries. Each verifies the archive
+and runs extracted binaries in a clean Ubuntu 24.04 container with no compiler
+or debug application binaries. Only the revision-checked test harness and example
+probes are mounted as test tools. Explicit binary selection applies to client,
+authority and separate-UID control processes. See the
+[artifact contract](operator/linux-artifacts.md) for coverage, metadata and limits.
+
+The existing `validate` name is preserved and now also requires both Linux jobs.
+A failed, skipped or cancelled prerequisite fails it. Existing regression suites,
+quarantines and read-only workflow permissions remain. Build and runtime checks
+have separate deadlines; no publishing credentials, tags, registry pushes or
+GitHub Releases are introduced. Candidate availability alone does not establish
+qualification; all same-revision prerequisites must pass.

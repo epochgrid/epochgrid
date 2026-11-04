@@ -8,7 +8,11 @@ use epochgrid_core::{identity::IdentityStore, transparency, transport, trust};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "epochgrid", about = "EpochGrid secure group communications")]
+#[command(
+    version,
+    name = "epochgrid",
+    about = "EpochGrid secure group communications"
+)]
 struct Args {
     #[arg(long, env = "EPOCHGRID_HOME", default_value = ".dev/alice")]
     home: PathBuf,

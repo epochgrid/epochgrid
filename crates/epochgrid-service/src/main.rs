@@ -16,7 +16,7 @@ use futures_util::StreamExt;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(about = "EpochGrid NATS identity service")]
+#[command(version, about = "EpochGrid NATS identity service")]
 struct Args {
     /// Explicitly run the legacy owned-broker fixture (never production).
     #[arg(long)]

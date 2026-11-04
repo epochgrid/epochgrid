@@ -377,3 +377,51 @@ fn audit_failure_closes_device_grants_but_preserves_repair_leases() -> Result<()
     assert!(f.registry.authorize(&f.device.public_key()).is_err());
     Ok(())
 }
+
+#[test]
+fn failure_stages_exclude_private_error_text_and_preserve_storage_category() -> Result<()> {
+    let mut f = Fixture::new()?;
+    let error = f
+        .callout
+        .respond(
+            &f.registry,
+            "PRIVATE_INVALID_XKEY",
+            b"PRIVATE_PAYLOAD",
+            true,
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<FailureStage>(),
+        Some(&FailureStage::Decryption)
+    );
+    assert_eq!(error.to_string(), "decryption");
+    assert_eq!(storage_failure_code(&error), "none");
+
+    let request = f.request()?;
+    f.send(&request, true)?;
+    let replay = f.send(&request, true).err().context("replay accepted")?;
+    assert_eq!(
+        replay.downcast_ref::<FailureStage>(),
+        Some(&FailureStage::ReplayCheck)
+    );
+
+    f.registry.db.execute_batch("CREATE TRIGGER reject_admission_audit BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT,'PRIVATE_SQL_ERROR'); END;")?;
+    let failed_audit = f
+        .send(&f.request()?, true)
+        .err()
+        .context("unaudited admission accepted")?;
+    assert_eq!(
+        failed_audit.downcast_ref::<FailureStage>(),
+        Some(&FailureStage::AdmissionAudit)
+    );
+    assert_eq!(failed_audit.to_string(), "admission_audit");
+    assert_eq!(storage_failure_code(&failed_audit), "storage_error");
+    let busy = anyhow::Error::new(rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+        Some("PRIVATE_DATABASE_PATH".into()),
+    ))
+    .context(FailureStage::ResponseAudit);
+    assert_eq!(storage_failure_code(&busy), "busy");
+    assert_eq!(busy.to_string(), "response_audit");
+    Ok(())
+}

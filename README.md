@@ -20,7 +20,7 @@ production communications.** See the [security policy](SECURITY.md) and
 [threat model](docs/threat-model.md).
 
 [Website](https://epochgrid.org) · [Architecture](docs/architecture.md) ·
-[Roadmap](docs/milestones.md) · [Contributing](CONTRIBUTING.md)
+[Linux bundles](docs/operator/linux-artifacts.md) · [Roadmap](docs/milestones.md) · [Contributing](CONTRIBUTING.md)
 
 ## Getting started
 

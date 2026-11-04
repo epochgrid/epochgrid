@@ -32,7 +32,7 @@ pub(super) async fn cli(
     args: &[&str],
     input: Option<&[u8]>,
 ) -> Result<String> {
-    let binary = Path::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+    let binary = crate::service_binary()
         .with_file_name(format!("epochgrid{}", std::env::consts::EXE_SUFFIX));
     let mut stdin_file = tempfile::tempfile()?;
     if let Some(input) = input {
@@ -84,7 +84,7 @@ pub(super) fn daemon(root: &Path, url: &str) -> Result<Process> {
         .append(true)
         .open(root.join("service.log"))?;
     Ok(Process(
-        Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+        Command::new(crate::service_binary())
             .arg("--dev-static")
             .arg("--home")
             .arg(root.join("service"))

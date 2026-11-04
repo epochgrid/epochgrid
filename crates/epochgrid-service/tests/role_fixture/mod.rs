@@ -59,7 +59,7 @@ impl Worker {
         let binary = Path::new(env!("CARGO_BIN_EXE_epochgrid-service"));
         let scripts = std::env::current_dir()?.join("scripts/dev");
         for (source, destination) in [
-            (binary.to_path_buf(), runtime.join("epochgrid-service")),
+            (crate::service_binary(), runtime.join("epochgrid-service")),
             (
                 binary
                     .parent()
@@ -129,7 +129,7 @@ impl Worker {
             .into_iter()
             .collect::<std::io::Result<Vec<_>>>()?;
         let binding_command = || {
-            let mut command = Command::new(env!("CARGO_BIN_EXE_epochgrid-service"));
+            let mut command = Command::new(crate::service_binary());
             command
                 .arg("--home")
                 .arg(root.join("backend"))
@@ -211,7 +211,7 @@ impl Worker {
             }
         }
         let report = tls::run(
-            Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+            Command::new(crate::service_binary())
                 .arg("--home")
                 .arg(root.join("backend"))
                 .args(["audit", "info"]),
@@ -225,7 +225,7 @@ impl Worker {
         let state: epochgrid_core::audit::Info = serde_json::from_slice(&report.stdout)?;
         let output = root.join("audit-export.jsonl");
         let exported = tls::run(
-            Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+            Command::new(crate::service_binary())
                 .arg("--home")
                 .arg(root.join("backend"))
                 .args([

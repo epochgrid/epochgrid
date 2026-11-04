@@ -143,3 +143,17 @@ stopped-authority `audit upgrade` before production validation. See the
 [security audit contract](audit.md) for storage bounds, coverage gaps, retention,
 export permissions and failure behavior. Status exposes aggregate audit health;
 only the authority account can export evidence.
+
+### Auth Callout failures
+
+Authority warnings for `Auth Callout response failed; admission denied` contain
+only a fixed `stage` and `storage` category. Stages distinguish missing server
+XKey headers, ingress checks, decryption, request decoding/validation, replay
+checks, admission audit persistence, response signing/encryption and response
+audit persistence. `storage` is `busy`, `storage_error` or `none`.
+
+These are failure locations, not proof of malformed client input or a particular
+root cause. The authority still denies admission on these failures. Request
+contents, identities, keys, SQL, paths and raw error chains are never included.
+Use these fields when investigating a connection rejection rather than assuming
+every failure is an invalid encrypted request.

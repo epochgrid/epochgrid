@@ -21,9 +21,10 @@ deadline applies. Provision unattended service credentials in advance.
 On Debian/Ubuntu, the development/test tooling uses:
 
 ```bash
-sudo apt-get install dbus-daemon gnome-keyring libsecret-tools
+sudo apt-get install dbus-daemon gnome-keyring libsecret-tools libglib2.0-bin
 ```
 
+`libglib2.0-bin` supplies the test-only `gdbus` lock probe.
 These packages alone do not configure an unattended account's session or unlock
 policy. A running D-Bus session, Secret Service provider and unlocked default
 collection are all required for initialization/enrollment and loading credentials.

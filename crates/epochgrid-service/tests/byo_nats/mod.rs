@@ -189,7 +189,7 @@ async fn send(root: &Path, url: &str, who: &str, text: &[u8]) -> Result<()> {
 
 async fn validate_offline(root: &Path, endpoint: &str, expected_success: bool) -> Result<()> {
     let result = tls::run(
-        Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+        Command::new(crate::service_binary())
             .env("EPOCHGRID_TLS_CA_PATH", root.join("ca.pem"))
             .arg("--home")
             .arg(root.join("backend"))
@@ -225,7 +225,7 @@ async fn validate_online(
     expected_success: bool,
     code: Option<&str>,
 ) -> Result<()> {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_epochgrid-service"));
+    let mut command = Command::new(crate::service_binary());
     command
         .env("EPOCHGRID_TLS_CA_PATH", root.join("ca.pem"))
         .arg("--home")
@@ -311,7 +311,7 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     )?;
     let auth = KeyPair::new_account();
     let app = KeyPair::new_account();
-    let mut init = Command::new(env!("CARGO_BIN_EXE_epochgrid-service"));
+    let mut init = Command::new(crate::service_binary());
     init.arg("--home")
         .arg(root.join("backend"))
         .arg("auth-init")
@@ -462,7 +462,7 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     let auth_before_export = std::fs::read(&path)?;
     tls::success(
         tls::run(
-            Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+            Command::new(crate::service_binary())
                 .arg("--home")
                 .arg(root.join("backend"))
                 .arg("deployment-export")
@@ -935,7 +935,7 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             let output = tls::run(
-                Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+                Command::new(crate::service_binary())
                     .arg("--home")
                     .arg(root.join("backend"))
                     .args(["status", "--role", "authority", "--format", "json"]),
@@ -1261,7 +1261,7 @@ async fn diagnostic_status(
 ) -> Result<epochgrid_core::diagnostics::Report> {
     use epochgrid_core::diagnostics::{Report, Role};
     let result = tls::run(
-        Command::new(env!("CARGO_BIN_EXE_epochgrid-service"))
+        Command::new(crate::service_binary())
             .env(
                 "DBUS_SESSION_BUS_ADDRESS",
                 "unix:path=/nonexistent/PRIVATE_MARKER",

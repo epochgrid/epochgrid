@@ -26,9 +26,10 @@ No `v0.1.0-alpha.1` tag or production-ready release has been published.
 | 27 | Implemented; cold CI pending | Explicit initialization/export, offline/online validation, production startup admission gate and generated-artifact BYO fixtures |
 | 28 | Merged (#21); hosted CI passed | [Backend privilege separation plan](milestone-28-plan.md) and [role contract](backend-role-contract.md): isolated authority/control roles, least-privilege runtime grants and restart-safe admission |
 | 29 | Merged (#23); hosted CI passed | [Capacity contract](operator/capacity.md), transactional limits and finite broker budgets |
-| 30 | Implemented; locally validated; hosted CI pending | [Operational diagnostics](operator/diagnostics.md): bounded authenticated runtime status, aggregate observations and troubleshooting |
-| 31 | Implemented locally; hosted PR CI pending | [Security audit operations](operator/audit.md): encrypted events, bounded storage, fail-closed admission, export and explicit retention; [plan](milestone-31-plan.md) |
-| 32–34 | Not started | Official Linux artifacts, GHCR runtime image and release supply chain |
+| 30 | Merged (#24) | [Operational diagnostics](operator/diagnostics.md): bounded authenticated runtime status, aggregate observations and troubleshooting |
+| 31 | Merged (#26) | [Security audit operations](operator/audit.md): encrypted events, bounded storage, fail-closed admission, export and explicit retention; [plan](milestone-31-plan.md) |
+| 32 | Implemented; locally validated; hosted PR CI pending | [Linux binary bundles](operator/linux-artifacts.md): locked release builds, manifests/notices, strict verification and extracted-binary qualification; [plan](milestone-32-plan.md) |
+| 33–34 | Not started | GHCR runtime image and release supply chain/publication |
 | 35–38 | Not started | Broader adversarial suite, protocol/configuration freeze, first-run UX and operator documentation set |
 
 ## Which deployment path works today?

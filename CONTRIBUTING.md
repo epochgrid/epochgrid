@@ -10,7 +10,9 @@ changes to authentication or storage need negative and restart tests. Commit
 Cargo.lock. Do not commit `.dev/`, credentials, private keys or databases.
 
 Use https://github.com/epochgrid for source and `ghcr.io/epochgrid/*` for future
-OCI artifacts. CI only validates; publishing is not configured.
+OCI artifacts. CI builds and qualifies temporary Linux binary candidates; publishing
+is not configured. See [Linux bundles](docs/operator/linux-artifacts.md) for the
+artifact contract and clean-runtime qualification commands.
 
 ## Setting up your development environment
 
