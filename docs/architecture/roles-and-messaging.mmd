@@ -1,0 +1,40 @@
+%% Separate backend containers are locally qualified for milestone 33; hosted CI is pending.
+%% Separate Linux accounts, keyrings and peer-authenticated IPC are implemented.
+%% Normal runtime grants are not a full-authority-compromise boundary:
+%% the authority holds the application's grant-signing credentials.
+flowchart TB
+    Operator["Operator<br/>Provisions infrastructure, accounts and trust"]
+
+    subgraph Endpoints["Messaging endpoints — MLS keys and plaintext live here"]
+        Alice["Alice's client<br/>Device credentials · MLS keys<br/>Encrypted local history"]
+        Bob["Bob's client<br/>Device credentials · MLS keys<br/>Encrypted local history"]
+    end
+
+    subgraph Fabric["NATS infrastructure — transport and ciphertext storage"]
+        NATS["NATS server / cluster<br/>TLS · Connection admission<br/>Enforces issued permissions"]
+        JS["JetStream<br/>Encrypted messages and mailboxes<br/>Public directory / policy metadata"]
+        NATS <--> JS
+    end
+
+    subgraph Backend["EpochGrid backend — no MLS group secrets"]
+        Control["Control worker<br/>Separate non-root account/container<br/>Receives and forwards control requests"]
+        Authority["Authority<br/>Separate non-root account/container<br/>Enrollment · Authorization · Registry<br/>Grant signing · Consumer reconciliation"]
+
+        CK["Control's Secret Service / keyring<br/>Worker credentials"]
+        AK["Authority's Secret Service / keyring<br/>Signing credentials · Database key"]
+        DB["Authority's encrypted registry<br/>Devices · Policies · Audit records"]
+
+        Control <-->|"Peer-UID authenticated Unix socket<br/>Requests, replies and heartbeat"| Authority
+        Control --- CK
+        Authority --- AK
+        Authority --- DB
+    end
+
+    Alice <-->|"TLS: MLS ciphertext<br/>and control requests"| NATS
+    Bob <-->|"TLS: MLS ciphertext<br/>and control requests"| NATS
+    NATS <-->|"Control subjects and replies"| Control
+    NATS <-->|"Auth Callout: admission requests<br/>and signed permission grants"| Authority
+    Authority -->|"Manage CHAT / MAILBOX consumers<br/>Publish directory records and opaque Welcomes"| NATS
+
+    Operator -.->|"Broker configuration, TLS<br/>Account boundaries and signer delegation"| NATS
+    Operator -.->|"Provision separate roles,<br/>homes and keyring sessions"| Backend

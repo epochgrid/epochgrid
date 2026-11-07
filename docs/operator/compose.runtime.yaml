@@ -1,0 +1,77 @@
+# Production-shaped example. Supply an already-qualified image ID/digest.
+# This file provisions neither host accounts/keyrings nor broker resources.
+x-runtime: &runtime
+  image: ${EPOCHGRID_IMAGE:?set an exact qualified image ID or registry digest}
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,noexec,size=16777216,mode=1777
+  pids_limit: 128
+  mem_limit: 512m
+  stop_signal: SIGINT
+  stop_grace_period: 8s
+  restart: "no"
+  environment:
+    EPOCHGRID_PROFILE: production
+    EPOCHGRID_TLS_CA_PATH: /trust/ca.pem
+    DBUS_SESSION_BUS_ADDRESS: unix:path=/run/epochgrid-bus
+
+services:
+  authority:
+    <<: *runtime
+    user: ${AUTHORITY_UID:?set authority UID}:${AUTHORITY_GID:?set authority GID}
+    command: [--home, /state, --server, "${EPOCHGRID_NATS_URL:?set a production TLS broker URL}", serve-authority, --auth-config, /state/auth.json]
+    volumes:
+      - type: bind
+        source: ${AUTHORITY_HOME:?provision a private authority home}
+        target: /state
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${AUTHORITY_BUS_SOCKET:?set the authority Secret Service bus socket}
+        target: /run/epochgrid-bus
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${EPOCHGRID_IPC_DIR:?provision an authority-owned IPC directory}
+        target: /eg-ipc
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${EPOCHGRID_CA_FILE:?set the operator broker trust bundle}
+        target: /trust/ca.pem
+        read_only: true
+        bind: {create_host_path: false}
+    healthcheck:
+      test: [CMD, /usr/local/bin/epochgrid-service, --home, /state, status, --role, authority, --format, json]
+      interval: 15s
+      timeout: 7s
+      retries: 2
+  control:
+    <<: *runtime
+    user: ${CONTROL_UID:?set a distinct control UID}:${CONTROL_GID:?set control GID}
+    command: [--home, /state, --server, "${EPOCHGRID_NATS_URL:?set a production TLS broker URL}", serve-control]
+    volumes:
+      - type: bind
+        source: ${CONTROL_HOME:?provision a private control home}
+        target: /state
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${CONTROL_BUS_SOCKET:?set the control Secret Service bus socket}
+        target: /run/epochgrid-bus
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${EPOCHGRID_IPC_DIR:?provision an authority-owned IPC directory}
+        target: /eg-ipc
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${EPOCHGRID_CA_FILE:?set the operator broker trust bundle}
+        target: /trust/ca.pem
+        read_only: true
+        bind: {create_host_path: false}
+    healthcheck:
+      test: [CMD, /usr/local/bin/epochgrid-service, --home, /state, status, --role, control, --format, json]
+      interval: 15s
+      timeout: 7s
+      retries: 2

@@ -22,6 +22,9 @@ phase() {
     participants-tui) NATS_SERVER="$PWD/.dev/nats-image/nats-server" keyring python3 scripts/dev/run-bounded.py 120 python3 scripts/dev/tui-smoke.py --participants-only ;;
     harness) python3 scripts/dev/run-bounded.py 30 python3 scripts/release/test-artifact.py
              python3 scripts/dev/run-bounded.py 10 python3 scripts/release/test-qualification.py
+             python3 scripts/dev/run-bounded.py 10 python3 scripts/release/test-image.py
+             python3 scripts/dev/run-bounded.py 10 python3 scripts/release/test-image-process.py
+             python3 scripts/dev/run-bounded.py 10 python3 scripts/release/test-publication.py
              python3 scripts/dev/run-bounded.py 10 python3 scripts/ci/test-runtime.py
              python3 scripts/dev/run-bounded.py 30 python3 scripts/dev/test-bounded.py
              python3 scripts/dev/run-bounded.py 10 python3 scripts/dev/test-tui-smoke.py

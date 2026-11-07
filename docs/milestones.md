@@ -28,8 +28,9 @@ No `v0.1.0-alpha.1` tag or production-ready release has been published.
 | 29 | Merged (#23); hosted CI passed | [Capacity contract](operator/capacity.md), transactional limits and finite broker budgets |
 | 30 | Merged (#24) | [Operational diagnostics](operator/diagnostics.md): bounded authenticated runtime status, aggregate observations and troubleshooting |
 | 31 | Merged (#26) | [Security audit operations](operator/audit.md): encrypted events, bounded storage, fail-closed admission, export and explicit retention; [plan](milestone-31-plan.md) |
-| 32 | Implemented; locally validated; hosted PR CI pending | [Linux binary bundles](operator/linux-artifacts.md): locked release builds, manifests/notices, strict verification and extracted-binary qualification; [plan](milestone-32-plan.md) |
-| 33–34 | Not started | GHCR runtime image and release supply chain/publication |
+| 32 | Merged (#27); hosted PR CI passed | [Linux binary bundles](operator/linux-artifacts.md): locked release builds, manifests/notices, strict verification and extracted-binary qualification; [plan](milestone-32-plan.md) |
+| 33 | Locally implemented and image-qualified | [Runtime image notes](operator/containers.md): image construction, separate-role proof, image matrix, CI and candidate tooling implemented; native failover timeout recorded in handoff; clean regression gate, hosted CI and GHCR round trip pending ([plan](milestone-33-plan.md)) |
+| 34 | Not started | Versioned release promotion, supply chain, signatures/attestations and publication |
 | 35–38 | Not started | Broader adversarial suite, protocol/configuration freeze, first-run UX and operator documentation set |
 
 ## Which deployment path works today?
