@@ -7,7 +7,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from types import SimpleNamespace
+from stat import ST_UID
 
 spec = importlib.util.spec_from_file_location('adapter', Path(__file__).with_name('image-process.py'))
 adapter = importlib.util.module_from_spec(spec)
@@ -34,7 +34,14 @@ class MountTests(unittest.TestCase):
         (self.home / 'worker.json').write_text(json.dumps(dict(bindings=bindings)))
         original_stat = Path.stat
         def stat(path, **kwargs):
-            return SimpleNamespace(st_uid=os.getuid() + 1) if path == ipc else original_stat(path, **kwargs)
+            result = original_stat(path, **kwargs)
+            if path != ipc:
+                return result
+            # Python 3.12's is_symlink() reaches this mock through lstat().
+            # Preserve the real file metadata; only ownership is simulated.
+            fields = list(result)
+            fields[ST_UID] = os.getuid() + 1
+            return os.stat_result(fields)
         with patch.object(Path, 'stat', stat):
             values = self.selected()
         self.assertEqual(len(values), 4)

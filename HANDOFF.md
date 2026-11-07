@@ -1,4 +1,22 @@
-## Current status — milestone 33 implementation and final local qualification
+## Current status — PR #28 Python 3.12 harness fix
+
+[CI run #89](https://github.com/epochgrid/epochgrid/actions/runs/42324513387)
+failed in the native build's harness step. The image process test mocked `Path.stat`
+with only `st_uid`; Python 3.12's `Path.is_symlink` calls `lstat` and needs `st_mode`.
+Local Python 3.14 uses a different symlink path and did not expose the incomplete
+mock. The fix returns an `os.stat_result` retaining file metadata and changing only
+its simulated UID. Runtime ownership and symlink checks are unchanged.
+
+Reproduced the exact failure in the Ubuntu 24.04/Python 3.12 fixture before editing.
+After the fix, all four mount tests pass on Python 3.12 and 3.14; the full offline
+harness (42 tests) passes on Ubuntu 24.04/Python 3.12. Diff whitespace also passes.
+The user authorized committing and pushing this correction to trigger hosted CI.
+The earlier image evidence below predates this test-source change; new hosted
+qualification must bind to the new revision. The native failover timeout remains
+unexplained. No qualification result, publication or release is inferred from
+these harness checks.
+
+## Previous status — milestone 33 implementation and final local qualification
 
 Work remains on `feature/milestone-33-runtime-image`, based on `04652c7`.
 The image adapter now runs the retained four BYO scenarios against the runtime
