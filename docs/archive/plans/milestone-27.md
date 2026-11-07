@@ -1,10 +1,14 @@
 # Milestone 27 — initialization and deployment validation
 
+> Archived acceptance plan. Milestone 27 merged as `f8f86d0` (#17).
+> Statements below describe planning or validation at that time, not current status.
+> Use the [current contract](../../operator/validation.md) and [roadmap](../../milestones.md).
+
 **Implementation started at user request on 2026-10-22.** The first slice adds
 the shared resource contract, manifest schema, artifact renderer and comparison
 fixtures. The second slice implements explicit initialization, atomic no-clobber
 artifact export and generated-artifact BYO fixture provisioning. See
-[comparison rules](deployment-resource-contract.md). The third slice implements
+[comparison rules](../../deployment-resource-contract.md). The third slice implements
 non-initializing offline validation and versioned reports. The final slice adds
 bounded online inspection and the production startup admission gate. Local
 verification is recorded in HANDOFF.md; cold CI remains required before merge.

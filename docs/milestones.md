@@ -1,147 +1,108 @@
-# Current milestone and deployment status
+# Roadmap and deployment status
 
-This is the current status index. Individual milestone documents also retain
-historical design and validation evidence; old test counts are not current totals.
-No `v0.1.0-alpha.1` tag or production-ready release has been published.
+Status reviewed against `main` at `04652c7` (milestone 32, PR #27) on 2026-11-06.
+This is the single current project-status and delivery-plan index. Merged means
+present in main; it does not imply production readiness or a qualified release.
+No alpha release or published runtime image is claimed.
 
-| Milestone | Status | Implemented behavior / remaining work |
+## Current delivery
+
+| Work | Status | Scope and next gate |
 | --- | --- | --- |
-| 0–10 | Complete | Alice/Bob MLS MVP, durable ciphertext history, offline catch-up, restart/resume and ciphertext-only acceptance coverage |
-| 11 | Complete | Persistent TUI and scripting CLI |
-| 12 | Complete in development model | Independent devices and MLS leaves, grouped user display; canonical identity enrollment added in 21 |
-| 13 | Complete within documented limits | Manual verification and bounded authenticated registration history; no global transparency consensus |
-| 14 | Legacy implementation retained only for development | Static NATS exclusion/reload and MLS rekeying; production replacement is 21–22 |
-| 15 | Complete within documented recovery scope | Encrypted identity-administration recovery; excludes history and old MLS ratchets |
-| 16 | Complete in development model | Encrypted Object Store attachments; dynamic permissions still need integration |
-| 17 | Partial — UI deferred | Protected ephemeral transport implemented; unreliable live typing UI and its default live assertions deferred as TD-001 |
-| 18 | Complete in development model | Protected device delivery/read receipts |
-| 19 | Complete in development model | Append-only replies, edits and reactions |
-| 20 | Complete in development model | Explicit MLS service participation and removal |
-| 21 | Complete admission slice | Canonical users, local single-use enrollment tokens, encrypted Auth Callout and dynamic revocation denial |
-| 22 | Implemented — live reliability deferred (TD-002) | Signed policies synchronized with the MLS outbox; exact grants, filtered durable consumers, signed Welcome relay, bounded lease expiry and revocation/rekey convergence; dynamic CLI/TUI chat and restart coverage quarantined after intermittent failures |
-| 23 | Complete transport milestone | Shared production TLS profile, system/custom roots, name validation, configurable minimum version, TLS-first and certificate-rotation tests |
-| 24 | Implemented; locally validated | Linux Secret Service credentials, no plaintext fallback, fresh installs only |
-| 25 | Merged (#15) | SQLCipher client/backend state, independent Secret Service keys, fresh encrypted homes only |
-| 26 | Implemented; locally validated | BYO-NATS contract, operator-JWT adapter, standalone/R3 cluster qualification; cold CI pending |
-| 27 | Implemented; cold CI pending | Explicit initialization/export, offline/online validation, production startup admission gate and generated-artifact BYO fixtures |
-| 28 | Merged (#21); hosted CI passed | [Backend privilege separation plan](milestone-28-plan.md) and [role contract](backend-role-contract.md): isolated authority/control roles, least-privilege runtime grants and restart-safe admission |
-| 29 | Merged (#23); hosted CI passed | [Capacity contract](operator/capacity.md), transactional limits and finite broker budgets |
-| 30 | Merged (#24) | [Operational diagnostics](operator/diagnostics.md): bounded authenticated runtime status, aggregate observations and troubleshooting |
-| 31 | Merged (#26) | [Security audit operations](operator/audit.md): encrypted events, bounded storage, fail-closed admission, export and explicit retention; [plan](milestone-31-plan.md) |
-| 32 | Implemented; locally validated; hosted PR CI pending | [Linux binary bundles](operator/linux-artifacts.md): locked release builds, manifests/notices, strict verification and extracted-binary qualification; [plan](milestone-32-plan.md) |
-| 33–34 | Not started | GHCR runtime image and release supply chain/publication |
-| 35–38 | Not started | Broader adversarial suite, protocol/configuration freeze, first-run UX and operator documentation set |
+| 24 — protected credentials | Merged, PR #14 | [Linux Secret Service](secret-storage.md); no plaintext fallback |
+| 25 — encrypted local state | Merged, PR #15 | SQLCipher databases and independent keyring keys; fresh encrypted homes |
+| 26 — operator-owned NATS | Merged, PR #16 | [Configuration/operator-JWT, R1/R3 qualification](operator/byo-nats.md) |
+| 27 — initialization and validation | Merged, PR #17 | [Explicit setup/export and offline/online validation](operator/validation.md) |
+| 28 — privilege separation | Merged, PR #21 | [Separate authority/control accounts and keyrings](backend-role-contract.md) |
+| 29 — capacity | Merged, PR #23 | [Finite application and broker resource bounds](operator/capacity.md) |
+| 30 — diagnostics | Merged, PR #24 | [Authenticated runtime status and troubleshooting](operator/diagnostics.md) |
+| 31 — audit evidence | Merged, PR #26 | [Encrypted authority audit, export and explicit retention](operator/audit.md) |
+| 32 — Linux bundles | Merged, PR #27 | [Verified candidates and extracted-binary qualification](operator/linux-artifacts.md); no release publication |
+| 33 — runtime image | Implemented on a separate branch; hosted CI under review | Verified-bundle image, separate-role boundary, image matrix and controlled GHCR candidate transport; see below |
+| 34 — release publication and supply chain | Planned, not implemented | Versioned promotion, GitHub Releases, signatures/attestations and provenance policy |
+| 35 — adversarial qualification | Planned, not implemented as a complete suite | Broader negative, fault and recovery coverage with explicit release evidence |
+| 36 — protocol/configuration freeze | Planned, not frozen | Versioning, compatibility and migration commitments for the supported release scope |
+| 37 — first-run experience | Planned | Repeatable setup and actionable recovery without bypassing security prerequisites |
+| 38 — operator documentation set | Planned release gate | Validate the supported install, operate, upgrade, backup/recovery and removal procedures end to end |
 
-## Which deployment path works today?
+Milestone 33 is in [PR #28](https://github.com/epochgrid/epochgrid/pull/28), on
+`feature/milestone-33-runtime-image` at `1a42ed7`, not in this main-based checkout.
+Its [acceptance plan](https://github.com/epochgrid/epochgrid/blob/1a42ed7/docs/milestone-33-plan.md)
+and [handoff](https://github.com/epochgrid/epochgrid/blob/1a42ed7/HANDOFF.md) are owned
+by that branch. All six local image checks passed before the Python 3.12 harness
+fix. That fix passed all 42 harness tests on Python 3.12 and triggered CI run #90;
+it does not replace qualification of the new revision.
+The full native verifier had a JWT-cluster failover-readiness timeout; an unchanged
+focused rerun passed, without establishing a cause. The user is monitoring hosted
+CI. This documentation snapshot does not report its eventual result.
 
-The original README walkthrough uses explicitly **development-only**
-static NATS fixtures. Set `EPOCHGRID_PROFILE=development` in each terminal used for
-those commands. The provided development smoke runners select it explicitly and
-print a warning. This is not the alpha deployment model.
+To close milestone 33: obtain the required regression/hosted image evidence, merge,
+then explicitly invoke candidate publication from protected main and verify the
+registry digest round trip. Confirm package ownership, access and visibility first.
+No `latest`, semantic-version or alpha release promotion belongs to milestone 33.
+When it merges, reconcile this index with its final handoff and move the completed
+plan into the [archive](archive/README.md).
 
-The production-shaped path supports dynamic enrollment/admission and normal
-CLI/TUI encrypted chat, invitations, durable catch-up and revocation over verified
-TLS. Dynamic join/send synchronization remains unreliable; its live checks are
-temporarily quarantined under [TD-002](technical-debt.md). Use the [dynamic walkthrough](operator/auth-callout.md#dynamic-client-walkthrough).
-Dynamic attachment access remains separate release work. The
-[BYO-NATS contract](operator/byo-nats.md) defines the milestone 26 qualification
-matrix; the complete development feature set is not yet release-qualified.
-Completing TLS does not imply the alpha release gates are met. Standalone NATS credentials use [Linux Secret Service](secret-storage.md). MLS
-private state, transcripts and backend registry data use SQLCipher with independent
-Secret Service keys. Existing plaintext homes/registries require fresh enrollment;
-offline database access also requires the keyring.
+## Remaining delivery plan
 
-See [TLS](operator/tls.md), [Auth Callout](operator/auth-callout.md),
-[dynamic authorization](architecture/dynamic-authorization.md), and
-[deferred typing and dynamic authorization checks](technical-debt.md). Milestone 25 (protected SQLite state)
-is merged. Milestone 26 (BYO-NATS qualification) is locally validated; milestone 27
-initialization/export, offline/online validation and production startup enforcement
-are implemented. See [deployment validation](operator/validation.md) for the
-pre-provisioning requirement and coverage limits. Milestone 28 merged in PR #21;
-hosted CI passed as recorded in HANDOFF. See the [role contract](backend-role-contract.md) and
-[handoff](../HANDOFF.md) for the boundary and verification evidence.
+Milestones 34–38 retain the scopes above; detailed acceptance plans must be reviewed
+before implementation. Their numbers organize ownership, not an assertion that
+publishing an artifact finishes alpha qualification.
 
-Post-MVP delivery includes a dedicated test and CI reliability focus under
-[TD-003](technical-debt.md#td-003--test-and-ci-reliability-post-mvp-delivery-focus),
-covering execution budgets, fixture synchronization and disconnect/send races.
+1. Finish milestone 33 qualification and candidate transport. Keep current
+   Secret Service, SQLCipher, peer-UID isolation and operator-owned NATS boundaries.
+2. Define milestone 34's promotion/verification contract using the qualified bundle
+   and image. Bind artifacts to the selected release revision; do not relabel PR
+   merge-candidate bytes as a different commit. Candidate transport is not a signed release.
+3. Resolve or explicitly disposition release blockers through adversarial coverage
+   and compatibility decisions (35–36). Dynamic Object Store permissions and
+   short-lease dynamic messaging remain unqualified; a narrower release must say so.
+4. Validate first-run and operator procedures against that supported scope (37–38).
+   Existing guides are implementation contracts, not evidence that every release
+   installation/upgrade/recovery workflow has been qualified.
 
+Reliability work is tracked once in [technical debt](technical-debt.md): TD-001
+live typing, TD-002 short-lease dynamic authorization/messaging, and TD-003 test/CI
+reliability. Packaging or one green rerun closes none of them. TD-003 adds no
+quarantines. Preserve failing evidence, bounded execution and authorization assertions.
 
-## Milestone 27 local validation — 2026-10-22
+Backend HA, remote authority/control placement, non-Linux credential providers,
+ARM64/container-platform expansion and automatic plaintext-state migration are
+outside the currently qualified scope; they need explicit future plans.
 
-Initialization/export, non-initializing offline inspection, bounded online
-validation and production startup enforcement are implemented. The shared resource
-contract requires explicit R1/R3 replication. Production refuses missing or
-incompatible resources and unhealthy replicas before device admission; operator
-settings are never repaired automatically. Existing encrypted M26 homes use
-explicit export/setup, without key or database migration.
+## What works today
 
-All required local gates passed across the final verification phases: formatting,
-warnings-denied Clippy, 107 workspace unit tests, binaries/examples, ten harness
-regressions, three isolated live Secret Service tests, protected-state CLI checks,
-16 retained NATS cases, Compose/CLI and main/relationship/participant TUI checks,
-focused dynamic join/reconnect, and all four expanded BYO cases. The latter cover
-both validation modes and startup refusal alongside retained messaging, restart,
-revocation, failover and account isolation. Builds and integration runs remained
-separate bounded phases. No automatic retry or quarantine rules were added.
+The [README walkthrough](../README.md#local-development) is a static, loopback-only
+**development fixture**. Set `EPOCHGRID_PROFILE=development` for its commands.
+It is not the operator deployment model.
 
-Earlier disposable-keyring failures and corrected error-code assertions are
-recorded in [HANDOFF.md](../HANDOFF.md), along with the final logs. The later
-workspace unit and protected-state phases passed; the initial keyring-session
-failure cause was not established. Cold CI for all four BYO cases remains required
-before merge. These results do not qualify an alpha release. See
-[deployment validation](operator/validation.md) for coverage and limitations.
+The production-shaped path uses [operator-owned NATS](operator/byo-nats.md),
+[verified TLS](operator/tls.md), [explicit enrollment](operator/auth-callout.md),
+[separate backend roles](backend-role-contract.md), and [deployment validation](operator/validation.md).
+It supports dynamic admission and normal CLI/TUI messaging, but the short-lease
+live workflows remain quarantined under TD-002. Dynamic attachment access is not
+qualified. A green default gate does not certify the whole development feature set.
 
-## Milestone 26 local validation — 2026-10-20
+Runtime credentials require [Linux Secret Service](secret-storage.md). MLS private
+state, transcripts and registry data use SQLCipher. Offline access also needs the
+matching keyring. Existing plaintext homes require fresh enrollment; administration
+recovery excludes message history and MLS ratchets. Use [audit upgrade](operator/audit.md)
+for established schema-2 encrypted authority homes; never infer downgrade compatibility.
 
-Milestone 26 passes formatting, warnings-denied workspace Clippy, binaries/examples
-build, 85 unit tests, ten harness regressions, both explicit live Secret Service
-tests and protected credential/database lifecycle checks. All 16 retained NATS
-cases pass in 252.26 seconds; Compose/CLI, main TUI, relationship TUI, participant
-TUI and focused dynamic join/reconnect also pass.
+## Earlier delivered scope
 
-The four BYO-NATS cases pass, including two consecutive final fresh-state matrix
-runs (eight case executions). They cover configuration/operator-JWT authentication,
-standalone/R3 cluster storage, verified client TLS and mutually authenticated routes,
-enrollment and messaging, explicit admission/permission denials, account isolation,
-broker leader loss, durable catch-up, backend restart, revocation, restored replica
-convergence and unchanged operator configuration/resources. Each case takes roughly
-26–43 seconds locally with prebuilt binaries and the default 30-second device lease.
+| Milestones | Delivered behavior and limits |
+| --- | --- |
+| 0–10 | Two-device MLS MVP, durable ciphertext, offline catch-up and restart; [acceptance](mvp-acceptance.md) |
+| 11–13 | TUI, independent devices, manual verification and bounded authenticated registration history; no global transparency consensus |
+| 14 | Static revocation/reload retained for development; production admission/revocation is 21–22 |
+| 15 | Encrypted identity-administration recovery; excludes transcripts and MLS ratchets |
+| 16 | Encrypted Object Store attachments in the development model |
+| 17 | Protected ephemeral transport; live typing UI deferred under TD-001 |
+| 18–20 | Device receipts, append-only message relationships and explicit MLS service participants in the development model |
+| 21–22 | Canonical enrollment, encrypted Auth Callout, signed policies, exact grants and revocation; live reliability remains TD-002 |
+| 23 | Shared production TLS profile, custom/system trust, TLS-first and rotation coverage |
 
-The [deployment contract](operator/byo-nats.md) pins NATS 2.14.5 and documents the
-operator-JWT default-sentinel/delegated-signing setup and unsupported configurations.
-New CI matrix jobs separate compilation from execution. These are local fresh-state
-results, not cold GitHub runner evidence; required CI/review remains before merge.
-TD-001/TD-002 remain open, and post-MVP TD-003 reliability work is unchanged.
-Validation logs are retained under `/tmp/epochgrid-m26-*.log`; see HANDOFF.md for
-the specific files and implementation boundaries. No release has been published.
-
-## Milestone 25 local validation — 2026-10-19
-
-Milestone 25 passed formatting, warnings-denied workspace Clippy, all 84 unit
-tests, workspace binaries/examples build, ten Python harness tests, all 16 retained
-live NATS cases, Compose/CLI smoke, main/relationship/service-participant TUI
-workflows, and focused dynamic join/reconnect. The final NATS suite completed in
-253.24 seconds with the existing TD-002 case filtered out.
-
-Two explicit live Secret Service tests and CLI/backend lifecycle checks also
-passed, including encrypted administration recovery, restart, missing/locked/
-duplicate/swapped keys, unavailable/stalled D-Bus sessions, and no-secret-file scans.
-Database coverage includes unreadability without the key, encrypted WAL/journal
-payloads, actual MLS signing-key/transcript/registry marker scans, process-crash
-recovery, interrupted metadata commits, legacy plaintext rejection, and refusal to
-reset established state. Cross-process registry readers/writers protect against
-POSIX-lock loss; the format probe uses SQLite-managed connections.
-
-Logs are retained locally under `/tmp/epochgrid-m25/`. Tests use disposable
-password-protected keyrings and isolated Compose state; developer state is not
-converted or reset. Existing plaintext homes remain unsupported. Recovery v2
-archives retain administration-only scope, with a fresh database key on restore.
-
-Live typing assertions and full dynamic authorization integration/messaging checks
-remain deferred under TD-001/TD-002. A green default gate does not certify dynamic
-authorization end to end. These are local results; protected-branch CI checks
-remain required before merge. No alpha release or publication is implied.
-
-Earlier milestone results are consolidated in
-[historical local validation](development.md#historical-local-validation). See
-[TD-002](technical-debt.md) for failed CI runs and restoration criteria.
+Completed acceptance plans and dated validation results live in the
+[archive](archive/README.md). Test totals and local paths there describe old revisions;
+use [development](development.md) and [CI](ci-strategy.md) for today's commands.

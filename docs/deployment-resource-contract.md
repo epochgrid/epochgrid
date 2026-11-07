@@ -16,7 +16,7 @@ initialization are implemented. [Offline validation](operator/validation.md) che
 the manifest and existing local state. Online inspection and production startup
 use the same comparison rules for existing application-account resources. Production
 startup refuses missing/incompatible resources before device admission and never
-creates or changes them. See the [implementation plan](milestone-27-plan.md).
+creates or changes them. See the [implementation plan](archive/plans/milestone-27.md).
 
 `DeploymentManifest` serializes as `{"version":1,"replicas":3}` (R1 is also
 supported). Unknown versions, unknown/duplicate fields and other replica counts

@@ -1,95 +1,46 @@
-# Git Hooks for Project Quality
+# Local Git hooks
 
-## Installation
+Hooks are optional conveniences. The required checks are
+[`scripts/dev/verify.sh`](../dev/verify.sh) and [hosted PR CI](../../docs/ci-strategy.md).
+Run the verifier explicitly; neither cloning nor committing installs hooks.
 
-Run once after cloning or onboarding a developer:
+## Current helper limitations
 
-```bash
-git init                        # Initialize repo if needed
-cd ./.git/hooks/ || cd hooks/   # Navigate to hooks directory (if in git/hooks)
-for hook in *.sh; do            # Copy all hooks
-    cp "../$hook" "$hook"       # Or move based on project structure
-done
-chmod +x ./*                    # Make them executable
+The checked-in helpers are legacy examples, not a supported enforcement path:
 
-# Or, if installed directly:
-cd scripts/hooks/
-for f in *.sh; do
-    mv "$f" "../.git/hooks/$f"
-    chmod +x "../.git/hooks/$f"
-done
+- `install-hooks.sh` copies files with `.sh` suffixes. Git's standard hook names
+  are `pre-commit`, `commit-msg` and `pre-rebase`, without that suffix.
+- `pre-commit.sh` can mask command failures with `|| true`; it is not a reliable
+  substitute for running the formatting check directly.
+- `commit-msg.sh` suggests conventional prefixes; it does not require them.
+- `pre-rebase.sh` uses an environment/default branch guess and prints force-push
+  advice. It does not establish whether a rebase is safe.
+- The root `.pre-commit-config.yaml` is a legacy alternative and needs repair
+  before being recommended: its Clippy entry contains shell operators in a system
+  command, and its hook-stage/configuration compatibility is not qualified here.
+
+This documentation cleanup does not change those scripts or install any hooks.
+Do not move tracked scripts into `.git`, overwrite an existing hook configuration,
+or suppress lint failures while setting up local tooling.
+
+## Minimal formatting hook
+
+If you want a local formatting check, first inspect `git config --get core.hooksPath`
+and any existing hook. In a repository using Git's default hook directory, the
+following installs a hook only when that path does not already exist:
+
+```sh
+hook_path=$(git rev-parse --git-path hooks/pre-commit)
+test ! -e "$hook_path" || exit 1
+mkdir -p "$(dirname "$hook_path")"
+cat > "$hook_path" <<'HOOK'
+#!/bin/sh
+exec cargo fmt --check
+HOOK
+chmod +x "$hook_path"
 ```
 
-## Hook Descriptions
-
-### pre-commit.sh ✅ (Recommended)
-- **When**: Before each commit
-- **What**: Runs `cargo fmt --check` on all staged files
-- **Ensures**: Consistent Rust formatting before review
-- **Exit code 1** if formatting fails, blocking bad commits
-
-### commit-msg.sh ℹ️ 
-- **When**: When preparing a commit message
-- **What**: Validates conventional commit format
-- **Ensures**: Clear, descriptive commit messages for changelogs
-- **Tip**: Use prefixes like `fix:`, `feat:`, `docs:` etc.
-
-### pre-rebase.sh ⚠️
-- **When**: Starting a rebase operation
-- **What**: Warns about rebasing protected branches (main/master)
-- **Ensures**: PR commits are preserved, not lost by rewriting main
-
-## Pre-commit Framework (Alternative)
-
-For CI-friendly setup, use the [`pre-commit`](https://github.com/pre-commit/pre-commit) framework:
-
-```bash
-# In project root after cloning
-pip install pre-commit
-
-# Configure hooks in .pre-commit-config.yaml
-cat > .pre-commit-config.yaml << 'YAML'
-repos:
-  - repo: local
-    hooks:
-      - id: cargo-fmt-check
-        name: check cargo formatting
-        entry: cargo fmt --check
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [commit]
-      
-      - id: clippy-lint
-        name: check cargo clippy warnings
-        entry: ./scripts/dev/verify.sh clippy 2>/dev/null || echo "skipped"
-        language: system
-        pass_filenames: false
-        always_run: true
-
-  - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v3.1.0
-    hooks:
-      - id: prettier
-        name: check markdown/formatting in docs
-        types_or: [text, javascript, markdown, yaml]
-        args: ['--ignore-path', '.gitignore']
-YAML
-
-pre-commit install  # Install git hooks (pre-commit and pre-push)
-```
-
-The configuration:
-- **cargo-fmt-check**: Ensures Rust formatting is consistent
-- **clippy-lint**: Checks for common bug-prone patterns via clippy
-- **prettier**: Validates markdown, config, and documentation files
-
-## Removing Hooks
-
-To remove a hook, delete it from `.git/hooks/`:
-
-```bash
-rm .git/hooks/pre-commit.sh
-# or reinstall with: git checkout -- .git/hooks/pre-commit  (if tracked)
-```
-
+The hook checks the workspace, not only staged lines. Use the repository's pinned
+toolchain. If another hook manager or custom `core.hooksPath` is configured,
+integrate the command there instead. Remove only a hook you installed and no longer
+want; repository commits do not track `.git/hooks`.

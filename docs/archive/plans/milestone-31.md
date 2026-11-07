@@ -1,10 +1,14 @@
 # Milestone 31 — security audit events
 
+> Archived acceptance plan. Milestone 31 merged as `c73d51a` (#26).
+> Statements below describe planning or validation at that time, not current status.
+> Use the [current contract](../../operator/audit.md) and [roadmap](../../milestones.md).
+
 **Implemented locally; cold hosted PR CI remains a merge gate.** See the
-[operator contract](operator/audit.md) and `HANDOFF.md` for actual coverage and local
+[operator contract](../../operator/audit.md) and `HANDOFF.md` for actual coverage and local
 verification evidence. This milestone adds structured,
 durable security audit events with bounded storage, explicit export, and retention.
-It follows [operational diagnostics](operator/diagnostics.md). Diagnostic counters
+It follows [operational diagnostics](../../operator/diagnostics.md). Diagnostic counters
 remain approximate process observations and must not be presented as audit records.
 
 ## Outcome and scope

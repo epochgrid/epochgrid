@@ -52,7 +52,8 @@ requires an existing group with a peer. Invite/join failures require explicit re
 The UI remains responsive while those network operations wait. Errors are displayed
 without normal-level tracing output corrupting the alternate screen.
 
-Local plaintext history appears before connecting. All known channels process
+Locally decrypted history appears before connecting; the SQLCipher database
+and matching unlocked keyring are required even offline. All known channels process
 staged deliveries, so background channels gain unread counts. Rendering an active
 100-message page marks its entries locally displayed, including entries below/above
 the viewport; this is a navigation indicator, not proof of human reading and not

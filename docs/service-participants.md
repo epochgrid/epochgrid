@@ -93,6 +93,11 @@ and a new invitation. Coordinator self-removal is also outside this milestone.
 
 ## Persistence and compatibility
 
+Schema numbers below identify the original feature migration, not the current
+database version. Current clients require [protected encrypted state](secret-storage.md);
+these notes do not authorize migration from plaintext homes or downgrades.
+
+
 Migration 8 adds `participant_events`, keyed by group/application ID. It stores no
 additional message content. Every examined event (including ignored commands) is
 recorded so subsequent passes progress in bounded batches. The record, response
