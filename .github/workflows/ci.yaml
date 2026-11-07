@@ -2,10 +2,11 @@ name: CI
 # Run the full gate once per PR revision, including the prospective merge commit.
 # Plain branch pushes and merges into main do not start another full suite.
 on:
+  workflow_call:
   pull_request:
     types: [opened, synchronize, reopened]
 concurrency:
-  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 permissions:
   contents: read
@@ -186,8 +187,71 @@ jobs:
             target/ci/results.jsonl
           if-no-files-found: warn
           retention-days: 7
+  image-build:
+    needs: linux-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux-candidate-${{ github.sha }}
+          path: target/linux-candidate
+      - name: Construct and inspect the exact runtime image
+        run: |
+          python3 scripts/dev/run-bounded.py 360 python3 scripts/release/image.py --archive target/linux-candidate/*.tar.gz --checksums target/linux-candidate/SHA256SUMS --work target/runtime-image
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-image-${{ github.sha }}
+          path: target/runtime-image/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: image-construction-report-${{ github.sha }}
+          path: target/runtime-image/image.json
+          if-no-files-found: warn
+          retention-days: 7
+  image-qualify:
+    needs: [build, image-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [smoke, configuration_standalone, configuration_cluster, operator_jwt_standalone, operator_jwt_cluster]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/runtime
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: runtime-image-${{ github.sha }}
+          path: target/runtime-image
+      - name: Qualify the transported image
+        env:
+          IMAGE_SUITE: ${{ matrix.suite }}
+        run: |
+          python3 scripts/dev/run-bounded.py 120 ./scripts/dev/download-nats.sh
+          python3 scripts/dev/run-bounded.py 180 docker build --target runtime -f scripts/release/qualification.Dockerfile -t epochgrid-artifact-tests:local .
+          python3 scripts/dev/run-bounded.py 390 python3 scripts/release/qualify-image.py --image-report target/runtime-image/image.json --suite "$IMAGE_SUITE" --result "target/image-results/qualification-$IMAGE_SUITE.json"
+          if [ "$IMAGE_SUITE" = smoke ]; then
+            python3 scripts/dev/run-bounded.py 90 python3 scripts/release/prove-image-boundary.py --image "$(cat target/runtime-image/image.id)" --result target/image-results/boundary.json
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: image-results-${{ matrix.suite }}-${{ github.sha }}
+          path: target/image-results/*.json
+          if-no-files-found: warn
+          retention-days: 7
   validate:
-    needs: [build, tests, byo-nats, linux-build, linux-qualify]
+    needs: [build, tests, byo-nats, linux-build, linux-qualify, image-build, image-qualify]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2

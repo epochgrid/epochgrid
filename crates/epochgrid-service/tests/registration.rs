@@ -15,7 +15,13 @@ use std::{
 // Artifact qualification selects both production binaries explicitly. An invalid
 // override is an error; it must never silently fall back to the debug build.
 fn service_binary() -> std::path::PathBuf {
-    match std::env::var_os("EPOCHGRID_RELEASE_BIN_DIR") {
+    let image = std::env::var_os("EPOCHGRID_IMAGE_BIN_DIR");
+    let release = std::env::var_os("EPOCHGRID_RELEASE_BIN_DIR");
+    assert!(
+        image.is_none() || release.is_none(),
+        "ambiguous binary selection"
+    );
+    match image.or(release) {
         Some(directory) => {
             let directory = std::path::PathBuf::from(directory);
             assert!(
@@ -33,6 +39,23 @@ fn service_binary() -> std::path::PathBuf {
 
 struct Process(Child);
 impl Process {
+    fn rss(&self) -> anyhow::Result<String> {
+        let status = if let Some(directory) = std::env::var_os("EPOCHGRID_IMAGE_BIN_DIR") {
+            let output = Command::new(std::path::Path::new(&directory).join("epochgrid-service"))
+                .args(["--fixture-rss", &self.0.id().to_string()])
+                .output()?;
+            ensure!(output.status.success(), "image process RSS unavailable");
+            String::from_utf8(output.stdout)?
+        } else {
+            std::fs::read_to_string(format!("/proc/{}/status", self.0.id()))?
+        };
+        Ok(status
+            .lines()
+            .find(|line| line.starts_with("VmRSS:"))
+            .ok_or_else(|| anyhow::anyhow!("authority RSS missing"))?
+            .to_owned())
+    }
+
     fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         loop {
@@ -52,6 +75,14 @@ impl Process {
 
 impl Drop for Process {
     fn drop(&mut self) {
+        // SIGKILL of a Docker CLI/proxy does not kill its container. Terminate
+        // the mapped application before reaping the fixture child; native tools
+        // have no mapping and retain the existing local process cleanup.
+        if let Some(directory) = std::env::var_os("EPOCHGRID_IMAGE_BIN_DIR") {
+            let _ = Command::new(std::path::Path::new(&directory).join("epochgrid-service"))
+                .args(["--fixture-kill", &self.0.id().to_string()])
+                .status();
+        }
         let _ = self.0.kill();
         let _ = self.wait();
     }
