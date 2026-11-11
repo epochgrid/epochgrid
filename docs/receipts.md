@@ -68,6 +68,10 @@ them. `message history` remains inspection-only and does not mark rows read.
 Older receipts outside the automatic 100-message window are retained if already
 observed; obtaining missing older receipts is not implemented in this alpha.
 
+Schema numbers below identify the original feature migration, not the current
+database version. Current clients require [protected encrypted state](secret-storage.md);
+these notes do not authorize migration from plaintext homes or downgrades.
+
 Upgrade clients together before using receipt exchange. Existing text/attachment
 and durable MLS formats are unchanged, but older clients cannot reopen a database
 migrated to schema 6. No NATS stream, consumer, bucket, permission, backend flag or

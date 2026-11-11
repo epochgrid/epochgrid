@@ -1,11 +1,15 @@
 # Milestone 28 — backend privilege separation
 
+> Archived acceptance plan. Milestone 28 merged as `a80be2e` (#21).
+> Statements below describe planning or validation at that time, not current status.
+> Use the [current contract](../../backend-role-contract.md) and [roadmap](../../milestones.md).
+
 **Implemented at user request; hosted CI remains pending.** See the
-[role contract](backend-role-contract.md) for the implementation refinement:
+[role contract](../../backend-role-contract.md) for the implementation refinement:
 the worker forwards control requests; the authority retains reconciliation and
 all resource mutations. This removes worker completion claims from the trust
 boundary. The work packages below record the planned acceptance scope; see
-[HANDOFF](../HANDOFF.md) for implementation and local verification evidence.
+[HANDOFF](../../../HANDOFF.md) for implementation and local verification evidence.
 
 ## Baseline and outcome
 

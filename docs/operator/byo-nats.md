@@ -159,7 +159,8 @@ in the qualified cluster. Server `max_payload` must be exactly 65536 for the bou
 messages. Do not add subject transforms, TTL/age eviction, interest/workqueue
 retention, or external publishers that alter protocol history. Storage quotas must
 cover the intended retention period; finite fixture defaults are not capacity
-planning. Milestone 29 will address broader resource bounds.
+planning. The [capacity contract](capacity.md) defines enforced finite budgets
+and overload behavior; operators must size them for their workload.
 
 The backend creates `device_<public NKey>` pull durables on CHAT and MAILBOX.
 CHAT filters are exact authorized group message/handshake subjects (an empty
@@ -172,9 +173,10 @@ for their own consumers, but cannot create consumers or read raw streams.
 Milestone 28 restricts the authority connection to the documented resource and
 consumer operations and moves control subscriptions to a separate worker account.
 The worker has no JetStream/KV management or signing authority. See the
-[role contract and transition](../backend-role-contract.md); qualification is in
-progress. The application account remains an additional containment boundary. Dynamic
-Object Store attachment access is outside this contract.
+[role contract and transition](../backend-role-contract.md) for the implemented
+separate-account boundary and qualification environment. The application account
+remains an additional containment boundary. Dynamic Object Store attachment access
+is outside this contract.
 
 ## Failure and recovery contract
 

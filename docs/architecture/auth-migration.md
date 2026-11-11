@@ -1,6 +1,9 @@
 # Authentication migration: static MVP to dynamic alpha
 
-## Inventory (Milestones 1–20)
+> Design history and current migration boundary. Static fixtures remain development-only;
+> use [operator setup](../operator/auth-callout.md) for current commands.
+
+## Historical inventory (Milestones 1–20)
 
 * `transport::dev_config_with_enrollment` initializes Alice/Bob/backend identities,
   stores NKeys in `enrollment.json` and `additional-enrollment.json`, and renders
@@ -22,7 +25,7 @@ file. Preserve the old fixtures behind an explicit development mode while replac
 the service admission source with the canonical EpochGrid registry. Never silently
 fall back from Auth Callout to the static mode.
 
-## Canonical identity model (before Auth Callout implementation)
+## Implemented canonical identity model
 
 `UserId` is immutable and provider-neutral: `egusr-` plus lowercase base32 encoding
 of 128 random bits (32 subject-safe characters total). It is not a username, email,
@@ -69,7 +72,7 @@ legacy MLS groups require fresh canonical enrollment and re-invitation.
 
 No normal enrollment/revocation action may edit a NATS file, reload a server, regenerate
 operator JWTs, or restart a broker. Integration config is operator-owned. Account
-isolation and `allowed_accounts` preserve unrelated workloads; operator/JWT mode needs
-its own tested profile before being claimed supported. [Milestone 23 TLS](../operator/tls.md)
-is implemented. Protected local secrets, full BYO cluster validation and release
-artifacts remain later gates; see the [current status](../milestones.md).
+isolation and `allowed_accounts` preserve unrelated workloads; operator-JWT and configuration modes have their own [BYO R1/R3 profiles](../operator/byo-nats.md).
+[Verified TLS](../operator/tls.md), [protected local state](../secret-storage.md),
+and [Linux candidate bundles](../operator/linux-artifacts.md) are implemented.
+See the [roadmap](../milestones.md) for runtime-image and release gates.

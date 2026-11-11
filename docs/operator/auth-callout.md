@@ -205,8 +205,9 @@ canonical device installation and re-invitation when migrating an old fabric.
 A dedicated, migrated `auth.sqlite` stores users, bindings, token hashes, public device
 registrations, readiness/revocation state and authorization generations. Its directory
 is 0700, DB 0600, with WAL, foreign keys and a bounded busy timeout. It is currently a
-single service-host registry; do not run replicas with independent copies. Broader
-backend storage and cluster operation are not yet release-qualified.
+single-authority registry; do not run replicas with independent copies. NATS R1/R3
+clusters are covered by the [BYO qualification matrix](byo-nats.md); backend HA
+and an alpha release remain unqualified.
 
 Admission begins only after signed revocation history is reconciled. Revocation first
 commits to the signed directory log and then denies registry admission. A crash between
@@ -233,7 +234,7 @@ a self-signed server JWT alone does not establish membership of a trusted fabric
 
 Milestone 22 synchronizes signed coordinator updates on
 `epochgrid.v1.channel.policy` before publishing the associated MLS Commit and
-Welcome. The control service owns membership-filtered CHAT consumers and relays
+Welcome. The authority owns membership-filtered CHAT consumers and relays
 signed, opaque Welcomes on `epochgrid.v1.channel.welcome`. Clients never publish
 directly to another inbox. Changing filters rebuilds the durable consumer and
 replays matching history; local sequence deduplication preserves previously staged

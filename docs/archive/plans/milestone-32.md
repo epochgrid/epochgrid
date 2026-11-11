@@ -1,16 +1,19 @@
 # Milestone 32 — official Linux binary artifacts
 
+> Archived acceptance plan. Milestone 32 merged as `04652c7` (#27).
+> Statements below describe planning or validation at that time, not current status.
+> Use the [current contract](../../operator/linux-artifacts.md) and [roadmap](../../milestones.md).
+
 **Merged in PR #27 (`04652c7`); final hosted PR CI passed.**
 [Run #88](https://github.com/epochgrid/epochgrid/actions/runs/41755686220) passed
-all gates, including extracted-binary qualification. The implementation evidence
-at the end of this document predates that result. Milestone 31 merged into `main` in
+all gates, including extracted-binary qualification. Milestone 31 merged into `main` in
 PR #26 (`c73d51a`). This milestone defines and qualifies the distributable Linux
 bundle. Milestone 33 owns the GHCR runtime image; milestone 34 owns release
 publication, signing/attestations and the release supply chain. Packaging success
 does not qualify `v0.1.0-alpha.1` or close TD-001/002/003.
 
 The implemented contract and commands are in
-[Linux binary qualification bundles](operator/linux-artifacts.md). The planning
+[Linux binary qualification bundles](../../operator/linux-artifacts.md). The planning
 requirements below remain the acceptance baseline.
 
 ## Outcome and scope
@@ -211,7 +214,7 @@ workflows and all four regular BYO cases pass. The extracted Ubuntu 24.04 bundle
 passes smoke and all four BYO cases with matching manifest/binary hashes. One
 operator-JWT cluster attempt lost its disposable worker keyring; an isolated rerun
 passed, with the original failure retained and its cause unresolved. No retries
-or quarantines were added. See [HANDOFF](../HANDOFF.md) for logs and artifact identity.
+or quarantines were added. See [HANDOFF](../../../HANDOFF.md) for logs and artifact identity.
 
 Cold hosted PR CI has not run. The user subsequently authorized committing and
 pushing the implementation branch and will prepare the PR. No tag or publication

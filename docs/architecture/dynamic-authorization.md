@@ -1,6 +1,8 @@
 # Milestone 22 — dynamic authorization
 
-Status: complete for the Milestone 22 acceptance scope. Normal CLI/TUI chat uses
+Implemented, with live reliability still deferred under [TD-002](../technical-debt.md).
+The short-lease integration and full dynamic TUI checks remain quarantined; passing
+other tests does not restore that coverage. Normal CLI/TUI chat uses
 signed policies, exact grants, filtered durable consumers and Welcome relay.
 Revocation/rekeying and restart are tested without NATS configuration edits or
 reloads. [Milestone 23 TLS](../operator/tls.md) protects the shared transport path.
@@ -8,8 +10,8 @@ This is not completion of all [alpha release gates](../milestones.md).
 
 ## Policy authority and migration
 
-MLS owns group secrets and cryptographic membership. The control service maintains
-an independent, non-secret authorization projection: group ID, coordinator device
+MLS owns group secrets and cryptographic membership. The authority maintains
+an independent authorization projection (not MLS secret state): group ID, coordinator device
 NKey, MLS leaf indices, MLS epoch and monotonic policy generation. Clients may not
 turn a directory lookup or an IdP binding directly into a group grant.
 
@@ -66,7 +68,7 @@ remain explicit development fixtures. Persist a versioned authorization intent i
 the same SQLite outbox transaction as each locally created MLS epoch. Resolve MLS
 public keys against the authenticated directory, synchronize policy before its
 Commit/Welcome, and refresh the coordinator's NATS connection before publishing.
-Only the control service relays signed, membership-checked Welcome envelopes.
+Only the authority relays signed, membership-checked Welcome envelopes.
 
 The service owns durable consumer filters. Rebuild a device's CHAT consumer when
 membership changes, replaying available matching ciphertext from the beginning;
@@ -83,5 +85,5 @@ policy application and identical Welcome relay) retry at most once after a lost
 response, renewing authorization first. Each reconnect has a five-second deadline;
 the TUI retains its overall network deadline and durable retry loop. A flush is
 not treated as proof of reconnection: the client waits for the NATS connection
-counter to advance. The privileged control connection also expires, on a fixed
+counter to advance. The worker NATS connection also expires, on a fixed
 60-second lease independent of the shorter device lease used in stress tests.

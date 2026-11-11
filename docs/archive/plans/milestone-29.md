@@ -1,12 +1,16 @@
 # Milestone 29 — resource bounds and overload behavior
 
+> Archived acceptance plan. Milestone 29 merged as `05bb651` (#23).
+> Statements below describe planning or validation at that time, not current status.
+> Use the [current contract](../../operator/capacity.md) and [roadmap](../../milestones.md).
+
 **Implemented; locally validated. Cold hosted CI required before merge.** Work began on a clean workspace after consulting
 `HANDOFF.md`. PR #21 merged as `a80be2e` on 2026-10-23; all checks in
 [CI run 40032719883](https://github.com/epochgrid/epochgrid/actions/runs/40032719883)
 passed. The implementation branch starts from `df23bb0`, including the merged
 local testing documentation (#22). The plan below remains the acceptance scope;
-see the [capacity contract](operator/capacity.md) for implementation choices and
-[HANDOFF](../HANDOFF.md) for complete verification evidence and remaining CI gate.
+see the [capacity contract](../../operator/capacity.md) for implementation choices and
+[HANDOFF](../../../HANDOFF.md) for complete verification evidence and remaining CI gate.
 
 ## Outcome and scope
 

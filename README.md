@@ -20,7 +20,7 @@ production communications.** See the [security policy](SECURITY.md) and
 [threat model](docs/threat-model.md).
 
 [Website](https://epochgrid.org) · [Architecture](docs/architecture.md) ·
-[Linux bundles](docs/operator/linux-artifacts.md) · [Runtime image work](docs/operator/containers.md) · [Roadmap](docs/milestones.md) · [Contributing](CONTRIBUTING.md)
+[Documentation](docs/README.md) · [Linux bundles](docs/operator/linux-artifacts.md) · [Runtime image](docs/operator/containers.md) · [Runtime image](docs/operator/containers.md) · [Roadmap](docs/milestones.md) · [Contributing](CONTRIBUTING.md)
 
 ## Getting started
 
@@ -89,6 +89,9 @@ and [restart and recovery](docs/recovery.md) for details.
 
 ## Documentation
 
+See the [documentation map](docs/README.md) for the operator reading order and
+[current roadmap](docs/milestones.md) for delivery status.
+
 | Topic | Guides |
 | --- | --- |
 | Design | [Architecture](docs/architecture.md), [protocol](docs/protocol.md), [security boundaries](docs/threat-model.md) |
@@ -96,7 +99,7 @@ and [restart and recovery](docs/recovery.md) for details.
 | Identity and recovery | [Device verification](docs/device-verification.md), [revocation](docs/device-revocation.md), [encrypted recovery](docs/encrypted-recovery.md), [local storage](docs/secret-storage.md) |
 | Integrations | [Attachments](docs/attachments.md), [service participants](docs/service-participants.md) |
 | Deployment | [NATS requirements](docs/operator/byo-nats.md), [authentication](docs/operator/auth-callout.md), [backend roles](docs/backend-role-contract.md), [TLS](docs/operator/tls.md) |
-| Operations | [Validation](docs/operator/validation.md), [diagnostics](docs/operator/diagnostics.md), [capacity](docs/operator/capacity.md) |
+| Operations | [Validation](docs/operator/validation.md), [diagnostics](docs/operator/diagnostics.md), [capacity](docs/operator/capacity.md), [audit](docs/operator/audit.md) |
 | Development | [Development guide](docs/development.md), [CI](docs/ci-strategy.md), [roadmap](docs/milestones.md), [known limitations](docs/technical-debt.md) |
 
 ## Contributing
@@ -128,5 +131,3 @@ Report vulnerabilities through the process in [SECURITY.md](SECURITY.md).
 ## License
 
 EpochGrid is available under the [MIT License](LICENSE).
-
-Security evidence: [authority audit operations](docs/operator/audit.md).

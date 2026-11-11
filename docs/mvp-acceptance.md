@@ -21,16 +21,18 @@ Run the complete gate from the repository root:
 
 This runs formatting, clippy with warnings denied, workspace tests and builds,
 downloads the pinned/checksummed NATS server, explicitly executes the live NATS
-suite, and runs the Compose/host CLI smoke test. CI uses the same script. Close
-existing development clients/service first because Compose smoke uses `.dev/` and
-stops the stack afterward. It preserves the development directories and volume.
+suite, and runs the Compose/host CLI smoke test. Current CI splits these checks
+into isolated jobs. Compose smoke uses temporary homes and a dedicated project,
+preserving developer `.dev` state; port 4222 must be free. See [development](development.md).
 No GitHub push, release, package or image publishing is part of verification.
 
 The acceptance case can also be run separately after building the workspace and
 running `scripts/dev/download-nats.sh`:
 
 ```bash
-EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" cargo test -p epochgrid-service --test registration mvp::cli_mvp_ciphertext_only_and_restart -- --ignored
+EPOCHGRID_PROFILE=development NATS_SERVER="$PWD/.dev/nats-image/nats-server" \
+  scripts/dev/with-test-keyring.sh cargo test --locked -p epochgrid-service \
+  --test registration mvp::cli_mvp_ciphertext_only_and_restart -- --ignored
 ```
 
 Ordinary `cargo test --workspace` explicitly ignores the live NATS integration

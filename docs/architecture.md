@@ -22,8 +22,9 @@ The workspace has core (wire protocol, SQLite/OpenMLS and NATS operations), a ho
 CLI, and one NATS-only identity service. NKeys authenticate devices to the fabric;
 independent MLS Ed25519 keys authenticate group members. The service handles
 public registrations, lookup, one-use KeyPackage reservation and stream/consumer
-provisioning. It holds no client secrets or application plaintext. SQLite is local
-only. There is no HTTP API and no backend message-decryption path.
+reconciliation. Operators pre-provision production streams and KV resources; only
+the explicit development fixture creates them. It holds no client secrets or
+application plaintext. SQLite is local only. There is no HTTP API and no backend message-decryption path.
 
 Registration binds user/device/NKey/MLS credential/KeyPackage using an NKey-signed
 postcard payload. The service validates OpenMLS signatures, lifetime and identity,
@@ -64,8 +65,8 @@ Production Welcome parsing uses `MlsMessageIn::extract()`; the convenient
 `into_welcome()` from some upstream tests is feature-gated. Groups require the
 ratchet-tree extension and use the pure-ciphertext wire policy.
 
-async-nats 0.50 enables nkeys, kv, ring and server_2_10. Cargo.lock records the
-tested versions; development/CI pins Rust 1.98.1. Source references inspected:
+async-nats 0.50 enables nkeys, KV, Object Store, ring and server field support
+through 2.14. Cargo.lock records the tested versions; development/CI pins Rust 1.98.1. Source references inspected:
 
 - https://book.openmls.tech/releases/0.9.0.html
 - https://book.openmls.tech/user_manual/application_messages.html
@@ -82,22 +83,22 @@ to group application subjects and their own reply prefix, and inspect/pull/ack
 only their own service-provisioned MAILBOX and CHAT consumers. They cannot create consumers,
 read identity KV directly, subscribe to another inbox, or access system subjects.
 
-Group wildcards cover the entire Alice/Bob lab namespace, a documented temporary
-limitation. Before supporting mutually untrusted groups, provision exact group
-subjects from an authenticated metadata policy (or use account/JWT authorization)
-and revoke those permissions with membership changes. MLS still provides content
-authentication/confidentiality independently of those permissions. The service's
-JetStream provisioning authority should also be separated from runtime permissions.
+Group wildcards cover the entire Alice/Bob lab namespace, a development limitation.
+The implemented [dynamic path](architecture/dynamic-authorization.md) instead uses
+exact group subjects from signed membership policy and revokes those grants with
+membership changes. MLS still provides content authentication/confidentiality
+independently of those permissions. Production separates operator provisioning,
+authority reconciliation and worker permissions through the [backend role contract](backend-role-contract.md).
 
 
 ## Durable history decisions
 
-Milestone 8 deliberately keeps the existing shared lab authorization scope. A
+The historical static fixture keeps the existing shared lab authorization scope. A
 single CHAT consumer per device can be authorized with exact NATS API/ACK subject
 permissions; clients cannot create or reconfigure consumers. Per-group consumers
-would require a group authorization/provisioning path and are deferred with exact
-membership-aware permissions. Mailbox consumers remain separately filtered to
-individual inboxes. Milestone 12 extends CHAT consumption to encrypted handshakes
+are not the current design. Dynamic installations retain one CHAT durable per
+device with exact membership-aware filters; broad filters apply only to the
+static fixture. Mailbox consumers remain separately filtered to individual inboxes. Milestone 12 extends CHAT consumption to encrypted handshakes
 and processes creator Commits together with application messages in stream order.
 
 CHAT uses explicit acknowledgment and at most one unacknowledged delivery. The

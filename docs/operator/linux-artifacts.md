@@ -5,8 +5,8 @@ GitHub Releases, tags or GitHub Packages. Candidates are temporary GitHub Action
 artifacts, retained for seven days; they are not an alpha release. GHCR belongs
 to milestone 33 and release publication/signatures/attestations to milestone 34.
 The [runtime image implementation](containers.md) now consumes these verified
-bundles for local and CI image qualification; hosted evidence and an explicitly
-invoked registry round trip remain pending.
+bundles for local and CI image qualification. Hosted PR CI passed; an explicitly
+invoked registry round trip remains pending.
 TD-001/002/003 remain open. In particular, the quarantined full dynamic messaging
 suite is not restored by packaging tests.
 

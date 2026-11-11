@@ -1,67 +1,46 @@
 # Contributing
 
-Keep changes within the current executable milestone. Discuss broader scope in
-an issue first. Follow the runnable README and keep it synchronized with behavior.
-Use idiomatic safe Rust, structured errors and tracing without private data.
+Use the [roadmap](docs/milestones.md) for current scope and open work. Keep behavior,
+operator contracts and examples synchronized. Wire-format changes need compatibility
+review; authentication/storage changes need negative and restart coverage. Use safe
+Rust, structured errors and tracing that excludes private data. Commit `Cargo.lock`;
+never commit `.dev/`, credentials, private keys, databases or keyring fixtures.
 
-Before proposing a change, run the four README quality commands and the explicit
-NATS integration test. Changes to wire types need compatibility review and tests;
-changes to authentication or storage need negative and restart tests. Commit
-Cargo.lock. Do not commit `.dev/`, credentials, private keys or databases.
+## Setup and verification
 
-Use https://github.com/epochgrid for source and `ghcr.io/epochgrid/*` for future
-OCI artifacts. CI builds and qualifies temporary Linux binary candidates; publishing
-is not configured. See [Linux bundles](docs/operator/linux-artifacts.md) for the
-artifact contract and clean-runtime qualification commands.
+Clone the repository and follow the [development guide](docs/development.md) for
+the pinned Rust/Linux dependencies, disposable keyrings and separate-account test
+image. Use the [README](README.md#local-development) to run the static development
+demo; use the operator guides for the production-shaped path.
 
-## Setting up your development environment
+From the repository root:
 
-1. Install prerequisites: rustup (Rust 1.98.1 pinned), C toolchain, make, Perl,
-   Docker Engine with Compose v2, Bash, Python 3, OpenSSL, curl, tar, sha256sum.
-   Linux clients also require Secret Service keyring; see [secret storage setup](docs/secret-storage.md).
-2. Clone this repository and initialize:
-
-   ```bash
-   git init                  # Initialize local repo if not using GitHub clones
-   pip install pre-commit    # Install pre-commit framework (run once on first setup)
-   pre-commit install        # Install pre-commit git hooks (run once, ensures hooks are active)
-   ```
-3. Configure your workspace:
-
-   ```bash
-   export EPOCHGRID_PROFILE=development
-   ./scripts/dev/bootstrap-nats.sh  # Bootstrap NATS and generate config
-   ./target/debug/epochgrid-service --dev-static
-   ```
-
-4. Run all checks before submitting a PR:
-
-   Build the disposable separate-user test image once on local Ubuntu hosts
-   (`--build-arg UBUNTU_VERSION=24.04` for Ubuntu 24.04; default 26.04). Production
-   TLS/BYO tests need this image to run the authority and worker under distinct
-   UIDs and keyrings. See the [role verification environment](docs/backend-role-contract.md#verification-environment).
-
-   ```bash
-   docker build -f scripts/dev/roles.Dockerfile -t epochgrid-role-tests:local .
-   ```
-
-   ```bash
-   ./scripts/dev/verify.sh    # Runs all quality gates (fmt, clippy, unit, etc.)
-   ```
-
-Before committing, the pre-commit hooks will run automatically on staged files.
-The git commit message below has already ensured hooks are installed. Simply
-stage your changes and commit:
-
-```bash
-git add <files>             # Stage your changes
-git commit -m "feat: your change description"  # Hooks will auto-run if installed
+```sh
+./scripts/dev/verify.sh
 ```
 
-## Understanding the project milestones
+For focused checks, run `verify.sh build` first, then the relevant execution phase.
+Keep build time outside execution deadlines. The complete retained gate and
+coverage exclusions are described in [CI](docs/ci-strategy.md) and
+[technical debt](docs/technical-debt.md). Release-bundle changes also require the
+[Linux qualification checks](docs/operator/linux-artifacts.md).
 
-- Milestone 0–10: Initial alpha with NKey auth, MLS groups, encrypted chat, history
-- Milestone 11: Persistent TUI, asynchronous messaging, unread indicators
-- Milestone 22: Dynamic authorization, signed policies, MLS rekeying
-- Milestone 23: Production TLS, system trust, certificate rotation
-- See [architecture](docs/architecture.md), [protocol](docs/protocol.md), [CI strategy](docs/ci-strategy.md)
+## Review and documentation
+
+Report what changed, why, the exact checks run and any failures or unverified
+paths. Preserve failed-run evidence even if a focused rerun passes. Hosted PR
+checks remain required; a local pass is not cold-runner qualification.
+
+[Git hooks](scripts/hooks/README.md) are optional local conveniences. A commit does
+not install them, and hooks do not replace the verifier or hosted CI.
+
+Keep current status in the [roadmap](docs/milestones.md), durable behavior in its
+operator/protocol contract, and dated acceptance plans/results in the
+[archive](docs/archive/README.md). Use the [documentation index](docs/README.md)
+to find the owning document before creating another plan or guide. Do not mark a
+milestone complete solely because code exists or a candidate archive was built.
+
+Source is hosted at https://github.com/epochgrid/epochgrid. Main currently produces
+temporary Linux qualification candidates; GHCR candidate transport is milestone 33
+and release publication/signatures remain milestone 34. See the roadmap for their
+actual delivery status. Report vulnerabilities through [SECURITY.md](SECURITY.md).

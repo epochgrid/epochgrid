@@ -1,11 +1,15 @@
 # Milestone 30 — operational diagnostics
 
+> Archived acceptance plan. Milestone 30 merged as `6f05c3e` (#24).
+> Statements below describe planning or validation at that time, not current status.
+> Use the [current contract](../../operator/diagnostics.md) and [roadmap](../../milestones.md).
+
 **Implemented; locally validated. Cold hosted CI required before merge.** The user authorized implementation
 on 2026-10-30. Milestone 29 merged as `05bb651` (PR #23), and
 [hosted CI run 41146465259](https://github.com/epochgrid/epochgrid/actions/runs/41146465259)
 passed. Implementation is on `feature/milestone-30-diagnostics` from that merged
-baseline, preserving the planning edits. See the [operator diagnostic contract](operator/diagnostics.md)
-for exact fields and behavior and [HANDOFF](../HANDOFF.md) for verification evidence.
+baseline, preserving the planning edits. See the [operator diagnostic contract](../../operator/diagnostics.md)
+for exact fields and behavior and [HANDOFF](../../../HANDOFF.md) for verification evidence.
 The acceptance plan below remains the scope; milestone 30 requires its own cold
 hosted CI before merge.
 
