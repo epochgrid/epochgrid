@@ -1,8 +1,13 @@
 # Milestone 33 — GHCR runtime image
 
+> Archived implementation plan. PR #28 merged as `57d2739`; hosted CI run #90 passed.
+> Candidate publication remains unverified. Statements below retain their original
+> implementation-time context. See the [roadmap](../../milestones.md).
+
+
 **Implementation in progress.** Runtime construction, separate-role isolation, image
-qualification, CI and candidate publication tooling are implemented locally; see [container notes](operator/containers.md) and
-[handoff](../HANDOFF.md) for evidence and remaining gates, including a native JWT
+qualification, CI and candidate publication tooling are implemented locally; see [container notes](../../operator/containers.md) and
+[handoff](../handoff-m33.md) for evidence and remaining gates, including a native JWT
 cluster failover timeout in the full verifier (unchanged focused rerun passed). Milestone 32 merged in
 [PR #27](https://github.com/epochgrid/epochgrid/pull/27) as `04652c7`.
 Its final [hosted CI run #88](https://github.com/epochgrid/epochgrid/actions/runs/41755686220)

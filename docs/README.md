@@ -2,9 +2,9 @@
 
 Use the [roadmap](milestones.md) for milestone status and remaining delivery work.
 The [README demo](../README.md#local-development) uses static development fixtures;
-operator setup uses dynamic admission and separate backend roles. Remote main now
-contains milestone 33's implementation with passing hosted PR CI; candidate
-publication remains pending. The milestone 34 implementation branch includes that merge.
+operator setup uses dynamic admission and separate backend roles. Main contains
+milestone 33 and the documentation cleanup through `5060a35`. This branch adds
+milestone 34 release automation; hosted release acceptance remains outstanding.
 
 ## Operator path
 

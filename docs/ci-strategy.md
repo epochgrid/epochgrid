@@ -1,7 +1,7 @@
 # CI execution and qualification
 
-This describes the workflow on main through milestone 32 (`04652c7`). Milestone 33
-image jobs and candidate publication are under separate review; see the
+This describes the workflow on main through milestone 33 (`57d2739`). Image
+qualification and explicitly invoked candidate publication are implemented; see the
 [roadmap](milestones.md). The [October 22 review](archive/ci-review-2026-10-22.md)
 retains the historical design rationale, failed runs and measurements.
 
@@ -19,12 +19,14 @@ The PR run validates the merge candidate, not a separate post-squash build.
 | `byo-nats` | Shared runtime artifact; four independent configuration/operator-JWT R1/R3 cases |
 | `linux-build` | Locked release build and verified Linux candidate bundle |
 | `linux-qualify` | Release bundle plus native test tools; smoke and four extracted-binary BYO cases |
+| `image-build` | Verified Linux bundle; construct and verify the runtime image |
+| `image-qualify` | Exact image; smoke/boundary and four image BYO cases |
 | `validate` | Requires every prerequisite above to succeed, including matrix results |
 
 Failed, skipped or cancelled prerequisites fail `validate`. Job dependencies do
 not themselves configure branch-protection settings. Workflow permissions are
-read-only; actions and the Rust toolchain are pinned. Main's workflow publishes
-no packages or releases. There are no automatic retries or documentation-only
+read-only; actions and the Rust toolchain are pinned. The PR workflow publishes
+no packages or releases; candidate publication uses a separate manual workflow. There are no automatic retries or documentation-only
 path exclusions. No new quarantine is introduced by CI restructuring.
 
 TD-001 typing assertions and the two TD-002 live workflows remain excluded as
@@ -147,15 +149,17 @@ are sanitized and retained on failure for seven days alongside the image transpo
 private homes, keyrings and audit exports are never uploaded. The local matrix
 measured approximately 67–84 seconds per BYO case, 19 seconds for smoke and
 13 seconds for the boundary proof in final local qualification. Execution is bounded to 300 seconds, separate
-from setup and image construction; cold hosted timings remain to be measured.
+from setup and image construction; hosted CI run #90 passed for PR #28; cold-runner timing samples remain to be collected.
 
 `image-candidate.yaml` is a separate manual dispatch restricted to protected main.
 It reuses the full CI workflow on the selected SHA. Only the push job has
 `packages: write`; a fresh read-only verification job pulls by registry digest.
 Package ownership/access/visibility confirmation is explicit, and no setting is
 changed implicitly. No automatic retries, release tags or signing are added.
-Hosted image evidence and a successful explicitly invoked registry round trip
-remain milestone completion gates.
+[Hosted CI run #90](https://github.com/epochgrid/epochgrid/actions/runs/42326075288)
+passed for PR head `1a42ed7`. A successful explicitly invoked registry round trip
+remains a milestone completion gate; the CI result is not evidence of publication.
+
 
 ## Linux distributable candidates — milestone 32
 

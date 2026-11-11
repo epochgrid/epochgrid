@@ -2,7 +2,7 @@
 
 Branch `feature/milestone-34` implements the engineering release pipeline on top
 of milestone 33. Main advanced to `5060a35` (documentation cleanup, PR #29) during
-implementation and is being reconciled before review.
+implementation and has been merged into this branch before review.
 
 Use [the roadmap](docs/milestones.md) for delivery status, the
 [acceptance plan](docs/milestone-34-plan.md) for gates, and

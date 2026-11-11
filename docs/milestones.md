@@ -1,8 +1,7 @@
 # Roadmap and deployment status
 
-Remote status verified against `main` at `57d2739` (milestone 33, PR #28) on 2026-11-10.
-The `feature/milestone-34` branch includes the documentation cleanup and merged
-runtime-image implementation at `57d2739`; main was fetched again on 2026-11-11.
+Status reviewed against `main` at `5060a35` (documentation cleanup, PR #29) on
+2026-11-11. This branch includes that merge and milestone 34 release automation.
 This is the single current project-status and delivery-plan index. Merged means
 present in main; it does not imply production readiness or a qualified release.
 No alpha release or published runtime image is claimed.
@@ -27,26 +26,19 @@ No alpha release or published runtime image is claimed.
 | 37 — first-run experience | Planned | Repeatable setup and actionable recovery without bypassing security prerequisites |
 | 38 — operator documentation set | Planned release gate | Validate the supported install, operate, upgrade, backup/recovery and removal procedures end to end |
 
-Milestone 33's [PR #28](https://github.com/epochgrid/epochgrid/pull/28) merged on
-2026-11-07 as `57d2739`. Its
-[acceptance plan](https://github.com/epochgrid/epochgrid/blob/57d2739864c0cb3513d8bcb9859c4b25d30c0c8d/docs/milestone-33-plan.md)
-and [handoff](https://github.com/epochgrid/epochgrid/blob/57d2739864c0cb3513d8bcb9859c4b25d30c0c8d/HANDOFF.md) preserve
-the implementation and local evidence.
-[Hosted CI run #90](https://github.com/epochgrid/epochgrid/actions/runs/42326075288)
-passed all 25 jobs: native and extracted-bundle regressions, image construction,
-all five image qualification jobs, and the aggregate gate. It tested the PR revision
-`1a42ed7`/merge candidate; it does not qualify the squash commit's identity.
-The earlier local native JWT-cluster failover timeout remains unexplained despite
-its unchanged focused rerun and the later hosted pass. TD-003 remains open.
+Milestone 33 merged in [PR #28](https://github.com/epochgrid/epochgrid/pull/28)
+as `57d2739`. [Hosted CI run #90](https://github.com/epochgrid/epochgrid/actions/runs/42326075288)
+passed for PR head `1a42ed7`, including image qualification. CI tested the PR
+merge candidate; no separate squash-commit build is claimed. The
+[archived plan](archive/plans/milestone-33.md) and
+[implementation evidence](archive/handoff-m33.md) retain local image results,
+the Python 3.12 harness correction and the unexplained native JWT-cluster timeout.
+A passing unchanged focused rerun and hosted CI do not establish its root cause.
 
-To close milestone 33: explicitly invoke candidate publication from protected main,
-which rebuilds and qualifies the selected main SHA, and verify the registry digest
-round trip. Confirm package ownership, access and visibility first. No manually
-dispatched workflow runs were listed when checked on 2026-11-10; no successful
-candidate publication is claimed.
-No `latest`, semantic-version or alpha release promotion belongs to milestone 33.
-The runtime guide and Compose example are preserved on the implementation branch.
-Archive the plan after its candidate-transport gate is complete.
+To close milestone 33, explicitly invoke candidate publication from protected main
+and verify the registry digest round trip. Confirm package ownership, access and
+visibility first. No publication is claimed here. No `latest`, semantic-version
+or alpha release promotion belongs to milestone 33.
 
 ## Remaining delivery plan
 
@@ -57,8 +49,8 @@ publishing an artifact finishes alpha qualification.
 
 1. Finish milestone 33 qualification and candidate transport. Keep current
    Secret Service, SQLCipher, peer-UID isolation and operator-owned NATS boundaries.
-2. Implement milestone 34's planned promotion/verification contract using the qualified
-   bundle and image, after plan review. Bind artifacts to the selected release revision;
+2. Complete milestone 34's hosted promotion/verification acceptance using the qualified
+   bundle and image, after implementation review. Bind artifacts to the selected release revision;
    do not relabel PR merge-candidate bytes as a different commit. Candidate transport
    is not a signed release.
 3. Resolve or explicitly disposition release blockers through adversarial coverage

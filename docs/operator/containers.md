@@ -5,7 +5,7 @@ role/keyring isolation, the four-case BYO matrix, protected-state/client smoke,
 PR image gates and a manually dispatched GHCR candidate workflow. Local reports
 are recorded in [handoff](../../HANDOFF.md). Cold hosted CI and an explicitly
 invoked registry round trip remain completion gates; no published runtime image
-is advertised. See the [plan](../milestone-33-plan.md).
+is advertised. See the [plan](../archive/plans/milestone-33.md).
 
 ## Local construction and proof
 
