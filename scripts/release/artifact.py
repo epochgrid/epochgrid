@@ -15,6 +15,7 @@ import sys
 import tarfile
 import tempfile
 import tomllib
+from inventory import compiled_inventory
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = 'x86_64-unknown-linux-gnu'
@@ -177,6 +178,7 @@ def build(args):
     data = dict(schema=1, version=version, target=TARGET, profile='release', features='default',
                 rustc=compiler, cargo=output('cargo', '-V'), lock_sha256=digest(ROOT / 'Cargo.lock'),
                 native=dependencies, **before)
+    data['components'] = compiled_inventory(metadata, compiled)
     data['files'] = {}
     for name, mode in PAYLOAD.items():
         if name == 'BUILD.json':

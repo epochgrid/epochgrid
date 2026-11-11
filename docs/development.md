@@ -7,7 +7,9 @@ instructions are in the [archive](archive/README.md).
 ## Environment
 
 Use Linux, the repository's pinned Rust toolchain, a C toolchain, make, Perl,
-Docker Engine/Compose v2, Bash, Python 3, OpenSSL, curl, tar and sha256sum.
+Docker Engine/Compose v2, Bash, Python 3 with `jsonschema`, OpenSSL, curl, tar and sha256sum.
+On Ubuntu, install `python3-jsonschema` for the release harness; hosted release
+jobs use `scripts/release/requirements.txt` in an isolated Python 3.12 environment.
 Client/backend commands need an unlocked Secret Service session. Tests use
 isolated disposable keyrings; on Debian/Ubuntu install `dbus-daemon`,
 `gnome-keyring`, `libsecret-tools` and `libglib2.0-bin`. Follow

@@ -168,6 +168,19 @@ timeout, followed by a passing unchanged focused rerun. That is branch evidence,
 not a new main-based qualification run; see its handoff linked from the
 [roadmap](milestones.md). The root cause remains unestablished.
 
+### Milestone 34 local validation — 2026-11-11
+
+The first full local verification attempt on `feature/milestone-34` (base
+`85b04b2`, uncommitted release tooling, workspace `0.1.0-engineering.1`) failed in
+`unit-epochgrid_core`: 49 passed, 66 failed and three ignored. Failures reported
+locked or unavailable disposable Secret Service access. A separate Ubuntu bundle
+build was running during that attempt; concurrency is context, not an established
+cause. The isolated, unchanged `verify.sh unit` diagnostic subsequently passed,
+with local SQLCipher memlock warnings. The original full-run failure remains
+unexplained and is not erased by that pass. No skip, retry or timeout change was
+added. Subsequent retained native phases passed independently; these observations
+do not close TD-003 or constitute a cold hosted qualification run.
+
 ### Work and Completion Criteria
 1. **Measure the implemented build/execution separation**: Measure per-case and whole-job durations on cold runners, budget for observed variance, and split long phases where useful. Keep finite watchdogs and descendant cleanup; do not use blanket retries or additional skips to manufacture a green gate
 2. **Retain the implemented offline-state wait and send-during-disconnect regression**: Extend coverage to sending during disconnect detection deterministically, with an explicit contract for retained drafts, user retry, persistence and exactly-once delivery. Preserve membership/revocation synchronization safety; do not bypass pre-send checks merely to satisfy the smoke assertion

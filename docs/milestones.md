@@ -1,6 +1,8 @@
 # Roadmap and deployment status
 
-Status reviewed against `main` at `04652c7` (milestone 32, PR #27) on 2026-11-06.
+Remote status verified against `main` at `57d2739` (milestone 33, PR #28) on 2026-11-10.
+The `feature/milestone-34` branch includes the documentation cleanup and merged
+runtime-image implementation at `57d2739`; main was fetched again on 2026-11-11.
 This is the single current project-status and delivery-plan index. Merged means
 present in main; it does not imply production readiness or a qualified release.
 No alpha release or published runtime image is claimed.
@@ -18,42 +20,47 @@ No alpha release or published runtime image is claimed.
 | 30 — diagnostics | Merged, PR #24 | [Authenticated runtime status and troubleshooting](operator/diagnostics.md) |
 | 31 — audit evidence | Merged, PR #26 | [Encrypted authority audit, export and explicit retention](operator/audit.md) |
 | 32 — Linux bundles | Merged, PR #27 | [Verified candidates and extracted-binary qualification](operator/linux-artifacts.md); no release publication |
-| 33 — runtime image | Implemented on a separate branch; hosted CI under review | Verified-bundle image, separate-role boundary, image matrix and controlled GHCR candidate transport; see below |
-| 34 — release publication and supply chain | Planned, not implemented | Versioned promotion, GitHub Releases, signatures/attestations and provenance policy |
+| 33 — runtime image | Merged, PR #28; hosted PR CI passed | Verified-bundle image, separate-role boundary and full image matrix; explicit GHCR candidate round trip still pending |
+| 34 — release publication and supply chain | Release pipeline implemented and locally validated; hosted acceptance blocked | [Plan](milestone-34-plan.md), [release operations](operator/releases.md); rehearsal, provenance, SPDX/scanning, consumer policy, protected publication and recovery code present. Protected environment, immutable releases, candidate transport, vulnerability review and real hosted distribution proof remain outstanding |
 | 35 — adversarial qualification | Planned, not implemented as a complete suite | Broader negative, fault and recovery coverage with explicit release evidence |
 | 36 — protocol/configuration freeze | Planned, not frozen | Versioning, compatibility and migration commitments for the supported release scope |
 | 37 — first-run experience | Planned | Repeatable setup and actionable recovery without bypassing security prerequisites |
 | 38 — operator documentation set | Planned release gate | Validate the supported install, operate, upgrade, backup/recovery and removal procedures end to end |
 
-Milestone 33 is in [PR #28](https://github.com/epochgrid/epochgrid/pull/28), on
-`feature/milestone-33-runtime-image` at `1a42ed7`, not in this main-based checkout.
-Its [acceptance plan](https://github.com/epochgrid/epochgrid/blob/1a42ed7/docs/milestone-33-plan.md)
-and [handoff](https://github.com/epochgrid/epochgrid/blob/1a42ed7/HANDOFF.md) are owned
-by that branch. All six local image checks passed before the Python 3.12 harness
-fix. That fix passed all 42 harness tests on Python 3.12 and triggered CI run #90;
-it does not replace qualification of the new revision.
-The full native verifier had a JWT-cluster failover-readiness timeout; an unchanged
-focused rerun passed, without establishing a cause. The user is monitoring hosted
-CI. This documentation snapshot does not report its eventual result.
+Milestone 33's [PR #28](https://github.com/epochgrid/epochgrid/pull/28) merged on
+2026-11-07 as `57d2739`. Its
+[acceptance plan](https://github.com/epochgrid/epochgrid/blob/57d2739864c0cb3513d8bcb9859c4b25d30c0c8d/docs/milestone-33-plan.md)
+and [handoff](https://github.com/epochgrid/epochgrid/blob/57d2739864c0cb3513d8bcb9859c4b25d30c0c8d/HANDOFF.md) preserve
+the implementation and local evidence.
+[Hosted CI run #90](https://github.com/epochgrid/epochgrid/actions/runs/42326075288)
+passed all 25 jobs: native and extracted-bundle regressions, image construction,
+all five image qualification jobs, and the aggregate gate. It tested the PR revision
+`1a42ed7`/merge candidate; it does not qualify the squash commit's identity.
+The earlier local native JWT-cluster failover timeout remains unexplained despite
+its unchanged focused rerun and the later hosted pass. TD-003 remains open.
 
-To close milestone 33: obtain the required regression/hosted image evidence, merge,
-then explicitly invoke candidate publication from protected main and verify the
-registry digest round trip. Confirm package ownership, access and visibility first.
+To close milestone 33: explicitly invoke candidate publication from protected main,
+which rebuilds and qualifies the selected main SHA, and verify the registry digest
+round trip. Confirm package ownership, access and visibility first. No manually
+dispatched workflow runs were listed when checked on 2026-11-10; no successful
+candidate publication is claimed.
 No `latest`, semantic-version or alpha release promotion belongs to milestone 33.
-When it merges, reconcile this index with its final handoff and move the completed
-plan into the [archive](archive/README.md).
+The runtime guide and Compose example are preserved on the implementation branch.
+Archive the plan after its candidate-transport gate is complete.
 
 ## Remaining delivery plan
 
-Milestones 34–38 retain the scopes above; detailed acceptance plans must be reviewed
-before implementation. Their numbers organize ownership, not an assertion that
+Milestone 34 implementation follows its [acceptance plan](milestone-34-plan.md);
+milestones 35–38 still need detailed acceptance plans. Review those plans before implementation.
+Their numbers organize ownership, not an assertion that
 publishing an artifact finishes alpha qualification.
 
 1. Finish milestone 33 qualification and candidate transport. Keep current
    Secret Service, SQLCipher, peer-UID isolation and operator-owned NATS boundaries.
-2. Define milestone 34's promotion/verification contract using the qualified bundle
-   and image. Bind artifacts to the selected release revision; do not relabel PR
-   merge-candidate bytes as a different commit. Candidate transport is not a signed release.
+2. Implement milestone 34's planned promotion/verification contract using the qualified
+   bundle and image, after plan review. Bind artifacts to the selected release revision;
+   do not relabel PR merge-candidate bytes as a different commit. Candidate transport
+   is not a signed release.
 3. Resolve or explicitly disposition release blockers through adversarial coverage
    and compatibility decisions (35–36). Dynamic Object Store permissions and
    short-lease dynamic messaging remain unqualified; a narrower release must say so.

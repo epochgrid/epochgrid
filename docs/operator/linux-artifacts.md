@@ -201,3 +201,7 @@ or cancelled prerequisites. Build has a 20-minute watchdog; qualification has a
 700-second outer ceiling and separate existing per-case deadlines (300 seconds
 per BYO case). These are execution bounds, not performance guarantees. No retries
 or new quarantine rules are added. Cold hosted PR evidence remains necessary.
+
+For engineering prerelease promotion, signed verification and failure recovery,
+see [release operations](releases.md). Consult the [roadmap](../milestones.md) for
+actual hosted publication status.

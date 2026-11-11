@@ -1,0 +1,414 @@
+name: Engineering release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact reviewed workspace prerelease version (without v)
+        type: string
+        required: true
+      mode:
+        description: Rehearse or publish the qualified engineering prerelease
+        type: choice
+        options: [rehearse, publish]
+        default: rehearse
+      allow_same_run_resume:
+        description: Permit failed draft/publish job reruns to resume this run's signed bytes (never rebuild)
+        type: boolean
+        default: false
+      confirm_public_distribution:
+        description: Confirm public GHCR ownership/access, immutable release setup and engineering publication
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: epochgrid-release-publication
+  cancel-in-progress: false
+env:
+  RELEASE_VERSION: ${{ inputs.version }}
+  GITHUB_REF_PROTECTED: ${{ github.ref_protected }}
+jobs:
+  guard:
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Select protected main revision and validate version
+        run: python3 scripts/release/release.py preflight --version "$RELEASE_VERSION"
+      - name: Check publication prerequisites without changing settings
+        if: ${{ inputs.mode == 'publish' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SETTINGS_TOKEN: ${{ secrets.RELEASE_SETTINGS_TOKEN }}
+          CONFIRMED: ${{ inputs.confirm_public_distribution }}
+        run: |
+          test "$CONFIRMED" = true
+          python3 scripts/release/publish-release.py settings
+  qualify:
+    needs: guard
+    uses: ./.github/workflows/ci.yaml
+    permissions:
+      contents: read
+  rehearse:
+    needs: qualify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux-candidate-${{ github.sha }}
+          path: target/linux-candidate
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: runtime-image-${{ github.sha }}
+          path: target/runtime-image
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: linux-qualification-*
+          path: target/release-reports
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: image-results-*
+          path: target/release-reports
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: qualification-gate-*
+          path: target/release-reports
+      - uses: ./.github/actions/release-tools
+        with:
+          scanner: 'true'
+      - name: Assemble and scan the exact qualified payloads
+        env:
+          RELEASE_MODE: ${{ inputs.mode }}
+        run: |
+          options=()
+          if test -f docs/release-review.json; then options+=(--review docs/release-review.json); fi
+          if test "$RELEASE_MODE" = publish; then options+=(--require-review); fi
+          python3 scripts/release/evidence.py assemble --version "$RELEASE_VERSION" --linux target/linux-candidate --image target/runtime-image --reports target/release-reports --output target/release-assets "${options[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: release-proposal-${{ github.sha }}
+          path: target/release-assets/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+  candidate-push:
+    if: ${{ inputs.mode == 'publish' }}
+    needs: rehearse
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: runtime-image-${{ github.sha }}
+          path: target/runtime-image
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: image-results-*
+          path: target/image-results
+          merge-multiple: true
+      - name: Push candidate using milestone 33 transport contract
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/publish-image.py push --image-report target/runtime-image/image.json --qualifications target/image-results --visibility public --result target/candidate-push.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: release-candidate-push-${{ github.sha }}
+          path: target/candidate-push.json
+          retention-days: 7
+  candidate-pull:
+    needs: candidate-push
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: runtime-image-${{ github.sha }}
+          path: target/runtime-image
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-candidate-push-${{ github.sha }}
+          path: target/candidate
+      - name: Verify candidate on a fresh runner
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/publish-image.py verify --image-report target/runtime-image/image.json --publication-report target/candidate/candidate-push.json --visibility public --result target/candidate-pull.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-candidate-pull-${{ github.sha }}
+          path: target/candidate-pull.json
+          retention-days: 7
+  attest:
+    needs: candidate-pull
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-proposal-${{ github.sha }}
+          path: target/release-assets
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-candidate-pull-${{ github.sha }}
+          path: target/candidate
+      - name: Bind the qualified registry digest and reviewed inventory
+        id: identity
+        run: |
+          python3 scripts/release/publish-release.py finalize --assets target/release-assets --publication target/candidate/candidate-pull.json
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path('target/release-assets/RELEASE.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write('digest=' + data['image']['registry_digest'] + '\n')
+          PY
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        id: archive
+        with:
+          subject-path: target/release-assets/*.tar.gz
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        id: image
+        with:
+          subject-name: ghcr.io/epochgrid/epochgrid
+          subject-digest: ${{ steps.identity.outputs.digest }}
+      - uses: actions/attest@daf44fb950173508f38bd2406030372c1d1162b1 # v3
+        id: release
+        with:
+          subject-path: target/release-assets/RELEASE.json
+          predicate-type: https://epochgrid.org/attestations/release/v1
+          predicate-path: target/release-assets/release-predicate.json
+      - name: Preserve downloadable signature bundles
+        env:
+          ARCHIVE_BUNDLE: ${{ steps.archive.outputs.bundle-path }}
+          IMAGE_BUNDLE: ${{ steps.image.outputs.bundle-path }}
+          RELEASE_BUNDLE: ${{ steps.release.outputs.bundle-path }}
+        run: |
+          cp "$ARCHIVE_BUNDLE" target/release-assets/archive.sigstore.json
+          cp "$IMAGE_BUNDLE" target/release-assets/image.sigstore.json
+          cp "$RELEASE_BUNDLE" target/release-assets/release.sigstore.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: signed-release-${{ github.sha }}
+          path: target/release-assets/
+          retention-days: 7
+          compression-level: 0
+  draft:
+    needs: attest
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      attestations: read
+      contents: write
+      packages: write
+      actions: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: signed-release-${{ github.sha }}
+          path: target/release-assets
+      - uses: ./.github/actions/release-tools
+      - name: Verify signatures before immutable draft promotion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SETTINGS_TOKEN: ${{ secrets.RELEASE_SETTINGS_TOKEN }}
+          ALLOW_RESUME: ${{ inputs.allow_same_run_resume }}
+        run: |
+          options=()
+          if test "$ALLOW_RESUME" = true && test "$GITHUB_RUN_ATTEMPT" -gt 1; then options+=(--resume); fi
+          python3 scripts/release/publish-release.py draft --assets target/release-assets "${options[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: release-state-draft-${{ github.run_attempt }}
+          path: |
+            target/release-state.json
+            target/release-journal.jsonl
+          if-no-files-found: warn
+          retention-days: 7
+  verify-draft:
+    needs: draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      attestations: read
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: signed-release-${{ github.sha }}
+          path: target/release-assets
+      - uses: ./.github/actions/release-tools
+      - name: Download draft assets and verify on fresh runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/publish-release.py verify --assets target/release-assets
+  publish:
+    needs: verify-draft
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      attestations: read
+      contents: write
+      packages: read
+      actions: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: signed-release-${{ github.sha }}
+          path: target/release-assets
+      - uses: ./.github/actions/release-tools
+      - name: Reverify, publish immutable prerelease and verify public downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SETTINGS_TOKEN: ${{ secrets.RELEASE_SETTINGS_TOKEN }}
+          ALLOW_RESUME: ${{ inputs.allow_same_run_resume }}
+        run: |
+          options=()
+          if test "$ALLOW_RESUME" = true && test "$GITHUB_RUN_ATTEMPT" -gt 1; then options+=(--resume); fi
+          python3 scripts/release/publish-release.py publish --assets target/release-assets "${options[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: release-state-publish-${{ github.run_attempt }}
+          path: |
+            target/release-state.json
+            target/release-journal.jsonl
+          if-no-files-found: warn
+          retention-days: 7
+  verify-published:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      attestations: read
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: signed-release-${{ github.sha }}
+          path: target/release-assets
+      - uses: ./.github/actions/release-tools
+      - name: Verify the published release on a fresh consumer runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/publish-release.py verify --assets target/release-assets --published
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-consumer-proof-${{ github.run_attempt }}
+          path: |
+            target/release-state.json
+            target/release-journal.jsonl
+          if-no-files-found: error
+          retention-days: 7
+  retain-distribution-proof:
+    needs: verify-published
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: signed-release-${{ github.sha }}
+          path: target/release-assets
+      - uses: ./.github/actions/release-tools
+      - name: Authenticate the release and bind the final consumer receipt
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/release/publish-release.py verify --assets target/release-assets --published
+          python3 - <<'PY'
+          import importlib.util, json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts/release')
+          spec = importlib.util.spec_from_file_location('consumer', 'scripts/release/verify-release.py')
+          consumer = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(consumer)
+          data = consumer.verify_release(Path('target/release-assets'), os.environ['GITHUB_SHA'], os.environ['RELEASE_VERSION'])
+          proof = json.loads(Path('target/release-state.json').read_text())
+          assert proof['identity'] == data['identity'] and proof['result'] == 'verified'
+          assert proof['immutable'] is True and proof['draft'] is False and type(proof['release_id']) is int
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write('digest=' + data['image']['registry_digest'] + '\n')
+          PY
+      - name: Authenticate registry attestation transport
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - uses: actions/attest@daf44fb950173508f38bd2406030372c1d1162b1 # v3
+        with:
+          subject-name: ghcr.io/epochgrid/epochgrid
+          subject-digest: ${{ steps.identity.outputs.digest }}
+          predicate-type: https://epochgrid.org/attestations/distribution/v1
+          predicate-path: target/release-state.json
+          push-to-registry: true
+      - name: Verify the durable consumer proof through the public policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/verify-release.py --assets target/release-assets --commit "$GITHUB_SHA" --version "$RELEASE_VERSION"

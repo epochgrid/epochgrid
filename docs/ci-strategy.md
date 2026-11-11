@@ -177,3 +177,33 @@ quarantines and read-only workflow permissions remain. Build and runtime checks
 have separate deadlines; no publishing credentials, tags, registry pushes or
 GitHub Releases are introduced. Candidate availability alone does not establish
 qualification; all same-revision prerequisites must pass.
+
+## Engineering release pipeline — milestone 34
+
+`release.yaml` is an explicit protected-main dispatch. Rehearsal calls the same
+read-only CI workflow used by PR and candidate qualification, then validates its
+same-run aggregate receipt and every bundle/image report. The aggregate `validate`
+job retains `qualification-gate-SHA`; failed, skipped and cancelled prerequisites
+still fail the existing required gate. No quarantine or timeout was loosened.
+
+Rehearsal generates a proposal, SPDX 2.3 inventories and sanitized vulnerability
+reports. Publication additionally requires reviewed findings and native component
+coverage, public package ownership/access, immutable releases and the protected
+release environment. The GitHub CLI, Grype and release validator dependencies are
+version/hash pinned. PR harness validation needs Python `jsonschema` (provided by
+`python3-jsonschema` on Ubuntu); release jobs use the hash-locked virtual environment.
+
+The privileged chain is candidate push, fresh pull, archive/image provenance and
+release-metadata signing, immutable draft preparation, fresh draft verification,
+publication, and a final fresh consumer verification. Build/test jobs have no
+publication credentials. Qualified archives and images are not rebuilt in these
+stages. Publication is serialized and each write either receives read-back proof
+or remains an incomplete operation requiring explicit same-run recovery.
+
+The normal harness covers wrong identities, missing/skipped qualification,
+corrupt assets, invalid signature policy, unreviewed findings, schema rejection,
+release collisions and successful writes whose responses are lost. Local tests
+mock remote state for failure injection; they do not constitute hosted signing or
+publication evidence. See [release operations](operator/releases.md) for the
+settings, dispatch inputs, consumer policy and recovery limits. The roadmap records
+which hosted acceptance gates remain outstanding.
