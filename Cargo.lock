@@ -1068,7 +1068,7 @@ dependencies = [
 
 [[package]]
 name = "epochgrid-client"
-version = "0.1.0"
+version = "0.1.0-engineering.1"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -1087,7 +1087,7 @@ dependencies = [
 
 [[package]]
 name = "epochgrid-core"
-version = "0.1.0"
+version = "0.1.0-engineering.1"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -1118,7 +1118,7 @@ dependencies = [
 
 [[package]]
 name = "epochgrid-service"
-version = "0.1.0"
+version = "0.1.0-engineering.1"
 dependencies = [
  "anyhow",
  "async-nats",

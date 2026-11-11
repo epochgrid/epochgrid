@@ -1,6 +1,7 @@
 # Roadmap and deployment status
 
-Status reviewed against `main` at `57d2739` (milestone 33, PR #28) on 2026-11-11.
+Status reviewed against `main` at `5060a35` (documentation cleanup, PR #29) on
+2026-11-11. This branch includes that merge and milestone 34 release automation.
 This is the single current project-status and delivery-plan index. Merged means
 present in main; it does not imply production readiness or a qualified release.
 No alpha release or published runtime image is claimed.
@@ -18,8 +19,8 @@ No alpha release or published runtime image is claimed.
 | 30 — diagnostics | Merged, PR #24 | [Authenticated runtime status and troubleshooting](operator/diagnostics.md) |
 | 31 — audit evidence | Merged, PR #26 | [Encrypted authority audit, export and explicit retention](operator/audit.md) |
 | 32 — Linux bundles | Merged, PR #27 | [Verified candidates and extracted-binary qualification](operator/linux-artifacts.md); no release publication |
-| 33 — runtime image | Merged, PR #28; hosted PR CI passed; registry round trip pending | Verified-bundle image, separate-role boundary, image matrix and controlled GHCR candidate transport; see below |
-| 34 — release publication and supply chain | Planned, not implemented | Versioned promotion, GitHub Releases, signatures/attestations and provenance policy |
+| 33 — runtime image | Merged, PR #28; hosted PR CI passed | Verified-bundle image, separate-role boundary and full image matrix; explicit GHCR candidate round trip still pending |
+| 34 — release publication and supply chain | Release pipeline implemented and locally validated; hosted acceptance blocked | [Plan](milestone-34-plan.md), [release operations](operator/releases.md); rehearsal, provenance, SPDX/scanning, consumer policy, protected publication and recovery code present. Protected environment, immutable releases, candidate transport, vulnerability review and real hosted distribution proof remain outstanding |
 | 35 — adversarial qualification | Planned, not implemented as a complete suite | Broader negative, fault and recovery coverage with explicit release evidence |
 | 36 — protocol/configuration freeze | Planned, not frozen | Versioning, compatibility and migration commitments for the supported release scope |
 | 37 — first-run experience | Planned | Repeatable setup and actionable recovery without bypassing security prerequisites |
@@ -41,15 +42,17 @@ or alpha release promotion belongs to milestone 33.
 
 ## Remaining delivery plan
 
-Milestones 34–38 retain the scopes above; detailed acceptance plans must be reviewed
-before implementation. Their numbers organize ownership, not an assertion that
+Milestone 34 implementation follows its [acceptance plan](milestone-34-plan.md);
+milestones 35–38 still need detailed acceptance plans. Review those plans before implementation.
+Their numbers organize ownership, not an assertion that
 publishing an artifact finishes alpha qualification.
 
 1. Finish milestone 33 qualification and candidate transport. Keep current
    Secret Service, SQLCipher, peer-UID isolation and operator-owned NATS boundaries.
-2. Define milestone 34's promotion/verification contract using the qualified bundle
-   and image. Bind artifacts to the selected release revision; do not relabel PR
-   merge-candidate bytes as a different commit. Candidate transport is not a signed release.
+2. Complete milestone 34's hosted promotion/verification acceptance using the qualified
+   bundle and image, after implementation review. Bind artifacts to the selected release revision;
+   do not relabel PR merge-candidate bytes as a different commit. Candidate transport
+   is not a signed release.
 3. Resolve or explicitly disposition release blockers through adversarial coverage
    and compatibility decisions (35–36). Dynamic Object Store permissions and
    short-lease dynamic messaging remain unqualified; a narrower release must say so.

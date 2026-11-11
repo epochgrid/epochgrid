@@ -163,9 +163,23 @@ Milestone 32 also corrected differing-owner public NATS fixture permissions and
 cold-cache metadata fetching. Its [archived handoff](archive/handoff-through-m32.md)
 retains unexplained disposable-keyring failures and an admission rejection.
 
-The [milestone 33 implementation record](archive/handoff-m33.md) preserves a native JWT-cluster failover-readiness
-timeout, followed by a passing unchanged focused rerun. PR #28 subsequently merged and hosted CI passed,
-but the root cause remains unestablished; see the [roadmap](milestones.md).
+The [milestone 33 implementation record](archive/handoff-m33.md) preserves a native
+JWT-cluster failover-readiness timeout, followed by a passing unchanged focused
+rerun. PR #28 subsequently merged and hosted CI passed, but the root cause remains
+unestablished; see the [roadmap](milestones.md).
+
+### Milestone 34 local validation — 2026-11-11
+
+The first full local verification attempt on `feature/milestone-34` (base
+`85b04b2`, uncommitted release tooling, workspace `0.1.0-engineering.1`) failed in
+`unit-epochgrid_core`: 49 passed, 66 failed and three ignored. Failures reported
+locked or unavailable disposable Secret Service access. A separate Ubuntu bundle
+build was running during that attempt; concurrency is context, not an established
+cause. The isolated, unchanged `verify.sh unit` diagnostic subsequently passed,
+with local SQLCipher memlock warnings. The original full-run failure remains
+unexplained and is not erased by that pass. No skip, retry or timeout change was
+added. Subsequent retained native phases passed independently; these observations
+do not close TD-003 or constitute a cold hosted qualification run.
 
 ### Work and Completion Criteria
 1. **Measure the implemented build/execution separation**: Measure per-case and whole-job durations on cold runners, budget for observed variance, and split long phases where useful. Keep finite watchdogs and descendant cleanup; do not use blanket retries or additional skips to manufacture a green gate

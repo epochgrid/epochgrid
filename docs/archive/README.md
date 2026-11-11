@@ -16,10 +16,14 @@ Use the [roadmap](../milestones.md) for current status, the
 | [29 — resource bounds](plans/milestone-29.md) | [Capacity](../operator/capacity.md) |
 | [30 — operational diagnostics](plans/milestone-30.md) | [Diagnostics](../operator/diagnostics.md) |
 | [31 — security audit](plans/milestone-31.md) | [Audit operations](../operator/audit.md) |
-| [33 — runtime image implementation](plans/milestone-33.md) | [Containers](../operator/containers.md); candidate registry transport pending |
 | [32 — Linux artifacts](plans/milestone-32.md) | [Binary bundles](../operator/linux-artifacts.md) |
+| [33 — runtime image implementation](plans/milestone-33.md) | [Containers](../operator/containers.md); candidate registry transport pending |
 
 Implementation records:
+
+- [Milestone 34 local validation](milestone-34-local-validation.md) and
+  [unreviewed local scan](milestone-34-local-scan.json): implementation evidence,
+  retained failures and outstanding hosted acceptance.
 
 - [Milestone 33 handoff](handoff-m33.md): image qualification, harness correction,
   and unresolved native failover evidence; PR #28 and hosted CI subsequently passed.

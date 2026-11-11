@@ -283,3 +283,7 @@ The digest placeholder must be replaced with actual qualified evidence. No
 `latest`, version, or alpha release tags are produced. Removing containers with
 `egcompose down` preserves bind-mounted state; never delete homes/keyrings as part
 of image cleanup. Milestone 34 and TD-001/002/003 remain open.
+
+For engineering prerelease promotion, signed verification and failure recovery,
+see [release operations](releases.md). Consult the [roadmap](../milestones.md) for
+actual hosted publication status.

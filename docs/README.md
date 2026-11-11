@@ -2,9 +2,9 @@
 
 Use the [roadmap](milestones.md) for milestone status and remaining delivery work.
 The [README demo](../README.md#local-development) uses static development fixtures;
-operator setup uses dynamic admission and separate backend roles. Main currently
-contains milestone 33; hosted PR CI passed, while candidate registry transport
-remains a completion gate.
+operator setup uses dynamic admission and separate backend roles. Main contains
+milestone 33 and the documentation cleanup through `5060a35`. This branch adds
+milestone 34 release automation; hosted release acceptance remains outstanding.
 
 ## Operator path
 
@@ -12,7 +12,8 @@ Read these in order for a production-shaped deployment. This remains unaudited
 pre-release software; see [security](../SECURITY.md).
 
 1. [Linux binary bundles](operator/linux-artifacts.md): candidate identity,
-   supported Ubuntu baseline, verification and installation.
+   supported Ubuntu baseline, verification and installation;
+   [engineering releases](operator/releases.md) for signed distribution and recovery.
 2. [Secret storage](secret-storage.md): host keyring sessions, protected homes,
    missing-key behavior and encrypted-state requirements.
 3. [BYO NATS](operator/byo-nats.md) and [TLS](operator/tls.md): broker/account
@@ -24,9 +25,10 @@ pre-release software; see [security](../SECURITY.md).
    and [audit](operator/audit.md): inspect, troubleshoot, export and upgrade without
    recreating credentials or silently repairing operator infrastructure.
 
-For runtime containers, use the [container guide](operator/containers.md) and
-[Compose example](operator/compose.runtime.yaml); see the
-[roadmap](milestones.md#current-delivery) for qualification/publication status.
+The [runtime-container guide](operator/containers.md)
+and [Compose example](operator/compose.runtime.yaml)
+are present in this checkout. See the
+[roadmap](milestones.md#current-delivery) for exact qualification/publication status.
 
 ## Client guides
 
@@ -51,6 +53,8 @@ messaging retain the limitations in [technical debt](technical-debt.md).
 - [Contributing](../CONTRIBUTING.md), [development verification](development.md),
   [CI execution](ci-strategy.md) and [optional local hooks](../scripts/hooks/README.md).
 - [MVP acceptance mapping](mvp-acceptance.md) for the original two-device baseline.
+- [Milestone 34 acceptance plan](milestone-34-plan.md) for release publication,
+  signed provenance and consumer verification; release automation is implemented; hosted acceptance remains outstanding.
 - [Historical plans and evidence](archive/README.md) for completed acceptance plans,
   earlier local results, CI investigations and old upgrade notes.
 

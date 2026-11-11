@@ -29,6 +29,8 @@ jobs:
       - name: Harness and formatting
         timeout-minutes: 3
         run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-jsonschema
           ./scripts/dev/verify.sh harness
           ./scripts/dev/verify.sh fmt
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -256,14 +258,17 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - name: Require every prerequisite to succeed
         env:
           RESULTS: ${{ toJSON(needs) }}
         run: |
-          python3 - <<'PYTHON'
-          import json, os
-          results = json.loads(os.environ['RESULTS'])
-          for name, job in results.items():
-              print(f"{name}: {job['result']}")
-          assert results and all(job['result'] == 'success' for job in results.values())
-          PYTHON
+          python3 scripts/release/evidence.py gate --output target/release-gate/gate.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: qualification-gate-${{ github.sha }}
+          path: target/release-gate/gate.json
+          if-no-files-found: error
+          retention-days: 7
