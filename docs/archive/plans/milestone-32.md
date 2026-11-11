@@ -4,7 +4,10 @@
 > Statements below describe planning or validation at that time, not current status.
 > Use the [current contract](../../operator/linux-artifacts.md) and [roadmap](../../milestones.md).
 
-**Implemented and locally validated; hosted PR CI remains pending.** Milestone 31 merged into `main` in
+**Merged in PR #27 (`04652c7`); final hosted PR CI passed.**
+[Run #88](https://github.com/epochgrid/epochgrid/actions/runs/41755686220) passed
+all gates, including extracted-binary qualification. The implementation evidence
+at the end of this document predates that result. Milestone 31 merged into `main` in
 PR #26 (`c73d51a`). This milestone defines and qualifies the distributable Linux
 bundle. Milestone 33 owns the GHCR runtime image; milestone 34 owns release
 publication, signing/attestations and the release supply chain. Packaging success

@@ -52,7 +52,9 @@ with tempfile.TemporaryDirectory(prefix='epochgrid-secret-test-') as directory:
     refs = scan(home)
     run(CLIENT, '--home', str(home), 'identity', 'init', 'alice', ok=False)
     assert original == run(CLIENT, '--home', str(home), 'identity', 'show').stdout
-    package, recovery_secret = root / 'backup.egrecovery', root / 'backup.egsecret'
+    recovery_output = root / 'recovery-output'
+    recovery_output.mkdir(mode=0o700)
+    package, recovery_secret = recovery_output / 'backup.egrecovery', recovery_output / 'backup.egsecret'
     run(CLIENT, '--home', str(home), 'recovery', 'export', '--output', str(package), '--secret-file', str(recovery_secret))
     restored = root / 'restored'
     run(CLIENT, '--home', str(restored), 'recovery', 'restore', '--input', str(package), '--secret-file', str(recovery_secret))

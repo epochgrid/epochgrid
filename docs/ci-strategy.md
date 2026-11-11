@@ -128,6 +128,35 @@ It flags fewer than ten completed cold first attempts per cohort as insufficient
 Collect these hosted samples for the revisions being compared; no percentile or reliable
 savings claim is justified yet. Registry hits and cold compiled builds are distinct.
 
+## Runtime image gates — milestone 33
+
+The normal harness includes image construction, process adapter and publication
+regressions. They cover corrupt inputs, source/baseline rejection, mount isolation,
+report identity, authorization and registry failures. See [container notes](operator/containers.md).
+
+`image-build` consumes the verified Linux bundle without recompiling application
+binaries. `image-qualify` transports that exact image into five isolated jobs:
+smoke and all four retained BYO cases. Smoke includes protected-state checks,
+explicit audit upgrade, representative CLI/TUI/offline restart and the separate
+UID/keyring boundary proof. All image jobs are prerequisites of `validate`;
+failed, skipped and cancelled jobs fail the aggregate. Existing native and
+extracted-bundle qualification remain required.
+
+Each runner validates transport hash, image config ID and source identity. Reports
+are sanitized and retained on failure for seven days alongside the image transport;
+private homes, keyrings and audit exports are never uploaded. The local matrix
+measured approximately 67–84 seconds per BYO case, 19 seconds for smoke and
+13 seconds for the boundary proof in final local qualification. Execution is bounded to 300 seconds, separate
+from setup and image construction; cold hosted timings remain to be measured.
+
+`image-candidate.yaml` is a separate manual dispatch restricted to protected main.
+It reuses the full CI workflow on the selected SHA. Only the push job has
+`packages: write`; a fresh read-only verification job pulls by registry digest.
+Package ownership/access/visibility confirmation is explicit, and no setting is
+changed implicitly. No automatic retries, release tags or signing are added.
+Hosted image evidence and a successful explicitly invoked registry round trip
+remain milestone completion gates.
+
 ## Linux distributable candidates — milestone 32
 
 The internal runtime contract above remains unchanged. `linux-build` compiles
