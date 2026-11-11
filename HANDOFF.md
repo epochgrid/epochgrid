@@ -1,32 +1,21 @@
 # Working handoff
 
-This checkout is the documentation-cleanup branch `docs/consolidate-project-plans`,
-based on current main `04652c7` (milestone 32, PR #27). It does not contain the
-milestone 33 implementation. No application, test or workflow behavior changes
-are part of this cleanup.
+Documentation consolidation is reconciled with main `57d2739`, which merged
+milestone 33 in [PR #28](https://github.com/epochgrid/epochgrid/pull/28).
+[Hosted CI run #90](https://github.com/epochgrid/epochgrid/actions/runs/42326075288)
+passed for PR head `1a42ed7`; this is PR merge-candidate evidence, not a separate
+build of the squash commit.
 
-Use [the roadmap](docs/milestones.md) as the single source of current milestone
-status and next work, [the documentation index](docs/README.md) to find contracts,
-and [technical debt](docs/technical-debt.md) for unresolved failures and restoration
-criteria. Completed plans and dated validation are in [the archive](docs/archive/README.md).
+Use [the roadmap](docs/milestones.md) for current status and next work,
+[the documentation index](docs/README.md) for contracts, and
+[technical debt](docs/technical-debt.md) for unresolved failures/restoration criteria.
+The [container guide](docs/operator/containers.md), Compose example and image
+qualification workflows are retained. Candidate publication remains explicitly
+invoked; no registry publication or package-setting change is part of this fix.
 
-Milestone 33 is in [PR #28](https://github.com/epochgrid/epochgrid/pull/28) on
-`feature/milestone-33-runtime-image`. Initial implementation `6a9e622` was followed
-by the Python 3.12 test-mock fix `1a42ed7`, which triggered CI run #90. The user is
-monitoring hosted CI. Its [branch handoff](https://github.com/epochgrid/epochgrid/blob/1a42ed7/HANDOFF.md)
-records the earlier exact-image qualification, passing corrected harness checks,
-and unresolved native JWT-cluster failover timeout (unchanged focused rerun passed). Do not present those checks as
-execution against this main-based checkout or as a passing full verifier result.
-
-When reconciling the documentation branch with milestone 33, preserve its operator
-container guide, Compose example, image plan and qualification evidence. Update the
-roadmap to the actual merge/CI/publication results and archive the completed plan.
-GHCR publication remains explicitly invoked; no publication or package-setting
-change is authorized by this documentation cleanup. TD-001/002/003 remain open.
-
-Historical handoff details through milestone 32 are retained in
-[the implementation record](docs/archive/handoff-through-m32.md); pending-status
-statements there are historical, not current blockers for already merged milestones.
-
-The user authorized committing and pushing this documentation branch and will
-prepare its PR. Local links/anchors, shell-example syntax and diff whitespace pass.
+[Milestone 33 evidence](docs/archive/handoff-m33.md) preserves the Python 3.12
+harness correction, exact-image local results and unexplained native JWT-cluster
+failover timeout followed by a passing unchanged focused rerun. Hosted CI success
+does not establish its cause or close TD-003. TD-001/002/003 remain open.
+Historical details through milestone 32 remain in
+[the earlier handoff](docs/archive/handoff-through-m32.md).

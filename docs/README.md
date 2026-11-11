@@ -3,7 +3,8 @@
 Use the [roadmap](milestones.md) for milestone status and remaining delivery work.
 The [README demo](../README.md#local-development) uses static development fixtures;
 operator setup uses dynamic admission and separate backend roles. Main currently
-contains milestones through 32; milestone 33 is under separate hosted CI review.
+contains milestone 33; hosted PR CI passed, while candidate registry transport
+remains a completion gate.
 
 ## Operator path
 
@@ -23,8 +24,9 @@ pre-release software; see [security](../SECURITY.md).
    and [audit](operator/audit.md): inspect, troubleshoot, export and upgrade without
    recreating credentials or silently repairing operator infrastructure.
 
-Runtime-container instructions belong to milestone 33's branch until it merges;
-find its exact revision via the [roadmap](milestones.md#current-delivery).
+For runtime containers, use the [container guide](operator/containers.md) and
+[Compose example](operator/compose.runtime.yaml); see the
+[roadmap](milestones.md#current-delivery) for qualification/publication status.
 
 ## Client guides
 

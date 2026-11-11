@@ -163,10 +163,9 @@ Milestone 32 also corrected differing-owner public NATS fixture permissions and
 cold-cache metadata fetching. Its [archived handoff](archive/handoff-through-m32.md)
 retains unexplained disposable-keyring failures and an admission rejection.
 
-Milestone 33's separate branch records a native JWT-cluster failover-readiness
-timeout, followed by a passing unchanged focused rerun. That is branch evidence,
-not a new main-based qualification run; see its handoff linked from the
-[roadmap](milestones.md). The root cause remains unestablished.
+The [milestone 33 implementation record](archive/handoff-m33.md) preserves a native JWT-cluster failover-readiness
+timeout, followed by a passing unchanged focused rerun. PR #28 subsequently merged and hosted CI passed,
+but the root cause remains unestablished; see the [roadmap](milestones.md).
 
 ### Work and Completion Criteria
 1. **Measure the implemented build/execution separation**: Measure per-case and whole-job durations on cold runners, budget for observed variance, and split long phases where useful. Keep finite watchdogs and descendant cleanup; do not use blanket retries or additional skips to manufacture a green gate

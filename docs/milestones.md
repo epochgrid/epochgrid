@@ -1,6 +1,6 @@
 # Roadmap and deployment status
 
-Status reviewed against `main` at `04652c7` (milestone 32, PR #27) on 2026-11-06.
+Status reviewed against `main` at `57d2739` (milestone 33, PR #28) on 2026-11-11.
 This is the single current project-status and delivery-plan index. Merged means
 present in main; it does not imply production readiness or a qualified release.
 No alpha release or published runtime image is claimed.
@@ -18,30 +18,26 @@ No alpha release or published runtime image is claimed.
 | 30 — diagnostics | Merged, PR #24 | [Authenticated runtime status and troubleshooting](operator/diagnostics.md) |
 | 31 — audit evidence | Merged, PR #26 | [Encrypted authority audit, export and explicit retention](operator/audit.md) |
 | 32 — Linux bundles | Merged, PR #27 | [Verified candidates and extracted-binary qualification](operator/linux-artifacts.md); no release publication |
-| 33 — runtime image | Implemented on a separate branch; hosted CI under review | Verified-bundle image, separate-role boundary, image matrix and controlled GHCR candidate transport; see below |
+| 33 — runtime image | Merged, PR #28; hosted PR CI passed; registry round trip pending | Verified-bundle image, separate-role boundary, image matrix and controlled GHCR candidate transport; see below |
 | 34 — release publication and supply chain | Planned, not implemented | Versioned promotion, GitHub Releases, signatures/attestations and provenance policy |
 | 35 — adversarial qualification | Planned, not implemented as a complete suite | Broader negative, fault and recovery coverage with explicit release evidence |
 | 36 — protocol/configuration freeze | Planned, not frozen | Versioning, compatibility and migration commitments for the supported release scope |
 | 37 — first-run experience | Planned | Repeatable setup and actionable recovery without bypassing security prerequisites |
 | 38 — operator documentation set | Planned release gate | Validate the supported install, operate, upgrade, backup/recovery and removal procedures end to end |
 
-Milestone 33 is in [PR #28](https://github.com/epochgrid/epochgrid/pull/28), on
-`feature/milestone-33-runtime-image` at `1a42ed7`, not in this main-based checkout.
-Its [acceptance plan](https://github.com/epochgrid/epochgrid/blob/1a42ed7/docs/milestone-33-plan.md)
-and [handoff](https://github.com/epochgrid/epochgrid/blob/1a42ed7/HANDOFF.md) are owned
-by that branch. All six local image checks passed before the Python 3.12 harness
-fix. That fix passed all 42 harness tests on Python 3.12 and triggered CI run #90;
-it does not replace qualification of the new revision.
-The full native verifier had a JWT-cluster failover-readiness timeout; an unchanged
-focused rerun passed, without establishing a cause. The user is monitoring hosted
-CI. This documentation snapshot does not report its eventual result.
+Milestone 33 merged in [PR #28](https://github.com/epochgrid/epochgrid/pull/28)
+as `57d2739`. [Hosted CI run #90](https://github.com/epochgrid/epochgrid/actions/runs/42326075288)
+passed for PR head `1a42ed7`, including image qualification. CI tested the PR
+merge candidate; no separate squash-commit build is claimed. The
+[archived plan](archive/plans/milestone-33.md) and
+[implementation evidence](archive/handoff-m33.md) retain local image results,
+the Python 3.12 harness correction and the unexplained native JWT-cluster timeout.
+A passing unchanged focused rerun and hosted CI do not establish its root cause.
 
-To close milestone 33: obtain the required regression/hosted image evidence, merge,
-then explicitly invoke candidate publication from protected main and verify the
-registry digest round trip. Confirm package ownership, access and visibility first.
-No `latest`, semantic-version or alpha release promotion belongs to milestone 33.
-When it merges, reconcile this index with its final handoff and move the completed
-plan into the [archive](archive/README.md).
+To close milestone 33, explicitly invoke candidate publication from protected main
+and verify the registry digest round trip. Confirm package ownership, access and
+visibility first. No publication is claimed here. No `latest`, semantic-version
+or alpha release promotion belongs to milestone 33.
 
 ## Remaining delivery plan
 

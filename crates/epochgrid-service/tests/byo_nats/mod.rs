@@ -758,11 +758,7 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     contains(root, "alice", b"bidirectional reply")?;
     // Saturate the real separate-UID forwarding worker. Lost/rejected requests
     // are not accepted mutations, and heartbeat/reconciliation remain bounded.
-    let rss_before = std::fs::read_to_string(format!("/proc/{}/status", service.0.id()))?
-        .lines()
-        .find(|line| line.starts_with("VmRSS:"))
-        .unwrap_or("VmRSS unavailable")
-        .to_owned();
+    let rss_before = service.rss()?;
     let overload_inbox = admin.new_inbox();
     let mut overload_replies = admin.subscribe(overload_inbox.clone()).await?;
     let audit = epochgrid_core::wire::encode(epochgrid_core::wire::Body::RegistrationAudit)?;
@@ -795,11 +791,7 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
         replies < 512 || rejected > 0,
         "saturation did not exercise a bounded rejection/loss boundary"
     );
-    let rss_after = std::fs::read_to_string(format!("/proc/{}/status", service.0.id()))?
-        .lines()
-        .find(|line| line.starts_with("VmRSS:"))
-        .unwrap_or("VmRSS unavailable")
-        .to_owned();
+    let rss_after = service.rss()?;
     eprintln!(
         "capacity flood: responses={replies}, rejected={rejected}; authority {rss_before} -> {rss_after}"
     );

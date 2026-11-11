@@ -19,6 +19,8 @@ impl Worker {
             .prefix("epochgrid-roles-")
             .tempdir()?;
         fs::set_permissions(public.path(), fs::Permissions::from_mode(0o755))?;
+        fs::create_dir(public.path().join("ipc"))?;
+        fs::set_permissions(public.path().join("ipc"), fs::Permissions::from_mode(0o755))?;
         fs::copy(root.join("ca.pem"), public.path().join("ca.pem"))?;
         fs::set_permissions(
             public.path().join("ca.pem"),
@@ -135,7 +137,7 @@ impl Worker {
                 .arg(root.join("backend"))
                 .arg("role-bind")
                 .args(["--worker-uid", "65534", "--worker-nkey", &key, "--socket"])
-                .arg(worker.public.path().join("control.sock"));
+                .arg(worker.public.path().join("ipc/control.sock"));
             command
         };
         let result = tls::run(&mut binding_command(), &[]).await?;
@@ -223,7 +225,8 @@ impl Worker {
             "authority could not inspect audit evidence"
         );
         let state: epochgrid_core::audit::Info = serde_json::from_slice(&report.stdout)?;
-        let output = root.join("audit-export.jsonl");
+        fs::create_dir(root.join("audit-output"))?;
+        let output = root.join("audit-output/export.jsonl");
         let exported = tls::run(
             Command::new(crate::service_binary())
                 .arg("--home")
@@ -288,7 +291,7 @@ impl Worker {
             loop {
                 let ready = tokio::time::timeout(Duration::from_secs(1), async {
                     let mut stream = tokio::net::UnixStream::connect(
-                        self.public.path().join("control.sock.status"),
+                        self.public.path().join("ipc/control.sock.status"),
                     )
                     .await?;
                     let request =
@@ -313,7 +316,7 @@ impl Worker {
         .context("authority reconciliation deadline")?;
         // Even the authority account cannot impersonate the configured worker UID.
         let mut impostor =
-            tokio::net::UnixStream::connect(self.public.path().join("control.sock")).await?;
+            tokio::net::UnixStream::connect(self.public.path().join("ipc/control.sock")).await?;
         ensure!(
             tokio::time::timeout(Duration::from_secs(1), impostor.read_u8())
                 .await?
@@ -324,7 +327,7 @@ impl Worker {
         let rejected = Command::new("sudo")
             .args(["-n", "-u", "daemon", "--", "python3", "-c",
                 "import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect(sys.argv[1]); sys.exit(0 if s.recv(1)==b'' else 1)"])
-            .arg(self.public.path().join("control.sock.status"))
+            .arg(self.public.path().join("ipc/control.sock.status"))
             .status()?;
         ensure!(rejected.success(), "unrelated UID received diagnostics");
         let log = self.public.path().join("worker.log");
@@ -360,9 +363,10 @@ impl Worker {
         tokio::time::timeout(Duration::from_secs(6), async {
             use tokio::io::{AsyncReadExt, AsyncWriteExt};
             loop {
-                let mut stream =
-                    tokio::net::UnixStream::connect(self.public.path().join("control.sock.status"))
-                        .await?;
+                let mut stream = tokio::net::UnixStream::connect(
+                    self.public.path().join("ipc/control.sock.status"),
+                )
+                .await?;
                 let request = br#"{"version":1,"sequence":0,"operation":{"operation":"inspect"}}"#;
                 stream.write_u32(request.len() as u32).await?;
                 stream.write_all(request).await?;

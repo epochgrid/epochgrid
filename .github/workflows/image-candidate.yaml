@@ -1,0 +1,116 @@
+name: GHCR candidate
+on:
+  workflow_dispatch:
+    inputs:
+      visibility:
+        description: Confirm the intended package visibility (never changed by this workflow)
+        type: choice
+        required: true
+        options: [private, public]
+        default: private
+      confirm_package_access:
+        description: I confirmed epochgrid ownership, repository linkage, and Actions package access
+        type: boolean
+        required: true
+        default: false
+      create_private:
+        description: Allow first publication to create an absent private package
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: ghcr-candidate
+  cancel-in-progress: false
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require protected main and explicit package confirmation
+        env:
+          REF: ${{ github.ref }}
+          PROTECTED: ${{ github.ref_protected }}
+          REPOSITORY: ${{ github.repository }}
+          CONFIRMED: ${{ inputs.confirm_package_access }}
+        run: |
+          test "$REF" = refs/heads/main
+          test "$PROTECTED" = true
+          test "$REPOSITORY" = epochgrid/epochgrid
+          test "$CONFIRMED" = true
+  qualify:
+    needs: guard
+    uses: ./.github/workflows/ci.yaml
+    permissions:
+      contents: read
+  push:
+    needs: qualify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: runtime-image-${{ github.sha }}
+          path: target/runtime-image
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: image-results-*-${{ github.sha }}
+          merge-multiple: true
+          path: target/image-results
+      - name: Push only the qualified candidate bytes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REF_PROTECTED: ${{ github.ref_protected }}
+          VISIBILITY: ${{ inputs.visibility }}
+          CREATE_PRIVATE: ${{ inputs.create_private }}
+        run: |
+          options=()
+          if [ "$CREATE_PRIVATE" = true ]; then options+=(--create-private); fi
+          python3 scripts/release/publish-image.py push --image-report target/runtime-image/image.json --qualifications target/image-results --visibility "$VISIBILITY" "${options[@]}" --result target/publication.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: publication-${{ github.sha }}
+          path: target/publication.json
+          if-no-files-found: warn
+          retention-days: 7
+  verify-pull:
+    needs: push
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: runtime-image-${{ github.sha }}
+          path: target/runtime-image
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: publication-${{ github.sha }}
+          path: target
+      - name: Pull by registry digest on a fresh runner
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REF_PROTECTED: ${{ github.ref_protected }}
+          VISIBILITY: ${{ inputs.visibility }}
+        run: |
+          python3 scripts/release/publish-image.py verify --image-report target/runtime-image/image.json --publication-report target/publication.json --visibility "$VISIBILITY" --result target/registry-verification.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: registry-verification-${{ github.sha }}
+          path: target/registry-verification.json
+          if-no-files-found: warn
+          retention-days: 7
