@@ -57,6 +57,12 @@ messaging retain the limitations in [technical debt](technical-debt.md).
   signed provenance and consumer verification; release automation is implemented; hosted acceptance remains outstanding.
 - [Historical plans and evidence](archive/README.md) for completed acceptance plans,
   earlier local results, CI investigations and old upgrade notes.
+- [Adversarial qualification register](adversarial-qualification.md) for required
+  security cases, coverage gaps, findings and local implementation evidence.
+- [Milestone 35 acceptance plan](milestone-35-plan.md) for adversarial qualification,
+  fault recovery and the supported-scope decision; precedes the compatibility freeze.
+- [Milestone 36 acceptance plan](milestone-36-plan.md) for protocol/configuration
+  versioning, compatibility fixtures and upgrade qualification; not yet frozen.
 
 Keep current project status in `milestones.md`, open debt/restoration criteria in
 `technical-debt.md`, behavior in its owning contract, and dated evidence in the

@@ -1,7 +1,8 @@
 # EpochGrid protocol v1 — current implementation
 
 See [milestone status](milestones.md) for implemented versus unfinished deployment
-paths. This pre-release protocol is not yet frozen (Milestone 36 remains pending).
+paths. This pre-release protocol is not yet frozen; the
+[milestone 36 plan](milestone-36-plan.md) defines the compatibility acceptance gates.
 
 NATS request/reply subject: `epochgrid.v1.identity.register`. Registration uses
 this subject exactly; lookup and KeyPackage requests use the fixed subjects

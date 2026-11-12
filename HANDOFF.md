@@ -1,5 +1,18 @@
 # Working handoff
 
+Milestone 35 implementation has started after reviewing its plan against the
+milestone 34 tooling below. See the [qualification register](docs/adversarial-qualification.md)
+and [local evidence](docs/archive/milestone-35-local-validation.md). The unit gate
+requires 26 named security cases, including new concurrent-redemption, hostile IPC
+and seeded wire regressions. Broader fault/parser work, TD-002 reproduction,
+hosted sampling, final artifact qualification and reviewed scope remain pending.
+The [bounded follow-up](docs/archive/milestone-35-bounded-validation.md) adds IPC
+mutations, mandatory 512 MiB parser limits, both R3 quorum-loss schedules and mapped
+delivery recovery cases. Both R3 modes and delivery cases passed. An ordinary unit
+run failed on credential lock contention; a traced diagnostic gate subsequently
+passed without reproducing it. AQ-F04/TD-003 remains open. No quarantines were
+removed and no runtime or distribution contract changed.
+
 Branch `feature/milestone-34` implements the engineering release pipeline on top
 of milestone 33. Main advanced to `5060a35` (documentation cleanup, PR #29) during
 implementation and has been merged into this branch before review.

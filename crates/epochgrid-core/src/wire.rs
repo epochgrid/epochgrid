@@ -139,6 +139,76 @@ pub fn decode(bytes: &[u8]) -> Result<Body, ProtocolError> {
 mod tests {
     use super::*;
     #[test]
+    fn bounded_seeded_wire_mutations() {
+        // Fixed xorshift64 corpus: no dependency on OS randomness or elapsed time.
+        // The unit runner provides a 180s deadline. Panics are never caught.
+        let seeds = [
+            encode(Body::Registered).unwrap(),
+            encode(Body::Lookup {
+                user: "alice".into(),
+                device: "laptop".into(),
+            })
+            .unwrap(),
+            encode(Body::Welcome {
+                payload: vec![0x55; 256],
+            })
+            .unwrap(),
+            encode(Body::Devices(vec![])).unwrap(),
+            vec![1, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 1],
+        ];
+        let corpus: Vec<u8> = seeds
+            .iter()
+            .flat_map(|seed| {
+                (seed.len() as u64)
+                    .to_le_bytes()
+                    .into_iter()
+                    .chain(seed.iter().copied())
+            })
+            .collect();
+        println!(
+            "AQ-PARSER-01 seed=0x3520261112 mutations=4096 corpus_sha256={}",
+            data_encoding::HEXLOWER.encode(&crate::transparency::hash(&corpus).unwrap())
+        );
+        for seed in &seeds[..4] {
+            for end in 0..seed.len() {
+                assert!(
+                    decode(&seed[..end]).is_err(),
+                    "accepted truncated seed at {end}"
+                );
+            }
+            let mut trailing = seed.clone();
+            trailing.push(0);
+            assert!(decode(&trailing).is_err());
+        }
+        let mut state = 0x35_2026_1112_u64;
+        for iteration in 0..4096 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let mut bytes = seeds[iteration % seeds.len()].clone();
+            let position = state as usize % bytes.len();
+            match iteration % 4 {
+                0 => bytes[position] ^= (state >> 32) as u8 | 1,
+                1 => bytes.truncate(position),
+                2 => bytes.extend_from_slice(&state.to_le_bytes()),
+                _ => bytes.splice(position..=position, [0xff; 10]).for_each(drop),
+            }
+            if let Ok(body) = decode(&bytes) {
+                // Syntax acceptance cannot be confused with authentication; only
+                // assert stable semantic round-trip for accepted mutations.
+                let encoded = encode(body).unwrap();
+                assert_eq!(encode(decode(&encoded).unwrap()).unwrap(), encoded);
+            }
+        }
+        for size in [MAX_WIRE + 1, MAX_WIRE * 2] {
+            assert!(matches!(
+                decode(&vec![0xff; size]),
+                Err(ProtocolError::Size)
+            ));
+        }
+    }
+
+    #[test]
     fn ids_and_wire() {
         for id in ["", "Alice", "a.b", "*", ">", "a b", "é"] {
             assert!(validate_id(id).is_err());

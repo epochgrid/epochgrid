@@ -182,6 +182,21 @@ added. Subsequent retained native phases passed independently; these observation
 do not close TD-003 or constitute a cold hosted qualification run.
 
 ### Work and Completion Criteria
+
+Milestone 35's local native gate on 2026-11-12 additionally failed
+`auth_callout::tests::isolated_worker_cannot_gain_authority_grants` with
+`credential initialization already in progress` / lock would block. The core
+result was 115 passed, one failed, three ignored and one parser case partitioned
+for subsequent resource-limited execution. The failure occurred before those
+separate campaigns; their memory limit was not applied to the core unit process.
+This is distinct from Secret Service reporting locked/unavailable in milestone 34.
+Track the investigation as AQ-F04 in the
+[qualification register](adversarial-qualification.md). No concurrency reduction,
+retry or quarantine was added.
+One bounded gate under syscall tracing passed all 153 top-level tests without
+observing credential-lock EAGAIN. Tracing changes scheduling; this does not establish
+a cause or fix. See the [retained follow-up](archive/milestone-35-bounded-validation.md).
+
 1. **Measure the implemented build/execution separation**: Measure per-case and whole-job durations on cold runners, budget for observed variance, and split long phases where useful. Keep finite watchdogs and descendant cleanup; do not use blanket retries or additional skips to manufacture a green gate
 2. **Retain the implemented offline-state wait and send-during-disconnect regression**: Extend coverage to sending during disconnect detection deterministically, with an explicit contract for retained drafts, user retry, persistence and exactly-once delivery. Preserve membership/revocation synchronization safety; do not bypass pre-send checks merely to satisfy the smoke assertion
 3. **Audit fixed sleeps and timeouts**: Nested deadlines, readiness predicates and SQLCipher/Secret Service polling costs. Retain bounded, sanitized diagnostics identifying the case, operation, connection state and elapsed time at failure; distinguish assertion, operation timeout, phase watchdog and runner cancellation

@@ -1079,6 +1079,34 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     let survivor = if nodes > 1 { (killed + 1) % nodes } else { 0 };
     if nodes == 1 {
         brokers[0] = Some(broker(root, 0)?);
+    } else {
+        // A second stopped node removes quorum. These are fixture-owned brokers;
+        // preserve their stores and prove bounded failure before restoring quorum.
+        let second = (killed + 2) % nodes;
+        brokers[second].take();
+        // Prove the remaining broker is reachable/authenticated: otherwise a
+        // disconnected client's timeout could masquerade as quorum rejection.
+        let reachable = connect(root, &urls[survivor], &admin_key, admin_jwt.as_deref()).await?;
+        let minority = async_nats::jetstream::new(reachable);
+        let alice_store = IdentityStore::open(&root.join("alice"))?;
+        let retained =
+            alice_store.encrypt_message("engineering", b"retained across quorum loss")?;
+        let subject = alice_store.group("engineering")?.subject("message");
+        let result = tokio::time::timeout(Duration::from_secs(8), async {
+            minority
+                .publish(subject, retained.into())
+                .await?
+                .await
+                .map_err(anyhow::Error::from)
+        })
+        .await;
+        ensure!(
+            !matches!(result, Ok(Ok(_))),
+            "publish acknowledged without R3 quorum"
+        );
+        drop(alice_store);
+        contains(root, "alice", b"retained across quorum loss")?;
+        brokers[second] = Some(broker(root, second)?);
     }
     // Each stream and durable has an independent leader election. CHAT readiness
     // alone does not establish that directory/authorization operations can resume.
@@ -1121,6 +1149,18 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     contains(root, "bob", b"before broker loss")?;
     // Bob never fetched this acknowledged message before broker loss.
     contains(root, "bob", b"account isolation marker")?;
+    if nodes > 1 {
+        let bob_store = IdentityStore::open(&root.join("bob"))?;
+        let history = bob_store.history("engineering", 1000, None)?;
+        ensure!(
+            history
+                .iter()
+                .filter(|entry| entry.plaintext.as_deref() == Some(b"retained across quorum loss"))
+                .count()
+                == 1,
+            "quorum recovery lost or duplicated accepted local work"
+        );
+    }
     if nodes > 1 {
         brokers[killed] = Some(broker(root, killed)?);
     }

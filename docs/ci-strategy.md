@@ -57,6 +57,18 @@ smoke suite. NATS ignored test names are discovered from the built harness;
 removing exactly four BYO names and the TD-002 name leaves the retained suite.
 Sorted round-robin partitioning includes every new retained case exactly once;
 missing named qualification/quarantine cases and duplicate names are errors.
+The unit phase also verifies every enabled case in
+[`adversarial-cases.json`](../scripts/ci/adversarial-cases.json) before execution.
+Missing binaries, removed tests or newly ignored required security cases fail the
+gate. `verify.sh adversarial AQ-PARSER-01` (or another inventory ID) selects a
+single existing regression for diagnosis with a 180-second watchdog; ordinary CI
+executes it through the unit gate. Wire and IPC mutation campaigns run once in
+dedicated processes under a hard 512 MiB address-space limit and disabled core
+dumps, without a keyring; all other units retain their existing execution policy.
+`verify.sh nats-security AQ-DELIVERY-01` and `AQ-DELIVERY-02` select the existing
+ambiguous-publish and lost-ACK cases; both names are mandatory in retained NATS
+discovery. See the [qualification register](adversarial-qualification.md)
+for invariants and unqualified coverage; this inventory does not close TD-002.
 Cases run serially per runner with a fresh disposable keyring per invocation.
 At this baseline, groups have four cases each. Rebalance based on case timing if durations
 become uneven; increasing libtest concurrency is not the default remedy.

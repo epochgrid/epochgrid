@@ -1,4 +1,56 @@
 use super::*;
+
+#[test]
+fn concurrent_redemption_has_one_winner_and_preserves_exact_retry() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let home = root.path().join("registry");
+    let mut registry = AuthRegistry::open(&home)?;
+    let token = registry.invite("alice", 60)?;
+    let user = token_user(&token)?;
+    let mut registrations = Vec::new();
+    for name in ["laptop", "phone"] {
+        let mut device = identity::IdentityStore::open(&root.path().join(name))?;
+        registrations.push(device.init(user.as_str(), name)?);
+    }
+    // Open before the barrier: race redemption, not credential provisioning.
+    let connections = [AuthRegistry::open(&home)?, AuthRegistry::open(&home)?];
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let threads: Vec<_> = connections
+        .into_iter()
+        .zip(registrations.clone())
+        .map(|(mut registry, registration)| {
+            let barrier = barrier.clone();
+            let token = token.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                registry.enroll(&token, &registration).is_ok()
+            })
+        })
+        .collect();
+    let outcomes: Vec<_> = threads
+        .into_iter()
+        .map(|thread| thread.join().expect("redemption panicked"))
+        .collect();
+    assert_eq!(outcomes.iter().filter(|&&won| won).count(), 1);
+    let winner = &registrations[outcomes.iter().position(|&won| won).unwrap()];
+    let loser = &registrations[outcomes.iter().position(|&won| !won).unwrap()];
+    drop(registry);
+    let mut registry = AuthRegistry::open(&home)?;
+    assert_eq!(registry.diagnostic_usage()?.devices.used, 1);
+    registry.enroll(&token, winner)?;
+    assert!(registry.enroll(&token, loser).is_err());
+    assert!(
+        registry
+            .enrollment_admission(&token, &loser.payload.nats_public_key)
+            .is_err()
+    );
+    // Redemption alone must not bypass reconciliation/activation.
+    assert!(registry.authorize(&winner.payload.nats_public_key).is_err());
+    registry.activate(&winner.payload.nats_public_key)?;
+    registry.authorize(&winner.payload.nats_public_key)?;
+    assert!(registry.authorize(&loser.payload.nats_public_key).is_err());
+    Ok(())
+}
 #[test]
 fn canonical_users_tokens_device_binding_and_restart() -> Result<()> {
     let root = tempfile::tempdir()?;
