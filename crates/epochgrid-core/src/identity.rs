@@ -11,7 +11,7 @@ use rusqlite::Connection;
 use serde::{Serialize, de::DeserializeOwned};
 use std::cell::{Cell, RefCell};
 use std::{
-    fs::{File, OpenOptions},
+    fs::OpenOptions,
     path::Path,
     rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
@@ -53,7 +53,7 @@ pub struct IdentityStore {
     pub(crate) connection: Rc<Connection>,
     pub(crate) capacity: crate::capacity::Capacity,
     pub(crate) recovery_budget: Cell<bool>,
-    _lock: File,
+    _lock: crate::file_lock::ExclusiveLock,
     pub(crate) vault: Vault,
     key: RefCell<Option<nkeys::KeyPair>>,
     pub provider: Provider,
@@ -75,7 +75,7 @@ impl IdentityStore {
             options.mode(0o600);
         }
         let lock = options.open(dir.join("device.lock"))?;
-        lock.try_lock()
+        let lock = crate::file_lock::ExclusiveLock::try_acquire(lock)
             .context("device is already in use by another process")?;
         let connection = crate::database::open(dir, "identity")?;
         connection.execute_batch("CREATE TABLE IF NOT EXISTS local_identity (id INTEGER PRIMARY KEY CHECK(id=1), secret_ref TEXT NOT NULL, registration BLOB NOT NULL);")?;

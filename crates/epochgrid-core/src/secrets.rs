@@ -293,7 +293,7 @@ impl Vault {
             std::fs::set_permissions(&self.root, std::fs::Permissions::from_mode(0o700))?;
         }
         let lock = private_file(&self.root.join("credentials.lock"), false)?;
-        lock.try_lock()
+        let _lock = crate::file_lock::ExclusiveLock::try_acquire(lock)
             .context("credential initialization already in progress")?;
         let path = self.root.join("credentials.json");
         let mut metadata = match std::fs::read(&path) {

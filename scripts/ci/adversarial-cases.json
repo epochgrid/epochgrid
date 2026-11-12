@@ -24,5 +24,7 @@
   "AQ-IMPORT-01": ["epochgrid_core", "recovery::tests::rejects_tamper_truncation_versions_trailing_bytes_and_invalid_secrets"],
   "AQ-IMPORT-02": ["epochgrid_core", "recovery::tests::restore_and_migration_are_atomic_and_preserve_existing_state"],
   "AQ-CONFIG-01": ["epochgrid_core", "deployment::tests::manifest_is_versioned_strict_and_roundtrips"],
-  "AQ-REPORT-01": ["epochgrid_core", "diagnostics::tests::bounded_versions_unknown_exit_and_saturation"]
+  "AQ-REPORT-01": ["epochgrid_core", "diagnostics::tests::bounded_versions_unknown_exit_and_saturation"],
+  "AQ-LOCK-01": ["epochgrid_core", "secrets::tests::process_locks::unrelated_child_cannot_extend_credential_lock_after_success_or_error"],
+  "AQ-LOCK-02": ["epochgrid_core", "file_lock::tests::child_drop_cannot_unlock_live_parent_and_failed_acquisition_cannot_unlock_owner"]
 }

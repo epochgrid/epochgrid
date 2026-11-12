@@ -12,9 +12,10 @@ Historical failures remain evidence; they are not erased by later passing reruns
 |----|--------|----------|--------|
 | TD-001 | Deferred | UI Reliability | Live typing indicators unreliable; disabled by default |
 | TD-002 | Quarantined | CI/Authorization | Dynamic auth callout under short lease; excluded from default CI gates |
-| TD-003 | Post-MVP | CI Reliability | Test execution budget variance; timing-sensitive failures |
+| TD-003 | In progress | CI Reliability | Lock-lifetime defect repaired; daemon crash and cold-run evidence remain open |
 
 **Status reviewed**: 2026-11-06 against main through milestone 32.
+TD-003 updated 2026-11-12 for the bounded milestone 35 repair below.
 See the [roadmap](milestones.md) for delivery scope. Evidence dates below identify
 the revisions investigated; historical timings are not current test budgets.
 
@@ -130,7 +131,11 @@ The later pending-join fix from remote commit `bce2482` has been merged with thi
 ## TD-003 — Test and CI reliability (post-MVP delivery focus)
 
 ### Description
-Schedule a dedicated reliability pass after MVP delivery. Cover execution budgets, fixture synchronization, disconnect/send behavior and failure diagnostics. This item adds no exclusions and does not change existing release gates or the separate TD-001/TD-002 restoration requirements.
+The broader reliability pass covers execution budgets, fixture synchronization,
+disconnect/send behavior and failure diagnostics. The milestone 35 lock failure
+is being addressed now as a bounded prerequisite to credible qualification.
+This item adds no exclusions and does not change existing release gates or the
+separate TD-001/TD-002 restoration requirements.
 
 ### Evidence Inspected (2026-10-20)
 
@@ -181,6 +186,40 @@ unexplained and is not erased by that pass. No skip, retry or timeout change was
 added. Subsequent retained native phases passed independently; these observations
 do not close TD-003 or constitute a cold hosted qualification run.
 
+### Milestone 35 lock-lifetime repair — 2026-11-12
+
+Checkpoint `274005e` preserves the milestone 35 work before this investigation.
+Branch `fix/td-003-credential-lock` addresses the initialization-lock failure
+below. A deterministic fork/exec barrier reproduced a completed credential
+operation retaining its lock through an unrelated child. Linux `flock` belongs to
+the open file description: CLOEXEC does not close the child's descriptor until
+exec, and closing the parent's descriptor alone need not release the lock.
+This establishes a concrete defect with the observed error, though the original
+untraced failure did not record the child responsible.
+
+A shared guard explicitly unlocks on normal return and error in the acquiring
+process. All eight production lock acquisitions use it. Nonblocking contention
+still fails, and a copied guard in a forked child cannot unlock its live parent's
+lock. AQ-LOCK-01 covers success, lost-response recovery and exact retry while the
+child remains paused; AQ-LOCK-02 covers child drop and failed acquisition. The
+first regression failed before the fix and passed afterward. Process termination
+without destructors still relies on OS descriptor cleanup; this is not a general
+promise of immediate release after arbitrary parent/child crashes.
+
+The first fixed five-run local unit sample on Ubuntu 26.04 stopped on attempt
+four: three gates passed, then GNOME Keyring 50.0-1 aborted (SIGABRT) and the core
+gate failed with 40 passed / 78 failed. The lock regressions passed in that run.
+The matching daemon crash reports missing Secret Service client/session state
+and fatal NULL GVariant construction. D-Bus subsequently reactivated the daemon;
+locked/unavailable errors followed. This diagnoses that attempt, not every
+historical keyring failure. No daemon crash dump, environment or secret material
+is committed. No retry, concurrency reduction or plaintext fallback was added.
+
+See the [repair evidence](archive/td-003-lock-validation.md) for the separate
+supported Ubuntu 24.04 sample and remaining limitations. Local container evidence
+does not satisfy the cold hosted-run criterion below. TD-003 remains open for the
+daemon compatibility finding, retained failover investigation and broader criteria.
+
 ### Work and Completion Criteria
 
 Milestone 35's local native gate on 2026-11-12 additionally failed
@@ -229,7 +268,7 @@ The offline encrypted queue failure (TD-003 case #3 in PR #15) is **distinct fro
 ### Current coverage boundaries
 - Default CI gate excludes TD-002 case (`dynamic-tui` and `nats-dynamic`)
 - TUI smoke prints skip notices for TD-001 typing checks by default
-- TD-003 adds no exclusions; it is a post-MVP reliability improvement item
+- TD-003 adds no exclusions; the milestone 35 lock repair is active while broader reliability work remains open
 - A passing green CI result does not certify complete feature coverage for any TD item
 
 ---

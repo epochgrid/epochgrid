@@ -16,7 +16,7 @@ pub struct BrokerControl {
     root: PathBuf,
     client: async_nats::Client,
     applied: BTreeSet<String>,
-    _lock: File,
+    _lock: crate::file_lock::ExclusiveLock,
 }
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let temporary = path.with_extension("pending");
@@ -40,7 +40,7 @@ impl BrokerControl {
             .create(true)
             .truncate(false)
             .open(root.join("revocation.lock"))?;
-        lock.try_lock()
+        let lock = crate::file_lock::ExclusiveLock::try_acquire(lock)
             .context("another service owns this broker's revocation actuator")?;
         let identity = IdentityStore::open(&root.join("system"))?;
         let client = transport::connect(url, &identity)

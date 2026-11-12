@@ -67,7 +67,7 @@ fn owned(path: &Path, owner: u32, private: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn runtime_lock(home: &Path) -> Result<File> {
+pub fn runtime_lock(home: &Path) -> Result<epochgrid_core::file_lock::ExclusiveLock> {
     owned(home, uid(), true)?;
     let path = home.join("runtime.lock");
     let file = OpenOptions::new()
@@ -83,7 +83,7 @@ pub fn runtime_lock(home: &Path) -> Result<File> {
         file.metadata()?.is_file(),
         "runtime lock must be a regular file"
     );
-    file.try_lock()
+    let file = epochgrid_core::file_lock::ExclusiveLock::try_acquire(file)
         .context("backend runtime is active; stop it before changing role bindings")?;
     Ok(file)
 }
@@ -338,7 +338,7 @@ pub struct Server {
     pub live: Arc<AtomicBool>,
     task: tokio::task::JoinHandle<()>,
     status_task: tokio::task::JoinHandle<()>,
-    _lock: File,
+    _lock: epochgrid_core::file_lock::ExclusiveLock,
     socket: PathBuf,
 }
 impl Drop for Server {
@@ -371,7 +371,8 @@ impl Server {
             .mode(0o600)
             .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
             .open(parent.join("authority.lock"))?;
-        lock.try_lock().context("authority already running")?;
+        let lock = epochgrid_core::file_lock::ExclusiveLock::try_acquire(lock)
+            .context("authority already running")?;
         if bindings.socket.exists() {
             let meta = std::fs::symlink_metadata(&bindings.socket)?;
             ensure!(

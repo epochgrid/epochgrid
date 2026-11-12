@@ -107,7 +107,7 @@ fn private_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn lock(home: &Path) -> Result<fs::File> {
+fn lock(home: &Path) -> Result<epochgrid_core::file_lock::ExclusiveLock> {
     let path = home.join("auth-init.lock");
     if let Ok(metadata) = fs::symlink_metadata(&path) {
         ensure!(
@@ -123,7 +123,7 @@ fn lock(home: &Path) -> Result<fs::File> {
         options.mode(0o600);
     }
     let file = options.open(path)?;
-    file.try_lock()
+    let file = epochgrid_core::file_lock::ExclusiveLock::try_acquire(file)
         .context("authentication initialization/export already in progress")?;
     Ok(file)
 }

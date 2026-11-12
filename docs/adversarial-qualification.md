@@ -15,8 +15,9 @@ transport, vulnerability review and publication gates do not prevent local work
 or qualification of unpublished candidates. No publication is part of this work.
 
 Keep the proposed five independent first-attempt cold hosted runs, subject to
-review before execution. The local runs below are diagnostics on Ubuntu 26.04,
-not acceptance on the supported Ubuntu 24.04 platform. Do not count them in that
+review before execution. The initial local runs below are diagnostics on Ubuntu
+26.04. The separate [lock-repair record](archive/td-003-lock-validation.md) includes
+warm Ubuntu 24.04 container verification. Neither counts as the cold hosted
 sample. TD-002 remains quarantined even when an individual local run passes.
 
 ## Alpha acceptance boundary
@@ -24,7 +25,7 @@ sample. TD-002 remains quarantined even when an individual local run passes.
 The [plan's bounded acceptance rules](milestone-35-plan.md#bounded-alpha-acceptance)
 own the stopping criterion. Qualify named invariants with representative hostile
 inputs and recovery schedules. Do not promise all-scenario resistance or make every
-possible test expansion an alpha gate. The 26 cases below remain required but are
+possible test expansion an alpha gate. The 28 cases below remain required but are
 not the final acceptance manifest; inventory the required gaps before freezing it.
 
 | Work class | Alpha obligation | Stopping rule |
@@ -80,6 +81,8 @@ an assertion failure, timeout or fixture failure is not an expected rejection.
 | AQ-DIAGNOSTICS-01 | Status requester; slow/unauthorized reader and status traffic | Private bounded reports; status never renews worker lease |
 | AQ-CONFIDENTIALITY-01 | Stopped-file observer; synthetic markers in encrypted pages/WAL/journal | No plaintext markers; independent keys and restart behavior preserved |
 | AQ-RECOVERY-01 | Process crash at existing test-only barriers | Invitation, ratchets, transcript and device lock recover without stale-state rollback |
+| AQ-LOCK-01 | Unrelated child paused between fork and exec during credential provisioning; success and lost-response paths | Completed operation releases its lock before child exec; real contention rejects; exact retry keeps one protected key |
+| AQ-LOCK-02 | Forked child drops a copied lock guard; another acquisition fails while parent owns lock | Child and failed acquisition cannot unlock a live parent; parent drop permits reacquisition |
 | AQ-PARSER-01 | Unauthenticated wire bytes; truncation, trailing bytes, overlong lengths, size limits and seeded mutations | No panic; malformed boundaries rejected; accepted syntax round-trips; no storage involved |
 | AQ-PARSER-02 | Compromised worker; 4,096 seeded JSON/payload-length mutations through the real Unix socket reader, prefix EOF and maximum valid frame | Framing/version checks hold; decoded semantics match bounded input; errors/panics/resource exhaustion fail the campaign; session authorization remains covered by AQ-IPC cases |
 | AQ-APPLICATION-01 | Message sender; malformed relationship envelope, version, trailing bytes, oversized content and invalid IDs | Reject invalid application encoding and content before sending |
@@ -179,7 +182,7 @@ and the remaining non-parser gaps are still outstanding.
 | --- | --- | --- | --- |
 | AQ-F01 / TD-002 | Unresolved reliability/authorization coverage; intended dynamic scope blocked | Exact dynamic commands above; historical failures in [TD-002](technical-debt.md#td-002--dynamic-authorization-live-checks-deferred-during-mvp-work); two local passes do not reproduce cause | Instrument/reproduce exact failing operation, fix, then satisfy cold-run restoration criteria. Open; no scope exclusion or risk acceptance |
 | AQ-F02 / TD-003 | Unresolved fixture/reliability; qualification evidence | Milestone 34 keyring failure and milestone 33 failover-readiness timeout retained in [TD-003](technical-debt.md#td-003--test-and-ci-reliability-post-mvp-delivery-focus) | Diagnose retained failures and run agreed cold sample. Open; no added skips |
-| AQ-F04 / TD-003 | Unresolved initialization-lock contention; local native qualification | New unit run failed `auth_callout::tests::isolated_worker_cannot_gain_authority_grants` with `credential initialization already in progress`; 115 core cases passed, one failed, three ignored, wire campaign partitioned separately | Investigate lock lifetime/process concurrency; no retries, skips or serialized unit workaround added. Open; not evidence of authorization bypass |
+| AQ-F04 / TD-003 | Initialization-lock lifetime defect; local native qualification | Original unit run: 115 core passed, one failed with `credential initialization already in progress`. Deterministic fork/exec barrier reproduces that error before the fix | Explicit owner-process unlock across all production locks; AQ-LOCK-01/02 required. See [repair evidence](archive/td-003-lock-validation.md). Broader TD-003 and hosted validation remain open; no retries, skips or serialized unit workaround |
 | AQ-F03 | Required coverage gaps; all intended configurations | Required gap tables above; the optional follow-up column is not a gate | Close named required gaps, freeze acceptance manifest and retain shipped-byte evidence. Open; broader exploration stays in the backlog unless a concrete finding changes its priority |
 
 No demonstrated new privilege escalation, confidentiality loss or durable-state

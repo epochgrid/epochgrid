@@ -144,7 +144,7 @@ impl Capacity {
             .read(true)
             .write(true)
             .open(home.join("device.lock"))?;
-        lock.try_lock()?;
+        let _lock = crate::file_lock::ExclusiveLock::try_acquire(lock)?;
         let db = crate::database::inspection::inspect(home, "identity")?;
         capacity.check_client(&db, false)?;
         for path in [home.join(FILE), home.join("capacity.pending")] {
