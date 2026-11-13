@@ -13,6 +13,12 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / 'target/ci/manifest.json'
 DYNAMIC = 'auth_callout::dynamic_enrollment_inbox_isolation_revocation_without_reload'
+PARSER_CASES = ('AQ-PARSER-01', 'AQ-PARSER-02')
+PARSER_MEMORY_MIB = 512
+SECURITY_NATS = {
+    'AQ-DELIVERY-01': 'resume_pending_invitation_and_ambiguous_publish',
+    'AQ-DELIVERY-02': 'durable_history_offline_ack_recovery_and_server_restart',
+}
 BYO = ['byo_nats::' + name for name in (
     'configuration_standalone', 'configuration_cluster',
     'operator_jwt_standalone', 'operator_jwt_cluster')]
@@ -98,11 +104,31 @@ def listed(path, ignored=False):
 
 
 def partition(names):
-    if len(names) != len(set(names)) or not set(BYO + [DYNAMIC]).issubset(names):
+    if len(names) != len(set(names)) or not set(BYO + [DYNAMIC] + list(SECURITY_NATS.values())).issubset(names):
         raise ValueError('Duplicate or missing qualification/quarantine cases')
     retained = sorted(set(names) - set(BYO + [DYNAMIC]))
     # Discover, then distribute every retained test exactly once, including new tests.
     return [retained[index::4] for index in range(4)]
+
+
+def required_security_cases(data):
+    """Reject absent/ignored regressions before the ordinary unit run executes them."""
+    cases = json.loads((ROOT / 'scripts/ci/adversarial-cases.json').read_text())
+    if not cases or len({tuple(value) for value in cases.values()}) != len(cases):
+        raise ValueError('Empty or duplicate adversarial case inventory')
+    if not set(PARSER_CASES).issubset(cases):
+        raise ValueError('Missing required parser campaign')
+    inventory = {}
+    for name in {value[0] for value in cases.values()}:
+        matches = [test for test in data['tests'] if test['name'] == name]
+        if len(matches) != 1:
+            raise ValueError(f'Missing/ambiguous security test executable: {name}')
+        path = matches[0]['path']
+        inventory[name] = set(listed(path)) - set(listed(path, True))
+    for case_id, (name, case) in cases.items():
+        if case not in inventory[name]:
+            raise ValueError(f'Missing or ignored required security case: {case_id}: {case}')
+    return cases
 
 
 def bounded(seconds, command, keyring=False, **environment):
@@ -116,6 +142,18 @@ def bounded(seconds, command, keyring=False, **environment):
     subprocess.run(args + command, env=env, check=True)
 
 
+def security_case(data, cases, case):
+    if case not in cases:
+        raise ValueError('Select an ID from scripts/ci/adversarial-cases.json')
+    name, test = cases[case]
+    path = next(item['path'] for item in data['tests'] if item['name'] == name)
+    command = [str(ROOT / path), test, '--exact', '--nocapture', '--test-threads=1']
+    parser = case in PARSER_CASES
+    if parser:
+        command = ['python3', 'scripts/dev/limit-memory.py', str(PARSER_MEMORY_MIB), *command]
+    bounded(180, command, keyring=not parser, EPOCHGRID_CHECK_LABEL=case)
+
+
 def run(phase, case=None):
     data = json.loads(MANIFEST.read_text())
     validate(data)
@@ -124,11 +162,23 @@ def run(phase, case=None):
     if phase == 'check':
         partition(listed(registration, True))
     elif phase == 'unit':
+        cases = required_security_cases(data)
         for test in data['tests']:
-            args = [str(ROOT / test['path'])]
+            args = [str(ROOT / test['path']), '--exact']
+            # Execute campaigns once, separately below, with their own resource
+            # budgets. This is a partition, not an ignored/quarantined case.
+            for parser in PARSER_CASES:
+                name, selected = cases[parser]
+                if name == test['name']:
+                    args += ['--skip', selected]
             if os.environ.get('EPOCHGRID_TEST_THREADS'):
                 args += ['--test-threads=' + os.environ['EPOCHGRID_TEST_THREADS']]
             bounded(180, args, keyring=True, EPOCHGRID_CHECK_LABEL='unit-' + test['name'])
+        for parser in PARSER_CASES:
+            security_case(data, cases, parser)
+    elif phase == 'adversarial':
+        cases = required_security_cases(data)
+        security_case(data, cases, case)
     elif phase == 'secrets':
         for name in ('secrets::tests::live_keyring_restart_binding_duplicate_and_lock',
                      'validation::tests::live_validation_duplicate_swapped_and_locked_credentials',
@@ -146,6 +196,10 @@ def run(phase, case=None):
                 raise ValueError('Unknown BYO case')
         elif phase == 'nats-dynamic':
             selected = [DYNAMIC]
+        elif phase == 'nats-security':
+            if case not in SECURITY_NATS:
+                raise ValueError('Select an ID from SECURITY_NATS in scripts/ci/runtime.py')
+            selected = [SECURITY_NATS[case]]
         elif phase == 'nats':
             print('SKIP TD-002: dynamic Auth Callout; use nats-dynamic explicitly', flush=True)
             if case is not None and case not in ('0', '1', '2', '3'):

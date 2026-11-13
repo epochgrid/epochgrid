@@ -339,3 +339,122 @@ fn existing_lookup_never_provisions_or_rewrites_metadata() -> Result<()> {
     );
     Ok(())
 }
+
+#[cfg(target_os = "linux")]
+mod process_locks {
+    use super::*;
+    use std::{
+        io::{Read, Write},
+        os::unix::{net::UnixStream, process::CommandExt},
+        process::{Child, Command},
+        thread::JoinHandle,
+        time::Duration,
+    };
+
+    /// Hold an unrelated child between fork and exec while the parent continues.
+    /// Its inherited CLOEXEC descriptors stay open until the barrier is released.
+    struct PausedExec {
+        release: UnixStream,
+        launch: Option<JoinHandle<std::io::Result<Child>>>,
+    }
+    impl PausedExec {
+        fn start() -> Result<Self> {
+            let (parent, child) = UnixStream::pair()?;
+            parent.set_read_timeout(Some(Duration::from_secs(10)))?;
+            child.set_read_timeout(Some(Duration::from_secs(10)))?;
+            let launch = std::thread::spawn(move || {
+                let mut command = Command::new("/bin/true");
+                // SAFETY: the child only performs read/write syscalls on the
+                // pre-created socket and constructs allocation-free OS errors.
+                unsafe {
+                    command.pre_exec(move || {
+                        rustix::io::write(&child, b"R")?;
+                        let mut byte = [0];
+                        if rustix::io::read(&child, &mut byte)? != 1 {
+                            return Err(std::io::ErrorKind::UnexpectedEof.into());
+                        }
+                        Ok(())
+                    });
+                }
+                command.spawn()
+            });
+            let mut paused = Self {
+                release: parent,
+                launch: Some(launch),
+            };
+            let mut ready = [0];
+            paused.release.read_exact(&mut ready)?;
+            ensure!(ready == *b"R", "child barrier not reached");
+            Ok(paused)
+        }
+    }
+    impl Drop for PausedExec {
+        fn drop(&mut self) {
+            let _ = self.release.write_all(b"G");
+            if let Some(launch) = self.launch.take()
+                && let Ok(Ok(mut child)) = launch.join()
+            {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
+    struct ForkingBackend {
+        memory: Memory,
+        pause_next: AtomicBool,
+        paused: Mutex<Option<PausedExec>>,
+        root: PathBuf,
+    }
+    impl Backend for ForkingBackend {
+        fn read(&self, id: &str) -> Result<Option<Zeroizing<String>>> {
+            if self.pause_next.swap(false, Ordering::SeqCst) {
+                *self.paused.lock().unwrap() = Some(PausedExec::start()?);
+                // Actual contention must still reject while provisioning owns it.
+                assert!(
+                    private_file(&self.root.join("credentials.lock"), false)?
+                        .try_lock()
+                        .is_err()
+                );
+            }
+            self.memory.read(id)
+        }
+        fn create(&self, id: &str, secret: &str) -> Result<()> {
+            self.memory.create(id, secret)
+        }
+    }
+
+    #[test]
+    fn unrelated_child_cannot_extend_credential_lock_after_success_or_error() -> Result<()> {
+        for lose_response in [false, true] {
+            let root = tempfile::tempdir()?;
+            let backend = Arc::new(ForkingBackend {
+                memory: Memory::default(),
+                pause_next: AtomicBool::new(true),
+                paused: Mutex::new(None),
+                root: root.path().into(),
+            });
+            backend
+                .memory
+                .fail_after_create
+                .store(lose_response, Ordering::SeqCst);
+            let vault = Vault {
+                root: root.path().into(),
+                backend: backend.clone(),
+            };
+            let first = vault.provision("device", Kind::User);
+            assert_eq!(first.is_err(), lose_response);
+            // Keep the child paused: its inherited descriptor must not prolong
+            // the completed operation's lock, including the failure path.
+            let second = vault.provision("device", Kind::User);
+            drop(backend.paused.lock().unwrap().take());
+            let second = second.context("unrelated child retained completed credential lock")?;
+            assert_eq!(backend.memory.items.lock().unwrap().len(), 1);
+            second.read_with(backend.as_ref())?;
+            if let Ok(first) = first {
+                assert_eq!(first, second);
+            }
+        }
+        Ok(())
+    }
+}

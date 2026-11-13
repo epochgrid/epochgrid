@@ -16,6 +16,77 @@ const STREAMS: [&str; 5] = [
     "KV_TRANSPARENCY",
 ];
 
+fn recovered_quorum(
+    cluster: Option<&async_nats::jetstream::stream::ClusterInfo>,
+    nodes: usize,
+) -> bool {
+    if nodes == 1 {
+        return true;
+    }
+    cluster.is_some_and(|cluster| {
+        cluster.leader.as_ref().is_some_and(|name| !name.is_empty())
+            && 1 + cluster
+                .replicas
+                .iter()
+                .filter(|peer| peer.current && !peer.offline)
+                .count()
+                > nodes / 2
+    })
+}
+
+async fn recovery_ready(
+    js: &async_nats::jetstream::Context,
+    keys: &[String],
+    nodes: usize,
+) -> Result<()> {
+    for name in STREAMS {
+        let stream = js.get_stream(name).await.context(name)?;
+        ensure!(
+            recovered_quorum(stream.cached_info().cluster.as_ref(), nodes),
+            "{name}: stream quorum not recovered"
+        );
+        if name == "CHAT" || name == "MAILBOX" {
+            for (index, key) in keys.iter().enumerate() {
+                let info = stream
+                    .consumer_info(&format!("device_{key}"))
+                    .await
+                    .with_context(|| format!("{name}: enrolled consumer {index} unavailable"))?;
+                ensure!(
+                    recovered_quorum(info.cluster.as_ref(), nodes),
+                    "{name}: enrolled consumer {index} quorum not recovered"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn recovery_requires_a_live_majority_not_every_replica() {
+    use async_nats::jetstream::stream::{ClusterInfo, PeerInfo};
+    assert!(recovered_quorum(None, 1));
+    assert!(!recovered_quorum(None, 3));
+    let mut cluster = ClusterInfo::default();
+    assert!(!recovered_quorum(Some(&cluster), 3));
+    cluster.leader = Some("node0".into());
+    assert!(!recovered_quorum(Some(&cluster), 3));
+    cluster.replicas.push(PeerInfo {
+        name: "node1".into(),
+        current: false,
+        active: Duration::ZERO,
+        offline: false,
+        lag: Some(1),
+    });
+    assert!(!recovered_quorum(Some(&cluster), 3));
+    cluster.replicas[0].current = true;
+    assert!(recovered_quorum(Some(&cluster), 3));
+    cluster.replicas[0].offline = true;
+    assert!(!recovered_quorum(Some(&cluster), 3));
+    cluster.replicas[0].offline = false;
+    cluster.leader = Some(String::new());
+    assert!(!recovered_quorum(Some(&cluster), 3));
+}
+
 fn account(key: &KeyPair) -> nats_jwt_rs::Claims<Account> {
     let mut claim = Account::new_claims("fixture".into(), key.public_key());
     claim.nats.generic_fields.version = 2;
@@ -1061,6 +1132,12 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
             "unexpected authorization result: {error}"
         );
     }
+    // Registration reconciles every enrolled device, including the diagnostic
+    // device added by the quota-recovery case, not only Alice and Bob.
+    let recovery_keys: Vec<_> = AuthRegistry::open(&root.join("backend"))?
+        .enrollment()?
+        .into_values()
+        .collect();
     // Kill the CHAT leader in R3, and the only node in R1. Keep data directories.
     let leader = js
         .get_stream("CHAT")
@@ -1079,34 +1156,49 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     let survivor = if nodes > 1 { (killed + 1) % nodes } else { 0 };
     if nodes == 1 {
         brokers[0] = Some(broker(root, 0)?);
+    } else {
+        // A second stopped node removes quorum. These are fixture-owned brokers;
+        // preserve their stores and prove bounded failure before restoring quorum.
+        let second = (killed + 2) % nodes;
+        brokers[second].take();
+        // Prove the remaining broker is reachable/authenticated: otherwise a
+        // disconnected client's timeout could masquerade as quorum rejection.
+        let reachable = connect(root, &urls[survivor], &admin_key, admin_jwt.as_deref()).await?;
+        let minority = async_nats::jetstream::new(reachable);
+        let alice_store = IdentityStore::open(&root.join("alice"))?;
+        let retained =
+            alice_store.encrypt_message("engineering", b"retained across quorum loss")?;
+        let subject = alice_store.group("engineering")?.subject("message");
+        let result = tokio::time::timeout(Duration::from_secs(8), async {
+            minority
+                .publish(subject, retained.into())
+                .await?
+                .await
+                .map_err(anyhow::Error::from)
+        })
+        .await;
+        ensure!(
+            !matches!(result, Ok(Ok(_))),
+            "publish acknowledged without R3 quorum"
+        );
+        drop(alice_store);
+        contains(root, "alice", b"retained across quorum loss")?;
+        brokers[second] = Some(broker(root, second)?);
     }
-    // Each stream and durable has an independent leader election. CHAT readiness
-    // alone does not establish that directory/authorization operations can resume.
+    // Each stream and durable has an independent leader election. INFO may be
+    // available before a live majority recovers; check all enrolled consumers.
+    let mut recovery_failure = String::from("no completed recovery probe");
     tokio::time::timeout(Duration::from_secs(40), async {
         loop {
-            let mut ready = true;
-            for name in STREAMS {
-                match js.get_stream(name).await {
-                    Ok(mut stream) => {
-                        ready &= stream.info().await.is_ok();
-                        if name == "CHAT" || name == "MAILBOX" {
-                            for key in [&alice.nats_public_key, &bob.nats_public_key] {
-                                ready &=
-                                    stream.consumer_info(&format!("device_{key}")).await.is_ok();
-                            }
-                        }
-                    }
-                    Err(_) => ready = false,
-                }
-            }
-            if ready {
-                break;
+            match recovery_ready(&js, &recovery_keys, nodes).await {
+                Ok(()) => break,
+                Err(error) => recovery_failure = format!("{error:#}"),
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     })
     .await
-    .context("stream/consumer failover readiness")?;
+    .with_context(|| format!("stream/consumer failover readiness: {recovery_failure}"))?;
     command(
         root,
         &urls[survivor],
@@ -1121,6 +1213,18 @@ async fn workflow(root: &Path, operator_mode: bool, nodes: usize) -> Result<()> 
     contains(root, "bob", b"before broker loss")?;
     // Bob never fetched this acknowledged message before broker loss.
     contains(root, "bob", b"account isolation marker")?;
+    if nodes > 1 {
+        let bob_store = IdentityStore::open(&root.join("bob"))?;
+        let history = bob_store.history("engineering", 1000, None)?;
+        ensure!(
+            history
+                .iter()
+                .filter(|entry| entry.plaintext.as_deref() == Some(b"retained across quorum loss"))
+                .count()
+                == 1,
+            "quorum recovery lost or duplicated accepted local work"
+        );
+    }
     if nodes > 1 {
         brokers[killed] = Some(broker(root, killed)?);
     }

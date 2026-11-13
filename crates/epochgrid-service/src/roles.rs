@@ -67,7 +67,7 @@ fn owned(path: &Path, owner: u32, private: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn runtime_lock(home: &Path) -> Result<File> {
+pub fn runtime_lock(home: &Path) -> Result<epochgrid_core::file_lock::ExclusiveLock> {
     owned(home, uid(), true)?;
     let path = home.join("runtime.lock");
     let file = OpenOptions::new()
@@ -83,7 +83,7 @@ pub fn runtime_lock(home: &Path) -> Result<File> {
         file.metadata()?.is_file(),
         "runtime lock must be a regular file"
     );
-    file.try_lock()
+    let file = epochgrid_core::file_lock::ExclusiveLock::try_acquire(file)
         .context("backend runtime is active; stop it before changing role bindings")?;
     Ok(file)
 }
@@ -338,7 +338,7 @@ pub struct Server {
     pub live: Arc<AtomicBool>,
     task: tokio::task::JoinHandle<()>,
     status_task: tokio::task::JoinHandle<()>,
-    _lock: File,
+    _lock: epochgrid_core::file_lock::ExclusiveLock,
     socket: PathBuf,
 }
 impl Drop for Server {
@@ -371,7 +371,8 @@ impl Server {
             .mode(0o600)
             .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
             .open(parent.join("authority.lock"))?;
-        lock.try_lock().context("authority already running")?;
+        let lock = epochgrid_core::file_lock::ExclusiveLock::try_acquire(lock)
+            .context("authority already running")?;
         if bindings.socket.exists() {
             let meta = std::fs::symlink_metadata(&bindings.socket)?;
             ensure!(
@@ -1019,6 +1020,171 @@ mod tests {
         let (mut sender, mut receiver) = UnixStream::pair()?;
         sender.write_u32((LIMIT + 1) as u32).await?;
         assert!(read(&mut receiver).await.is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn bounded_seeded_ipc_mutations() -> Result<()> {
+        async fn check(bytes: &[u8], declared: u32) -> Result<()> {
+            let (mut sender, mut receiver) = UnixStream::pair()?;
+            let expected = if (1..=LIMIT).contains(&(declared as usize)) {
+                bytes.get(..declared as usize).and_then(|payload| {
+                    serde_json::from_slice::<Frame>(payload)
+                        .ok()
+                        .filter(|frame| frame.version == VERSION)
+                })
+            } else {
+                None
+            };
+            let (sent, decoded) = tokio::join!(
+                async {
+                    sender.write_u32(declared).await?;
+                    sender.write_all(bytes).await?;
+                    sender.shutdown().await
+                },
+                read(&mut receiver)
+            );
+            sent?;
+            assert_eq!(
+                decoded.is_ok(),
+                expected.is_some(),
+                "frame acceptance differs: declared={declared}"
+            );
+            if let Ok(frame) = decoded {
+                assert_eq!(
+                    serde_json::to_value(frame)?,
+                    serde_json::to_value(expected.unwrap())?
+                );
+            }
+            Ok(())
+        }
+        let seeds = [
+            br#"{"version":1,"sequence":0,"operation":{"operation":"ready"}}"#.as_slice(),
+            br#"{"version":1,"sequence":1,"operation":{"operation":"request","subject":"epochgrid.v1.identity.audit","payload":[1,10]}}"#,
+            br#"{"version":1,"sequence":1,"operation":{"operation":"response","payload":[]}}"#,
+            br#"{"version":1,"sequence":1,"operation":{"operation":"sign"}}"#,
+            b"{",
+        ];
+        let corpus: Vec<u8> = seeds
+            .iter()
+            .flat_map(|seed| {
+                (seed.len() as u64)
+                    .to_le_bytes()
+                    .into_iter()
+                    .chain(seed.iter().copied())
+            })
+            .collect();
+        let hash: String = epochgrid_core::transparency::hash(&corpus)?
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        println!("AQ-PARSER-02 seed=0x3520261113 mutations=4096 corpus_sha256={hash}");
+        // Boundary fixtures include a maximum-size valid JSON frame, empty and
+        // impossible announced lengths, EOF in the length prefix and payload.
+        let mut maximum = seeds[0].to_vec();
+        maximum.resize(LIMIT, b' ');
+        check(&maximum, LIMIT as u32).await?;
+        for declared in [0, 1, LIMIT as u32 + 1, u32::MAX] {
+            check(b"", declared).await?;
+        }
+        for length in 0..4 {
+            let (mut sender, mut receiver) = UnixStream::pair()?;
+            sender.write_all(&[0, 0, 0, 20][..length]).await?;
+            sender.shutdown().await?;
+            assert!(read(&mut receiver).await.is_err());
+        }
+        for end in 0..seeds[0].len() {
+            check(&seeds[0][..end], seeds[0].len() as u32).await?;
+        }
+        let mut state = 0x35_2026_1113_u64;
+        for iteration in 0..4096 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let mut bytes = seeds[iteration % seeds.len()].to_vec();
+            let position = state as usize % bytes.len();
+            let declared = match iteration % 4 {
+                0 => {
+                    bytes[position] ^= (state >> 32) as u8 | 1;
+                    bytes.len() as u32
+                }
+                1 => {
+                    let original = bytes.len();
+                    bytes.truncate(position);
+                    original as u32
+                }
+                2 => {
+                    bytes.extend_from_slice(&state.to_le_bytes());
+                    bytes.len() as u32
+                }
+                _ => state as u32,
+            };
+            check(&bytes, declared).await?;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn malformed_worker_frames_close_admission_without_forwarding() -> Result<()> {
+        for bytes in [
+            br#"{"version":1,"sequence":1,"operation":{"operation":"sign"}}"#.as_slice(),
+            br#"{"version":2,"sequence":1,"operation":{"operation":"heartbeat"}}"#,
+            br#"{"version":1,"sequence":1,"operation":{"operation":"response","payload":[]}}"#,
+            br#"{"version":1,"sequence":1,"operation":{"operation":"ready"}}"#,
+            br#"{"version":1,"sequence":1,"operation":{"operation":"heartbeat"},"extra":true}"#,
+            br#"{"version":1,"sequence":1,"operation":{"operation":"request","subject":"$JS.API.STREAM.DELETE.CHAT","payload":[]}}"#,
+            b"{",
+        ] {
+            let (mut worker, mut authority) = UnixStream::pair()?;
+            let (sender, mut receiver) = mpsc::channel(1);
+            let live = Arc::new(AtomicBool::new(false));
+            let observed = live.clone();
+            let task = tokio::spawn(async move {
+                let _guard = Session(live.clone());
+                session(&mut authority, &sender, &live, &Mutex::new(Instant::now()), Arc::new(AtomicBool::new(true))).await
+            });
+            write(&mut worker, 0, Operation::Ready).await?;
+            read(&mut worker).await?;
+            assert!(observed.load(Ordering::Acquire));
+            worker.write_u32(bytes.len() as u32).await?;
+            worker.write_all(bytes).await?;
+            assert!(tokio::time::timeout(DEADLINE, task).await??.is_err());
+            assert!(!observed.load(Ordering::Acquire));
+            assert!(receiver.recv().await.is_none());
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn partial_worker_frame_expires_and_closes_admission() -> Result<()> {
+        let (mut worker, mut authority) = UnixStream::pair()?;
+        let (sender, mut receiver) = mpsc::channel(1);
+        let live = Arc::new(AtomicBool::new(false));
+        let observed = live.clone();
+        let task = tokio::spawn(async move {
+            let _guard = Session(live.clone());
+            session(
+                &mut authority,
+                &sender,
+                &live,
+                &Mutex::new(Instant::now()),
+                Arc::new(AtomicBool::new(true)),
+            )
+            .await
+        });
+        write(&mut worker, 0, Operation::Ready).await?;
+        read(&mut worker).await?;
+        worker.write_u32(100).await?;
+        worker.write_all(b"{").await?;
+        // Keep the peer open: EOF must not be what terminates this read.
+        assert!(
+            tokio::time::timeout(DEADLINE + Duration::from_secs(1), task)
+                .await??
+                .is_err()
+        );
+        assert!(!observed.load(Ordering::Acquire));
+        assert!(receiver.recv().await.is_none());
+        drop(worker);
         Ok(())
     }
     #[tokio::test]

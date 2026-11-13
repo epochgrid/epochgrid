@@ -50,7 +50,7 @@ pub(crate) fn open(root: &Path, role: &str) -> Result<Connection> {
     }
     // Held only during open/provisioning, not for the connection lifetime.
     let lock = private_file(&root.join(format!("{role}.database.lock")), false)?;
-    lock.try_lock()
+    let _lock = crate::file_lock::ExclusiveLock::try_acquire(lock)
         .context("database initialization/open already in progress; retry")?;
     reject_plaintext(&path)?;
     let state_path = root.join(format!("{role}.database.json"));

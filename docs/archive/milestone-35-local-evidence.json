@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "kind": "local-diagnostic-not-hosted-qualification",
+  "date": "2026-11-12",
+  "revision": "5c81070c0561f0fee69834be51fac0cd4211a596",
+  "source_sha256": "0fdd640f787aa9758b5c49591f8eff19e6fa121a030af1b5fbf0fa1a08ef9cb5",
+  "platform": [
+    "ubuntu",
+    "26.04",
+    "x86_64",
+    "glibc",
+    "2.43"
+  ],
+  "files": {
+    "target/debug/examples/backend-role-probe": "6472acd5390195268706f1b8372d4da116d793cf75ff3ddbab33cdb0a7b7c5d4",
+    "target/debug/examples/encrypted-query": "5ab6be23f976ee024b9128bbb62c268931a53c11ba52f0628e1cb0a0e2a4d6c8",
+    "target/debug/epochgrid": "095e62a1721729d444030e3eb9eff35cb3e9708c5bd42c1fa2cf9a518a9b9b64",
+    "target/debug/epochgrid-service": "2dfca7995a53bd491903b68ceae76877342c3c7f30b7bc3ebf00e726c8ca60bb",
+    "target/debug/deps/epochgrid-873ed1fe1f5e91fa": "b4a716a4fe6936d1e78ce0cbb585c5f4d7af43fbdd6f4680e015d0684238f682",
+    "target/debug/deps/epochgrid_service-33395f7a86510449": "9e60ce27995320e78c82485e567714bbbeac16e4584a30d775ac296ab956c2df",
+    "target/debug/deps/registration-c7caad9fb72947a6": "cb179d9fd8c64a5339ced9007bada901027499396ca9475ae66da670b9a1120d",
+    "target/debug/deps/epochgrid_core-8e2ce5079562ad74": "d43a1a105f142880f6fc98b571cb63ba2dc5373fa2a0dc5e5d595294fc042e1c"
+  },
+  "harness_sha256": {
+    "scripts/ci/runtime.py": "6ecff2f41724545907c0851d4e02e5d63f246f080ea912b4faa5857ac95f6709",
+    "scripts/ci/adversarial-cases.json": "723c2ee37576dc67ec58fc2f3db34fb7733dfcba7be1e5d4ab85a2c39a28b470",
+    "scripts/dev/verify.sh": "550fd12c4fb4d0e697583ed184022dd738cc9c8ef2a52cb67eb6e97933a69401"
+  },
+  "parser": {
+    "seed": "0x3520261112",
+    "mutations": 4096,
+    "corpus_sha256": "7d9fc5daec1136e247fb5ee4b1ae6ed88d9ad9dd4aca4241d89626bc69cd9165",
+    "seconds": 0.064,
+    "result": "passed"
+  },
+  "unit_before_corpus_logging": {
+    "client_passed": 14,
+    "service_passed": 20,
+    "registration_passed": 1,
+    "core_passed": 117,
+    "core_ignored": 3,
+    "registration_ignored": 21
+  },
+  "hosted_acceptance": false
+}

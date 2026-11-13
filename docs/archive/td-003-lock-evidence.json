@@ -1,0 +1,897 @@
+{
+  "date": "2026-11-12",
+  "branch": "fix/td-003-credential-lock",
+  "scope": "AQ-F04 lock-lifetime repair; TD-003 remains open",
+  "baseline_image": "sha256:3d49750bf554d9c08290388700a62c2f3ff4c6e0e1f9beb10a109fca5c1d9e85",
+  "nats_server": {
+    "version": "2.14.5",
+    "sha256": "e1a2f9ba25077f4cf753bee829483bd68fbf0a4eec9b6645a1e5785a6de0c0d1"
+  },
+  "baseline_packages": {
+    "gnome-keyring": "46.1-2ubuntu0.2",
+    "glib": "2.80.0-6ubuntu3.10",
+    "glibc": "2.39-0ubuntu8.9"
+  },
+  "baseline_manifest": {
+    "revision": "274005e279e48164955c2d6bdc05793736e503af",
+    "source": "1db26ad39b954056ea606d986113b959b548fc19fbc768e62e0ab3188e62f608",
+    "platform": [
+      "ubuntu",
+      "24.04",
+      "x86_64",
+      "glibc",
+      "2.39"
+    ],
+    "files": {
+      "target/debug/examples/encrypted-query": "7dbade3749517fa90a465c827721af14902e29b95a49737dd6ee37ada06a6c2c",
+      "target/debug/examples/backend-role-probe": "102eceeb6d65c6b46ed67a4a7a512fe16f4363840e2e1b3b7c87d4e7c026625a",
+      "target/debug/epochgrid": "b433794ff6b36314752f213eb577e739f0bf7cae51edb87b7c3d0cba8b95d6d1",
+      "target/debug/epochgrid-service": "b631baf018a7072f65a3a1b08a9e80037fafe76b4223a935958ea9ecf8030f28",
+      "target/debug/deps/epochgrid-873ed1fe1f5e91fa": "6122c0cf4e7a4c2a77a9b2a71f0a3568164a4e9b695126cbbbf372b53fbea3ad",
+      "target/debug/deps/epochgrid_service-33395f7a86510449": "38a2c603d4e7732362a437578f03a5d0cf5d246d8465a0536d2d161c322ca75c",
+      "target/debug/deps/registration-c7caad9fb72947a6": "e783741a274d9d8ab8bc7198c48c4dff6fa01ea887697d6da2d44ff6bc28d245",
+      "target/debug/deps/epochgrid_core-8e2ce5079562ad74": "3553bc88124addc011e8286bcb0d0c04f086092d1347287c0dfeb837c619d3c1"
+    }
+  },
+  "initial_host_manifest": {
+    "revision": "274005e279e48164955c2d6bdc05793736e503af",
+    "source": "35a015400c78119778106e7f28e859cf04fcbba5bd8ee1ab5a99773fbf6ba208",
+    "platform": [
+      "ubuntu",
+      "26.04",
+      "x86_64",
+      "glibc",
+      "2.43"
+    ],
+    "files": {
+      "target/debug/examples/encrypted-query": "2931a46604a12df631ccb0515e79464368ed0b4d48b7a6c017471a415da0c0aa",
+      "target/debug/examples/backend-role-probe": "3532ca63a84db63b103e933d070a05683344cfc7b01476d7f9224d60343853ba",
+      "target/debug/epochgrid": "d6318bbdddd5ca44f9244f1791c0ef9f811d956ed84dbe55bdbf598204e024d7",
+      "target/debug/epochgrid-service": "d7b27498bf66d336785a17e85e559c22c139fc7f3c1160d502901dcb728a7de8",
+      "target/debug/deps/epochgrid-873ed1fe1f5e91fa": "14822a1cc4fc377518c0c18fd46e00b42aef90a45152e07940cbc23084607c44",
+      "target/debug/deps/epochgrid_service-33395f7a86510449": "5007823cb76c2f366b1852bf930589b0b97e1730bb3f6aedbb41f9679a825a07",
+      "target/debug/deps/registration-c7caad9fb72947a6": "60992027e7787ff936e5cfda47c1d092bf1bcc98073f5a74486eb40921510857",
+      "target/debug/deps/epochgrid_core-8e2ce5079562ad74": "26c3cd8da75006fea48fd98fb3807417802548c6a7d6586d5f883205ad1eaa3a"
+    }
+  },
+  "candidate_note": "Initial Ubuntu 26.04 sample precedes final authentication-setup lock conversion. Baseline includes all eight sites. Manifest revision identifies checkpoint plus source hash of uncommitted repair.",
+  "sample_contract": {
+    "planned_attempts": 5,
+    "stop_on_failure": true,
+    "unit_test_threads": "libtest default",
+    "fresh_disposable_keyrings": true,
+    "tracing": false,
+    "cold_hosted": false
+  },
+  "red_regression": {
+    "case": "AQ-LOCK-01",
+    "exit_code": 101,
+    "seconds": 0.214,
+    "error": "credential initialization already in progress: lock acquisition failed because the operation would block",
+    "source": "pre-fix bounded invocation retained in task transcript"
+  },
+  "initial_host_sample": [
+    {
+      "attempt": 1,
+      "passed": true,
+      "log_sha256": "503e8b93e972fe9e7b1026486b24af4866fee5c8914879d2b46d01dccef7582e",
+      "timings": [
+        {
+          "label": "unit-epochgrid",
+          "seconds": 0.915,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid-service",
+          "seconds": 5.088,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-registration",
+          "seconds": 1.365,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid_core",
+          "seconds": 20.214,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-01",
+          "seconds": 0.032,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-02",
+          "seconds": 0.164,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    {
+      "attempt": 2,
+      "passed": true,
+      "log_sha256": "65a9d12616c48a715fb56cfab9e0e762ca4d058cd7e29bbbe1d0ecca63c36d59",
+      "timings": [
+        {
+          "label": "unit-epochgrid",
+          "seconds": 0.915,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid-service",
+          "seconds": 5.082,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-registration",
+          "seconds": 1.365,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid_core",
+          "seconds": 20.164,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-01",
+          "seconds": 0.032,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-02",
+          "seconds": 0.164,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    {
+      "attempt": 3,
+      "passed": true,
+      "log_sha256": "85b5b04db83a993f227989e45c9a9a2b7ea2ae5f320cf958684297d4de65e2cb",
+      "timings": [
+        {
+          "label": "unit-epochgrid",
+          "seconds": 0.915,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid-service",
+          "seconds": 5.089,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-registration",
+          "seconds": 1.365,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid_core",
+          "seconds": 20.214,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-01",
+          "seconds": 0.032,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-02",
+          "seconds": 0.164,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    {
+      "attempt": 4,
+      "passed": false,
+      "log_sha256": "a49360455d55faecef29c979d362132d0a9f24185c9e46b1bef73d9231028d31",
+      "timings": [
+        {
+          "label": "unit-epochgrid",
+          "seconds": 0.965,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid-service",
+          "seconds": 5.09,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-registration",
+          "seconds": 1.365,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid_core",
+          "seconds": 1.768,
+          "exit_code": 101,
+          "category": "command_failure"
+        }
+      ]
+    }
+  ],
+  "initial_host_attempt_5": "not run; sample stopped on attempt 4",
+  "daemon_failure": {
+    "attempt": 4,
+    "package": "gnome-keyring 50.0-1",
+    "signal": 6,
+    "core_unit_passed": 40,
+    "core_unit_failed": 78,
+    "lock_regressions": "both passed",
+    "diagnostics": [
+      "gkd_secret_service_get_pkcs11_session: client assertion failed",
+      "aes_negotiate: session assertion failed",
+      "gkd_secret_service_publish_dispatch: client assertion failed",
+      "g_variant_new: expected variant but received null"
+    ],
+    "classification": "daemon SIGABRT followed by D-Bus reactivation; not file-lock contention; exact upstream race unproved"
+  },
+  "baseline_results": [
+    {
+      "label": "unit1",
+      "seconds": 29.662,
+      "exit_code": 0,
+      "log_sha256": "57e0f9cbc26b36286335f1e780bcd163d1ad17d94e3338accb7bbd8abee29639",
+      "timings": [
+        {
+          "label": "unit-epochgrid",
+          "seconds": 1.015,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid-service",
+          "seconds": 5.085,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-registration",
+          "seconds": 1.516,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid_core",
+          "seconds": 20.615,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-01",
+          "seconds": 0.032,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-02",
+          "seconds": 0.164,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    {
+      "label": "unit2",
+      "seconds": 29.761,
+      "exit_code": 0,
+      "log_sha256": "ec0574a416543033e7d8b1c4588f87f8f8bae129ac4d34f282d8b3856a7768c8",
+      "timings": [
+        {
+          "label": "unit-epochgrid",
+          "seconds": 1.065,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid-service",
+          "seconds": 5.086,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-registration",
+          "seconds": 1.516,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid_core",
+          "seconds": 20.665,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-01",
+          "seconds": 0.032,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-02",
+          "seconds": 0.164,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    {
+      "label": "unit3",
+      "seconds": 30.258,
+      "exit_code": 0,
+      "log_sha256": "df5146f1a6840868a5d5c1f1ab1817a85f32f0ee6aaad2413c87c72b2a78e1bc",
+      "timings": [
+        {
+          "label": "unit-epochgrid",
+          "seconds": 1.065,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid-service",
+          "seconds": 5.089,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-registration",
+          "seconds": 1.516,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid_core",
+          "seconds": 21.165,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-01",
+          "seconds": 0.032,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-02",
+          "seconds": 0.164,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    {
+      "label": "unit4",
+      "seconds": 32.268,
+      "exit_code": 0,
+      "log_sha256": "90e52933d24ce2338d24da7068cee6066d65f82a141f7abe48ea3beddbe7c2a1",
+      "timings": [
+        {
+          "label": "unit-epochgrid",
+          "seconds": 1.065,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid-service",
+          "seconds": 5.09,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-registration",
+          "seconds": 1.516,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid_core",
+          "seconds": 23.168,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-01",
+          "seconds": 0.032,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-02",
+          "seconds": 0.164,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    {
+      "label": "unit5",
+      "seconds": 30.11,
+      "exit_code": 0,
+      "log_sha256": "ee724ad8cd8707c5fe23bc6414b63e8339089156594067cca8421f675eaea0ee",
+      "timings": [
+        {
+          "label": "unit-epochgrid",
+          "seconds": 1.065,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid-service",
+          "seconds": 5.089,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-registration",
+          "seconds": 1.516,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "unit-epochgrid_core",
+          "seconds": 21.015,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-01",
+          "seconds": 0.032,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "AQ-PARSER-02",
+          "seconds": 0.164,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    {
+      "label": "secrets",
+      "seconds": 15.13,
+      "exit_code": 0,
+      "log_sha256": "8f7883ee35532e47b6e90e24e9fafd265941a38cf994749691ed9a65be3e5ef6",
+      "timings": [
+        {
+          "label": "secrets::tests::live_keyring_restart_binding_duplicate_and_lock",
+          "seconds": 0.865,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "validation::tests::live_validation_duplicate_swapped_and_locked_credentials",
+          "seconds": 3.069,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "secrets::tests::live_unavailable_bus_is_bounded",
+          "seconds": 0.007,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "with-test-keyring.sh",
+          "seconds": 10.0,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    {
+      "label": "nats",
+      "seconds": 280.951,
+      "exit_code": 0,
+      "log_sha256": "375428e9045e7b289f279f81341e909ff81dcfb494189a4a7705ad2d0b881afd",
+      "timings": [
+        {
+          "label": "attachments::encrypted_object_roundtrip_restart_tamper_and_expiration",
+          "seconds": 13.429,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "multi_device::enrollment_three_device_epochs_offline_and_restart",
+          "seconds": 26.003,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "receipts::three_device_receipts_offline_restart_and_ciphertext_only",
+          "seconds": 24.095,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "revocation::revoke_live_device_rekey_and_enforce_after_restart",
+          "seconds": 20.001,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "durable_history_offline_ack_recovery_and_server_restart",
+          "seconds": 43.536,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "mvp::cli_mvp_ciphertext_only_and_restart",
+          "seconds": 14.971,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "relationships::append_only_relationships_offline_replay_and_restart",
+          "seconds": 15.271,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "tls::production_tls_enrollment_negative_trust_and_certificate_rotation",
+          "seconds": 21.523,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "encrypted_recovery::encrypted_identity_recovery_and_fresh_device_messaging",
+          "seconds": 24.119,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "nats_registration_and_restart",
+          "seconds": 13.769,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "resume_pending_invitation_and_ambiguous_publish",
+          "seconds": 13.82,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "verification::transparency_atomic_competing_appends_and_idempotence",
+          "seconds": 2.267,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "ephemeral::encrypted_core_events_are_not_durable",
+          "seconds": 5.273,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "participants::explicit_service_participant_restart_and_removal",
+          "seconds": 22.117,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "revocation::durable_intent_retries_failed_enforcement_and_service_restart",
+          "seconds": 5.324,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "verification::verified_directory_migration_rollback_substitution_and_restart",
+          "seconds": 14.021,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    {
+      "label": "byo-nats",
+      "seconds": 375.904,
+      "exit_code": 0,
+      "log_sha256": "d3552701787efa9c354099669c4f567415b30d6c9437b49028346c8ce51fa35a",
+      "timings": [
+        {
+          "label": "byo_nats::configuration_standalone",
+          "seconds": 79.559,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "byo_nats::configuration_cluster",
+          "seconds": 93.422,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "byo_nats::operator_jwt_standalone",
+          "seconds": 91.619,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "byo_nats::operator_jwt_cluster",
+          "seconds": 110.117,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    }
+  ],
+  "additional_checks": {
+    "baseline_build": {
+      "log_sha256": "55bdc961a25876ec239a97a98bcdeb27559ee576d9c58d2e71b3b2b3835b46a1",
+      "timings": [
+        {
+          "label": "build",
+          "seconds": 52.017,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    "fmt": {
+      "log_sha256": "903e7224e22ccd8dbf32aad734f8d0671e89fab05840edd669e5bdb3fc886c62",
+      "timings": [
+        {
+          "label": "fmt",
+          "seconds": 0.264,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    "clippy": {
+      "log_sha256": "e5f89fa927224fc16280f786340ba70e130700b51311d9779440cc8eb1ff1519",
+      "timings": [
+        {
+          "label": "clippy",
+          "seconds": 0.665,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    "harness": {
+      "log_sha256": "21bf7232d819ca3f4e20c225b285697971f71780705f4fc317ec0b23a5243287",
+      "timings": [
+        {
+          "label": "harness",
+          "seconds": 0.114,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "harness",
+          "seconds": 0.114,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "harness",
+          "seconds": 0.064,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "harness",
+          "seconds": 0.064,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "harness",
+          "seconds": 0.064,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "harness",
+          "seconds": 0.064,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "harness",
+          "seconds": 0.114,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "harness",
+          "seconds": 0.064,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "harness",
+          "seconds": 3.928,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "harness",
+          "seconds": 0.065,
+          "exit_code": 0,
+          "category": "passed"
+        },
+        {
+          "label": "harness",
+          "seconds": 0.064,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    "AQ-LOCK-01": {
+      "log_sha256": "3879c68aa77b19684a703e9af669bdc2cb9d22cbeacaf509972c7e6d348b2c2e",
+      "timings": [
+        {
+          "label": "AQ-LOCK-01",
+          "seconds": 0.064,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    },
+    "AQ-LOCK-02": {
+      "log_sha256": "86e799e5bb98c3acd010159aed31dcf5eb7e406ed653a489a2dc217c685c0cbc",
+      "timings": [
+        {
+          "label": "AQ-LOCK-02",
+          "seconds": 0.064,
+          "exit_code": 0,
+          "category": "passed"
+        }
+      ]
+    }
+  },
+  "required_cases": {
+    "AQ-ENROLL-01": [
+      "epochgrid_core",
+      "identity_model::tests::canonical_users_tokens_device_binding_and_restart"
+    ],
+    "AQ-ENROLL-02": [
+      "epochgrid_core",
+      "identity_model::tests::concurrent_redemption_has_one_winner_and_preserves_exact_retry"
+    ],
+    "AQ-GROUP-01": [
+      "epochgrid_core",
+      "authorization::tests::signed_policy_replay_removal_revocation_and_restart"
+    ],
+    "AQ-DIRECTORY-01": [
+      "epochgrid_core",
+      "trust_tests::merkle_prefixes_tamper_signer_rollback_and_wire"
+    ],
+    "AQ-MLS-01": [
+      "epochgrid_core",
+      "messaging::tests::authenticated_ciphertext_tampering_replay_and_restart"
+    ],
+    "AQ-TLS-01": [
+      "epochgrid_core",
+      "tls::tests::defaults_and_invalid_configuration_fail_closed"
+    ],
+    "AQ-IPC-01": [
+      "epochgrid-service",
+      "roles::tests::malformed_worker_frames_close_admission_without_forwarding"
+    ],
+    "AQ-IPC-02": [
+      "epochgrid-service",
+      "roles::tests::partial_worker_frame_expires_and_closes_admission"
+    ],
+    "AQ-IPC-03": [
+      "epochgrid-service",
+      "roles::tests::rejects_replayed_sequence_and_closes_readiness"
+    ],
+    "AQ-IPC-04": [
+      "epochgrid-service",
+      "roles::tests::abandoned_request_expires_session_without_accepting_late_reply"
+    ],
+    "AQ-STATE-01": [
+      "epochgrid_core",
+      "database::tests::wrong_binding_corruption_and_plaintext_are_rejected_without_data_changes"
+    ],
+    "AQ-CAPACITY-01": [
+      "epochgrid_core",
+      "capacity::integration_tests::pending_byte_boundary_recovery_reserve_and_sqlite_full_preserve_state"
+    ],
+    "AQ-AUDIT-01": [
+      "epochgrid_core",
+      "audit::tests::activation_policy_and_revocation_under_write_failure"
+    ],
+    "AQ-AUDIT-02": [
+      "epochgrid_core",
+      "audit::tests::incomplete_effect_survives_restart_and_denials_are_bounded"
+    ],
+    "AQ-DIAGNOSTICS-01": [
+      "epochgrid-service",
+      "roles::tests::diagnostics_are_bounded_private_and_do_not_renew_the_lease"
+    ],
+    "AQ-CONFIDENTIALITY-01": [
+      "epochgrid_core",
+      "database::tests::encrypted_pages_wal_journal_restart_and_independent_keys"
+    ],
+    "AQ-RECOVERY-01": [
+      "epochgrid_core",
+      "recovery_tests::abrupt_exit_recovers_invitation_ratchets_transcript_and_device_lock"
+    ],
+    "AQ-PARSER-01": [
+      "epochgrid_core",
+      "wire::tests::bounded_seeded_wire_mutations"
+    ],
+    "AQ-PARSER-02": [
+      "epochgrid-service",
+      "roles::tests::bounded_seeded_ipc_mutations"
+    ],
+    "AQ-APPLICATION-01": [
+      "epochgrid_core",
+      "relationships::tests::codec_ids_and_validation"
+    ],
+    "AQ-ATTACHMENT-01": [
+      "epochgrid_core",
+      "attachments::tests::encryption_binding_tamper_expiry_limits_and_safe_rendering"
+    ],
+    "AQ-ATTACHMENT-02": [
+      "epochgrid_core",
+      "attachments::tests::manifest_index_is_atomic_authenticated_and_survives_restart"
+    ],
+    "AQ-IMPORT-01": [
+      "epochgrid_core",
+      "recovery::tests::rejects_tamper_truncation_versions_trailing_bytes_and_invalid_secrets"
+    ],
+    "AQ-IMPORT-02": [
+      "epochgrid_core",
+      "recovery::tests::restore_and_migration_are_atomic_and_preserve_existing_state"
+    ],
+    "AQ-CONFIG-01": [
+      "epochgrid_core",
+      "deployment::tests::manifest_is_versioned_strict_and_roundtrips"
+    ],
+    "AQ-REPORT-01": [
+      "epochgrid_core",
+      "diagnostics::tests::bounded_versions_unknown_exit_and_saturation"
+    ],
+    "AQ-LOCK-01": [
+      "epochgrid_core",
+      "secrets::tests::process_locks::unrelated_child_cannot_extend_credential_lock_after_success_or_error"
+    ],
+    "AQ-LOCK-02": [
+      "epochgrid_core",
+      "file_lock::tests::child_drop_cannot_unlock_live_parent_and_failed_acquisition_cannot_unlock_owner"
+    ]
+  },
+  "harness_sha256": {
+    "scripts/ci/runtime.py": "24d12bbce356914995bfda9a734ca11337a7853815b6b5d7469fddb80e89ef5b",
+    "scripts/ci/adversarial-cases.json": "69fde2154a0209eb39753cfa701b0962477f36db95c1244b88d86249389c4f9b",
+    "scripts/dev/with-test-keyring.sh": "2e0da1b3e43ae0227619ae206fe68fb30ffb4254a58c6a22984b006a56027ab0",
+    "scripts/dev/verify.sh": "23631344b94d698dd43057e3ec61789d1f05f7f64690ca098be10e5fe1ddc37b",
+    "scripts/dev/run-bounded.py": "4fc2d3926f430f7c0b2a904e690a511fb454c7f61bae87fbfea692b60b477b4c",
+    "scripts/release/qualification.Dockerfile": "93d81a2170b27ea73b2d904ead015c2fe3fe880c7ee430ed5e7721e4c04fcd8b"
+  },
+  "limits": [
+    "Warm local container runs do not satisfy cold hosted acceptance.",
+    "GNOME Keyring 50 crash remains unresolved on Ubuntu 26.04.",
+    "Earlier keyring and failover failures are not all explained.",
+    "No TD-001/002 quarantine or restoration requirement changed."
+  ]
+}

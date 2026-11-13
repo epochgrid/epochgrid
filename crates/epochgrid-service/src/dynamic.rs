@@ -286,6 +286,9 @@ async fn serve_inner(
                 let (subject, payload, reply, response_sender) = incoming?;
                 if response_sender.is_none() && !reply.as_ref().is_some_and(|r| r.as_str().starts_with("_INBOX.")) {continue}
                 diagnostics.control.received.increment();
+                // Fixed stage labels identify recovery failures without logging
+                // request contents, identity keys or backend error strings.
+                let mut stage = "request_validation";
                 let response=tokio::time::timeout(Duration::from_secs(5),async {
                     if payload.len() > wire::MAX_WIRE {diagnostics.control.malformed.increment();}
                     ensure!(payload.len() <= wire::MAX_WIRE, "oversized control request");
@@ -297,10 +300,14 @@ async fn serve_inner(
                     let request = wire::decode(&payload).inspect_err(|_| diagnostics.control.malformed.increment())?;
                     let mutating = matches!(&request, Body::GroupPolicy(_) | Body::Enroll {..} | Body::Revoke(_) | Body::Register(_));
                     if mutating {diagnostics.gate(false);}
+                    stage = "transparency_read";
                     let registrations=transparency::read(&log).await?;
+                    stage = "revocation_read";
                     let revocations=revocation::read(&log,&registrations).await?;
+                    stage = "registry_read";
                     for key in revocations.keys() {registry.revoke(&key)?;}
                     let active=registry.enrollment()?;
+                    stage = "identity_operation";
                     let body = match (subject.as_str(),request) {
                         (epochgrid_core::authorization::SUBJECT, Body::PolicyQuery {gid}) => Body::PolicyState(registry.policy_state(&gid)?),
                         (epochgrid_core::authorization::RELAY, Body::RelayWelcome(relay)) => {
@@ -343,6 +350,7 @@ async fn serve_inner(
                         _=>Body::Rejected,
                     };
                     if mutating {
+                        stage = "consumer_reconciliation";
                         epochgrid_core::authorization::reconcile_consumers(&registry, &client).await?;
                         diagnostics.gate(true);
                         diagnostics.repair(true);
@@ -360,7 +368,12 @@ async fn serve_inner(
                         diagnostics.control.denied.increment();
                         audit_denials.observe(&registry);
                         if result.is_err() {diagnostics.control.timeout.increment();}
-                        tracing::warn!("dynamic identity operation rejected"); Body::Rejected
+                        let category = match result {
+                            Err(_) => "timeout",
+                            Ok(Err(_)) => "operation_error",
+                            Ok(Ok(_)) => "rejected",
+                        };
+                        tracing::warn!(stage, category, "dynamic identity operation rejected"); Body::Rejected
                     }
                 };
                 let bytes=wire::encode(body).or_else(|_|wire::encode(Body::Rejected))?;

@@ -10,8 +10,8 @@ phase() {
     clippy) python3 scripts/dev/run-bounded.py 600 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings ;;
     build|byo-build) python3 scripts/dev/run-bounded.py 900 python3 scripts/ci/runtime.py build ;;
     doctest) python3 scripts/dev/run-bounded.py 180 cargo test --locked --workspace --doc ;;
-    unit|secrets) python3 scripts/ci/runtime.py "$@" ;;
-    nats|nats-dynamic|byo-nats)
+    unit|secrets|adversarial) python3 scripts/ci/runtime.py "$@" ;;
+    nats|nats-dynamic|nats-security|byo-nats)
           python3 scripts/dev/run-bounded.py 120 ./scripts/dev/download-nats.sh
           python3 scripts/ci/runtime.py "$@" ;;
     compose) keyring python3 scripts/dev/run-bounded.py 180 ./scripts/dev/smoke.sh ;;

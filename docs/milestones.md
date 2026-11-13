@@ -21,8 +21,8 @@ No alpha release or published runtime image is claimed.
 | 32 — Linux bundles | Merged, PR #27 | [Verified candidates and extracted-binary qualification](operator/linux-artifacts.md); no release publication |
 | 33 — runtime image | Merged, PR #28; hosted PR CI passed | Verified-bundle image, separate-role boundary and full image matrix; explicit GHCR candidate round trip still pending |
 | 34 — release publication and supply chain | Release pipeline implemented and locally validated; hosted acceptance blocked | [Plan](milestone-34-plan.md), [release operations](operator/releases.md); rehearsal, provenance, SPDX/scanning, consumer policy, protected publication and recovery code present. Protected environment, immutable releases, candidate transport, vulnerability review and real hosted distribution proof remain outstanding |
-| 35 — adversarial qualification | Planned, not implemented as a complete suite | Broader negative, fault and recovery coverage with explicit release evidence |
-| 36 — protocol/configuration freeze | Planned, not frozen | Versioning, compatibility and migration commitments for the supported release scope |
+| 35 — adversarial qualification | Implementation started; acceptance and scope review pending | [Plan](milestone-35-plan.md), [qualification register](adversarial-qualification.md): 26 required security regressions, concurrent redemption/hostile IPC tests and seeded wire campaign; broader fault coverage, TD-002 investigation and cold hosted/artifact evidence remain outstanding |
+| 36 — protocol/configuration freeze | Acceptance plan written; not implemented or frozen | [Plan](milestone-36-plan.md): independent version contracts, fixed fixtures, explicit compatibility/upgrade matrix and hosted freeze evidence |
 | 37 — first-run experience | Planned | Repeatable setup and actionable recovery without bypassing security prerequisites |
 | 38 — operator documentation set | Planned release gate | Validate the supported install, operate, upgrade, backup/recovery and removal procedures end to end |
 
@@ -43,7 +43,10 @@ or alpha release promotion belongs to milestone 33.
 ## Remaining delivery plan
 
 Milestone 34 implementation follows its [acceptance plan](milestone-34-plan.md);
-milestones 35–38 still need detailed acceptance plans. Review those plans before implementation.
+milestone 35's [adversarial acceptance plan](milestone-35-plan.md) supplies the
+supported scope and security evidence for milestone 36's
+[compatibility acceptance plan](milestone-36-plan.md). Execute those gates in that order.
+Milestones 37 and 38 still need detailed acceptance plans. Review plans before implementation.
 Their numbers organize ownership, not an assertion that
 publishing an artifact finishes alpha qualification.
 

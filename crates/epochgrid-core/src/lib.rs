@@ -3,6 +3,7 @@ pub mod authorization;
 pub mod capacity;
 pub mod delivery;
 pub mod deployment;
+pub mod file_lock;
 pub mod groups;
 pub mod history;
 pub mod identity;

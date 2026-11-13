@@ -68,6 +68,20 @@ class DatabaseReadTests(unittest.TestCase):
 
 
 class BoundedTests(unittest.TestCase):
+    def test_memory_budget_is_hard_and_allocation_failure_is_not_success(self):
+        limiter = str(Path(__file__).with_name('limit-memory.py'))
+        for code, expected in [
+            ('import resource; assert resource.getrlimit(resource.RLIMIT_AS) == (67108864,67108864); assert resource.getrlimit(resource.RLIMIT_CORE) == (0,0)', 0),
+            ('bytearray(128 * 1024 * 1024)', 1),
+        ]:
+            result = subprocess.run([sys.executable, RUNNER, '5', sys.executable,
+                                     limiter, '64', sys.executable, '-c', code],
+                                    capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, expected, result.stderr)
+            if expected:
+                self.assertIn(b'MemoryError', result.stderr)
+                self.assertIn(b'"category": "command_failure"', result.stdout)
+
     def test_exit_code(self):
         result = subprocess.run([sys.executable, RUNNER, '5', sys.executable, '-c', 'raise SystemExit(7)'], capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 7)
