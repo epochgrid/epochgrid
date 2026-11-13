@@ -222,6 +222,14 @@ daemon compatibility finding, retained failover investigation and broader criter
 
 ### Work and Completion Criteria
 
+PR #31's 2026-11-12 hosted Linux bundle configuration-cluster case failed on
+post-quorum-loss identity registration, while its native and image counterparts
+passed. The [2026-11-13 local investigation](archive/pr-31-cluster-validation.md)
+repairs a fixture readiness gap: recovery omitted the diagnostic device's
+consumers and did not require a live R3 majority. Fixed-label service diagnostics
+now identify the rejection stage/category. The unchanged local baseline passed;
+the hosted failure's precise cause remains unproven and TD-003 stays open.
+
 Milestone 35's local native gate on 2026-11-12 additionally failed
 `auth_callout::tests::isolated_worker_cannot_gain_authority_grants` with
 `credential initialization already in progress` / lock would block. The core

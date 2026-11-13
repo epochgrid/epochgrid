@@ -1,5 +1,12 @@
 # Working handoff
 
+PR #31 local follow-up (2026-11-13): its hosted Linux bundle configuration-cluster
+failure is a post-quorum-loss registration rejection, separate from the lock
+repair below. The local candidate checks all enrolled consumers and a live R3
+majority during fixture recovery, and adds sanitized rejection stage/category
+logs. See the [investigation and validation](docs/archive/pr-31-cluster-validation.md).
+The unchanged local baseline passed; the hosted root cause remains unproven.
+
 Current branch: `fix/td-003-credential-lock`, from checkpoint `274005e` of the
 milestone 35 work below. The credential-lock failure now has a deterministic
 fork/exec reproducer and an explicit owner-process unlock guard across all eight
